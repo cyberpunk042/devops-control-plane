@@ -3,6 +3,10 @@ Plan execution endpoints — execute, resume, cancel, archive.
 
 Routes registered on ``audit_bp`` from the parent package.
 
+Both install plans and update plans (posture remediation) flow
+through these endpoints.  The ``mode`` body parameter selects
+which resolver to use: ``"install"`` (default) or ``"update"``.
+
 Endpoints:
     POST /audit/install-plan/execute-sync — sync execution (no SSE)
     POST /audit/install-plan/execute      — SSE streaming execution
@@ -32,13 +36,18 @@ from . import audit_bp
 @audit_bp.route("/audit/install-plan/execute-sync", methods=["POST"])
 @run_tracked("install", "install:execute-plan-sync")
 def audit_execute_plan_sync():
-    """Execute an install plan synchronously (non-streaming).
+    """Execute an install or update plan synchronously (non-streaming).
 
     For CLI callers and batch operations. Returns a single JSON
     response when all steps are complete — no SSE stream.
 
     Request body:
-        {"tool": "cargo-audit", "sudo_password": "...", "answers": {}}
+        {"tool": "cargo-audit", "sudo_password": "...", "answers": {},
+         "mode": "install"}
+
+    The ``mode`` parameter selects the resolver:
+        - ``"install"`` (default): uses ``resolve_install_plan()``
+        - ``"update"``: uses ``resolve_update_plan()``
 
     Response:
         {"ok": true, "tool": "cargo-audit", "steps_completed": 3, ...}
@@ -56,6 +65,7 @@ def audit_execute_plan_sync():
     tool = body.get("tool", "").strip().lower()
     sudo_password = body.get("sudo_password", "")
     answers = body.get("answers", {})
+    mode = body.get("mode", "install")
 
     if not tool:
         return jsonify({"error": "No tool specified"}), 400
@@ -63,7 +73,12 @@ def audit_execute_plan_sync():
     _refresh_server_path()
     system_profile, _ = resolve_system_profile(current_app.config["PROJECT_ROOT"])
 
-    if answers:
+    if mode == "update":
+        from src.core.services.tool_install.resolver.update_resolution import (
+            resolve_update_plan,
+        )
+        plan = resolve_update_plan(tool, system_profile)
+    elif answers:
         plan = resolve_install_plan_with_choices(tool, system_profile, answers)
     else:
         plan = resolve_install_plan(tool, system_profile)
@@ -91,13 +106,18 @@ def audit_execute_plan_sync():
 @audit_bp.route("/audit/install-plan/execute", methods=["POST"])
 @run_tracked("install", "install:execute-plan")
 def audit_execute_plan():
-    """Execute an install plan with SSE streaming.
+    """Execute an install or update plan with SSE streaming.
 
     Resolves a plan for the requested tool, then executes each step
     in order, streaming progress events to the client.
 
     Request body:
-        {"tool": "cargo-audit", "sudo_password": "...", "answers": {}}
+        {"tool": "cargo-audit", "sudo_password": "...", "answers": {},
+         "mode": "install"}
+
+    The ``mode`` parameter selects the resolver:
+        - ``"install"`` (default): uses ``resolve_install_plan()``
+        - ``"update"``: uses ``resolve_update_plan()``
 
     SSE events:
         {"type": "step_start", "step": 0, "label": "..."}
@@ -125,6 +145,8 @@ def audit_execute_plan():
     tool = body.get("tool", "").strip().lower()
     sudo_password = body.get("sudo_password", "")
     answers = body.get("answers", {})
+    mode = body.get("mode", "install")
+    prefer_method = body.get("prefer_method", "")
 
     if not tool:
         return jsonify({"error": "No tool specified"}), 400
@@ -134,9 +156,14 @@ def audit_execute_plan():
     # resolver finds the correct binary versions.
     _refresh_server_path()
 
-    # Resolve the plan — use answers if provided (Phase 4)
+    # Resolve the plan — mode selects install vs update resolver
     system_profile, _ = resolve_system_profile(current_app.config["PROJECT_ROOT"])
-    if answers:
+    if mode == "update":
+        from src.core.services.tool_install.resolver.update_resolution import (
+            resolve_update_plan,
+        )
+        plan = resolve_update_plan(tool, system_profile, prefer_method=prefer_method or None)
+    elif answers:
         plan = resolve_install_plan_with_choices(tool, system_profile, answers)
     else:
         plan = resolve_install_plan(tool, system_profile)
@@ -510,6 +537,45 @@ def audit_execute_plan():
         _refresh_server_path()
         bust_tool_caches()
 
+        # ── Post-update version verification ──
+        version_info: dict = {}
+        if mode == "update":
+            try:
+                from src.core.services.tool_install.detection.tool_version import (
+                    get_tool_version,
+                )
+                new_version = get_tool_version(tool)
+                old_version = plan.get("from_version", "")
+                version_info["new_version"] = new_version or ""
+                version_info["old_version"] = old_version
+                if new_version and old_version and new_version == old_version:
+                    version_info["version_unchanged"] = True
+
+                    # Offer alternative update methods as remediation
+                    used_method = plan.get("method", "")
+                    try:
+                        from src.core.services.tool_install.data.recipes import TOOL_RECIPES
+                        from src.core.services.tool_install.resolver.method_selection import (
+                            get_update_map,
+                        )
+                        recipe = TOOL_RECIPES.get(tool, {})
+                        update_map = get_update_map(recipe)
+                        if update_map:
+                            alt_methods = [
+                                m for m in update_map
+                                if m != used_method and not m.startswith("_")
+                            ]
+                            # Include _default as "direct download"
+                            if "_default" in update_map and used_method != "_default":
+                                alt_methods.append("_default")
+                            if alt_methods:
+                                version_info["alternative_methods"] = alt_methods
+                                version_info["used_method"] = used_method
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
         # ── Restart detection ──
         from src.core.services.tool_install.domain.restart import (
             _batch_restarts,
@@ -522,13 +588,17 @@ def audit_execute_plan():
             restart_needs.get(k) for k in ("shell_restart", "reboot_required", "service_restart")
         ) else []
 
+        verb = "updated" if mode == "update" else "installed"
         done_event: dict = {
             "type": "done",
             "ok": True,
             "plan_id": plan_id,
-            "message": f"{tool} installed successfully",
+            "message": f"{tool} {verb} successfully",
             "steps_completed": len(steps),
         }
+
+        if version_info:
+            done_event.update(version_info)
 
         if restart_needs.get("shell_restart") or restart_needs.get("reboot_required") or restart_needs.get("service_restart"):
             done_event["restart"] = restart_needs

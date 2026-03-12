@@ -1,0 +1,278 @@
+{
+    "_meta": {
+        "description": "OS distribution lifecycle data for system posture ranking",
+        "format": "distro_id → version → { name, type, eol (YYYY-MM), kernel (optional) }",
+        "last_updated": "2026-03",
+        "sources": [
+            "https://wiki.ubuntu.com/Releases",
+            "https://wiki.debian.org/DebianReleases",
+            "https://endoflife.date"
+        ]
+    },
+    "ubuntu": {
+        "24.04": {
+            "name": "Noble Numbat",
+            "type": "LTS",
+            "eol": "2029-04",
+            "kernel": "6.8"
+        },
+        "22.04": {
+            "name": "Jammy Jellyfish",
+            "type": "LTS",
+            "eol": "2027-04",
+            "kernel": "5.15"
+        },
+        "20.04": {
+            "name": "Focal Fossa",
+            "type": "LTS",
+            "eol": "2025-04",
+            "kernel": "5.4"
+        },
+        "18.04": {
+            "name": "Bionic Beaver",
+            "type": "LTS",
+            "eol": "2023-04",
+            "kernel": "4.15"
+        },
+        "16.04": {
+            "name": "Xenial Xerus",
+            "type": "LTS",
+            "eol": "2021-04",
+            "kernel": "4.4"
+        },
+        "14.04": {
+            "name": "Trusty Tahr",
+            "type": "LTS",
+            "eol": "2019-04",
+            "kernel": "3.13"
+        },
+        "23.10": {
+            "name": "Mantic Minotaur",
+            "type": "interim",
+            "eol": "2024-07"
+        },
+        "23.04": {
+            "name": "Lunar Lobster",
+            "type": "interim",
+            "eol": "2024-01"
+        },
+        "25.04": {
+            "name": "Plucky Puffin",
+            "type": "interim",
+            "eol": "2026-01"
+        }
+    },
+    "debian": {
+        "12": {
+            "name": "Bookworm",
+            "type": "stable",
+            "eol": "2028-06",
+            "kernel": "6.1"
+        },
+        "11": {
+            "name": "Bullseye",
+            "type": "oldstable",
+            "eol": "2026-08",
+            "kernel": "5.10"
+        },
+        "10": {
+            "name": "Buster",
+            "type": "EOL",
+            "eol": "2024-06",
+            "kernel": "4.19"
+        },
+        "9": {
+            "name": "Stretch",
+            "type": "EOL",
+            "eol": "2022-06",
+            "kernel": "4.9"
+        },
+        "8": {
+            "name": "Jessie",
+            "type": "EOL",
+            "eol": "2020-06",
+            "kernel": "3.16"
+        }
+    },
+    "centos": {
+        "stream-9": {
+            "name": "CentOS Stream 9",
+            "type": "rolling",
+            "eol": "2027-05"
+        },
+        "stream-8": {
+            "name": "CentOS Stream 8",
+            "type": "EOL",
+            "eol": "2024-05"
+        },
+        "7": {
+            "name": "CentOS 7",
+            "type": "EOL",
+            "eol": "2024-06",
+            "kernel": "3.10"
+        },
+        "8": {
+            "name": "CentOS 8",
+            "type": "EOL",
+            "eol": "2021-12"
+        }
+    },
+    "rhel": {
+        "9": {
+            "name": "RHEL 9",
+            "type": "active",
+            "eol": "2032-05",
+            "kernel": "5.14"
+        },
+        "8": {
+            "name": "RHEL 8",
+            "type": "maintenance",
+            "eol": "2029-05",
+            "kernel": "4.18"
+        },
+        "7": {
+            "name": "RHEL 7",
+            "type": "EOL",
+            "eol": "2024-06",
+            "kernel": "3.10"
+        }
+    },
+    "rocky": {
+        "9": {
+            "name": "Rocky Linux 9",
+            "type": "active",
+            "eol": "2032-05",
+            "kernel": "5.14"
+        },
+        "8": {
+            "name": "Rocky Linux 8",
+            "type": "maintenance",
+            "eol": "2029-05",
+            "kernel": "4.18"
+        }
+    },
+    "almalinux": {
+        "9": {
+            "name": "AlmaLinux 9",
+            "type": "active",
+            "eol": "2032-05",
+            "kernel": "5.14"
+        },
+        "8": {
+            "name": "AlmaLinux 8",
+            "type": "maintenance",
+            "eol": "2029-05",
+            "kernel": "4.18"
+        }
+    },
+    "fedora": {
+        "41": {
+            "name": "Fedora 41",
+            "type": "stable",
+            "eol": "2025-11"
+        },
+        "40": {
+            "name": "Fedora 40",
+            "type": "stable",
+            "eol": "2025-05"
+        },
+        "39": {
+            "name": "Fedora 39",
+            "type": "EOL",
+            "eol": "2024-11"
+        },
+        "38": {
+            "name": "Fedora 38",
+            "type": "EOL",
+            "eol": "2024-05"
+        },
+        "37": {
+            "name": "Fedora 37",
+            "type": "EOL",
+            "eol": "2023-11"
+        }
+    },
+    "macos": {
+        "15": {
+            "name": "Sequoia",
+            "type": "current",
+            "eol": "2027-09"
+        },
+        "14": {
+            "name": "Sonoma",
+            "type": "supported",
+            "eol": "2026-09"
+        },
+        "13": {
+            "name": "Ventura",
+            "type": "supported",
+            "eol": "2025-09"
+        },
+        "12": {
+            "name": "Monterey",
+            "type": "EOL",
+            "eol": "2024-09"
+        },
+        "11": {
+            "name": "Big Sur",
+            "type": "EOL",
+            "eol": "2023-09"
+        },
+        "10.15": {
+            "name": "Catalina",
+            "type": "EOL",
+            "eol": "2022-09"
+        }
+    },
+    "alpine": {
+        "3.20": {
+            "name": "Alpine 3.20",
+            "type": "stable",
+            "eol": "2026-04"
+        },
+        "3.19": {
+            "name": "Alpine 3.19",
+            "type": "stable",
+            "eol": "2025-11"
+        },
+        "3.18": {
+            "name": "Alpine 3.18",
+            "type": "stable",
+            "eol": "2025-05"
+        },
+        "3.17": {
+            "name": "Alpine 3.17",
+            "type": "EOL",
+            "eol": "2024-11"
+        },
+        "3.16": {
+            "name": "Alpine 3.16",
+            "type": "EOL",
+            "eol": "2024-05"
+        }
+    },
+    "arch": {
+        "rolling": {
+            "name": "Arch Linux",
+            "type": "rolling",
+            "eol": null
+        }
+    },
+    "opensuse": {
+        "15.6": {
+            "name": "openSUSE Leap 15.6",
+            "type": "stable",
+            "eol": "2025-12"
+        },
+        "15.5": {
+            "name": "openSUSE Leap 15.5",
+            "type": "EOL",
+            "eol": "2024-12"
+        },
+        "tumbleweed": {
+            "name": "openSUSE Tumbleweed",
+            "type": "rolling",
+            "eol": null
+        }
+    }
+}

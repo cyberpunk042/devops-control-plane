@@ -1,0 +1,331 @@
+{
+    "_meta": {
+        "description": "Tool lifecycle data for system posture ranking",
+        "format": "tool_id → { current, min_supported, version_scheme, eol_versions, notes }",
+        "last_updated": "2026-03",
+        "tool_ids_match": "VERSION_COMMANDS in tool_install/detection/tool_version.py",
+        "sources": [
+            "https://endoflife.date",
+            "Official release pages for each tool"
+        ]
+    },
+    "docker": {
+        "current": "27.5.1",
+        "min_supported": "24.0.0",
+        "version_scheme": "semver_minor",
+        "eol_versions": {
+            "20.10": {
+                "eol": "2023-12",
+                "cves": [
+                    "CVE-2024-21626",
+                    "CVE-2024-24557"
+                ]
+            },
+            "19.03": {
+                "eol": "2022-01"
+            },
+            "18.09": {
+                "eol": "2020-06"
+            }
+        },
+        "notes": "Docker uses CalVer-like major bumps (20→23→24→27). semver_minor treats major gaps as minor gaps for ranking."
+    },
+    "kubectl": {
+        "current": "1.31.4",
+        "min_supported": "1.28.0",
+        "version_scheme": "semver_minor",
+        "eol_versions": {
+            "1.27": "2024-06",
+            "1.26": "2024-02",
+            "1.25": "2023-10",
+            "1.24": {
+                "eol": "2023-07",
+                "cves": [
+                    "CVE-2023-5528"
+                ]
+            },
+            "1.23": "2023-02",
+            "1.22": "2022-08"
+        },
+        "notes": "kubectl supports ±1 minor from the cluster. Skew policy is critical."
+    },
+    "helm": {
+        "current": "3.16.3",
+        "min_supported": "3.13.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "3.12": "2024-05",
+            "3.11": "2024-01",
+            "3.10": "2023-07",
+            "2": "2020-11"
+        },
+        "notes": "Helm 2 (Tiller) was fully deprecated in Nov 2020."
+    },
+    "terraform": {
+        "current": "1.9.8",
+        "min_supported": "1.5.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "1.4": "2024-01",
+            "1.3": "2023-07",
+            "0.15": "2022-06",
+            "0.14": "2021-06",
+            "0.13": "2021-01",
+            "0.12": "2020-06"
+        },
+        "notes": "0.x → 1.x has breaking HCL syntax changes. BSL license since 1.6."
+    },
+    "git": {
+        "current": "2.47.1",
+        "min_supported": "2.39.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "2.38": "2024-01",
+            "2.30": {
+                "eol": "2023-01",
+                "cves": [
+                    "CVE-2023-22490",
+                    "CVE-2023-23946"
+                ]
+            }
+        },
+        "notes": "Git maintains security patches for recent releases only."
+    },
+    "go": {
+        "current": "1.23.4",
+        "min_supported": "1.22.0",
+        "version_scheme": "semver_minor",
+        "eol_versions": {
+            "1.21": "2024-08",
+            "1.20": "2024-02",
+            "1.19": "2023-08",
+            "1.18": "2023-02"
+        },
+        "notes": "Go supports the two most recent major releases."
+    },
+    "node": {
+        "current": "22.12.0",
+        "min_supported": "20.0.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "19": "2023-06",
+            "18": "2025-04",
+            "16": {
+                "eol": "2023-09",
+                "cves": [
+                    "CVE-2023-44487"
+                ]
+            },
+            "14": "2023-04"
+        },
+        "notes": "Even-numbered releases are LTS. Node 20 LTS until Apr 2026, Node 22 LTS until Apr 2027."
+    },
+    "python": {
+        "current": "3.13.1",
+        "min_supported": "3.10.0",
+        "version_scheme": "semver_minor",
+        "eol_versions": {
+            "3.8": {
+                "eol": "2024-10",
+                "cves": [
+                    "CVE-2024-6232"
+                ]
+            },
+            "3.7": "2023-06",
+            "3.6": "2021-12",
+            "3.5": "2020-09",
+            "2.7": "2020-01"
+        },
+        "notes": "Python supports 5 most recent minor releases. 3.9 EOL Oct 2025."
+    },
+    "minikube": {
+        "current": "1.34.0",
+        "min_supported": "1.30.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "Minikube doesn't have formal EOL. Older versions may not support newer k8s."
+    },
+    "k3s": {
+        "current": "1.31.3",
+        "min_supported": "1.28.0",
+        "version_scheme": "semver_minor",
+        "eol_versions": {
+            "1.27": "2024-06",
+            "1.26": "2024-02"
+        },
+        "notes": "k3s follows Kubernetes release cycle and skew policy."
+    },
+    "k9s": {
+        "current": "0.32.7",
+        "min_supported": "0.28.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "k9s is a TUI. No formal EOL, but old versions miss kubectl API features."
+    },
+    "argocd": {
+        "current": "2.13.2",
+        "min_supported": "2.10.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "2.8": "2024-06",
+            "2.7": "2024-02",
+            "2.6": "2023-09"
+        },
+        "notes": "Argo CD supports 3 most recent minor releases."
+    },
+    "ansible": {
+        "current": "10.6.0",
+        "min_supported": "9.0.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "8": "2024-06",
+            "7": "2023-11",
+            "6": "2023-05",
+            "5": "2022-11"
+        },
+        "notes": "Ansible community package. ansible-core has separate version numbers."
+    },
+    "hugo": {
+        "current": "0.139.4",
+        "min_supported": "0.120.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "Hugo has frequent releases. No formal EOL policy."
+    },
+    "trivy": {
+        "current": "0.58.1",
+        "min_supported": "0.50.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "Trivy only officially supports the latest minor. Older versions miss vulnerability DB updates."
+    },
+    "gh": {
+        "current": "2.63.2",
+        "min_supported": "2.40.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "GitHub CLI. No formal EOL, but older versions miss new API features."
+    },
+    "skaffold": {
+        "current": "2.14.0",
+        "min_supported": "2.8.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "1": "2023-06"
+        },
+        "notes": "Skaffold v1 is deprecated. v2 has breaking config changes."
+    },
+    "kustomize": {
+        "current": "5.5.0",
+        "min_supported": "5.0.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "4": "2023-06",
+            "3": "2022-01"
+        },
+        "notes": "Kustomize is also bundled with kubectl. Standalone versions may differ."
+    },
+    "containerd": {
+        "current": "1.7.24",
+        "min_supported": "1.7.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "1.6": {
+                "eol": "2024-02",
+                "cves": [
+                    "CVE-2023-25153",
+                    "CVE-2023-25173"
+                ]
+            },
+            "1.5": "2023-01"
+        },
+        "notes": "containerd 1.7 is current LTS. 2.0 released as preview."
+    },
+    "podman": {
+        "current": "5.3.1",
+        "min_supported": "4.8.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "3": "2023-06"
+        },
+        "notes": "Podman 5.x has API changes from 4.x. rootless is the default."
+    },
+    "cargo": {
+        "current": "1.83.0",
+        "min_supported": "1.75.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "Cargo follows Rust release cycle (6-week cadence). Two latest supported."
+    },
+    "rustc": {
+        "current": "1.83.0",
+        "min_supported": "1.75.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "Rust supports current + previous release. Edition system for breaking changes."
+    },
+    "npm": {
+        "current": "10.9.2",
+        "min_supported": "9.0.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "8": "2024-04",
+            "7": "2022-10",
+            "6": "2021-02"
+        },
+        "notes": "npm is bundled with Node.js. Major version conflicts with node version."
+    },
+    "pip": {
+        "current": "24.3.1",
+        "min_supported": "23.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "pip has frequent releases. Old versions miss PEP 668 and pyproject.toml support."
+    },
+    "ruff": {
+        "current": "0.8.4",
+        "min_supported": "0.4.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "Ruff is pre-1.0. Frequent breaking rule changes between minor versions."
+    },
+    "mypy": {
+        "current": "1.13.0",
+        "min_supported": "1.5.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "mypy adds new type checking features per minor. Old versions miss modern typing."
+    },
+    "pytest": {
+        "current": "8.3.4",
+        "min_supported": "7.4.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "6": "2023-01"
+        },
+        "notes": "pytest 7→8 has fixture scope changes. 8.x is current."
+    },
+    "act": {
+        "current": "0.2.70",
+        "min_supported": "0.2.50",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "act (GitHub Actions local runner). No formal EOL. Rapid release cadence."
+    },
+    "lazydocker": {
+        "current": "0.23.3",
+        "min_supported": "0.20.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "lazydocker is a TUI. No formal EOL policy."
+    },
+    "nerdctl": {
+        "current": "2.0.2",
+        "min_supported": "1.7.0",
+        "version_scheme": "semver",
+        "eol_versions": {
+            "1": "2024-09"
+        },
+        "notes": "nerdctl 2.0 has breaking CLI changes from 1.x."
+    }
+}

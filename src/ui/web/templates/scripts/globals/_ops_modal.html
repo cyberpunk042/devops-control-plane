@@ -1159,6 +1159,8 @@
             tool: plan.tool,
             sudo_password: pw,
             answers: plan._answers || {},
+            mode: plan._mode || 'install',
+            prefer_method: plan.method || '',
         }, {
             onLog: function(line) {
                 if (logEl) {
@@ -1202,12 +1204,70 @@
             },
             onDone: function(event) {
                 if (event.ok) {
-                    if (btn) {
-                        btn.textContent = '✅ Installed';
-                        btn.className = 'btn btn-sm btn-success';
-                        btn.style.minWidth = '110px';
+                    var verb = (plan._mode === 'update') ? 'Updated' : 'Installed';
+                    var unchanged = event.version_unchanged;
+
+                    if (unchanged) {
+                        // Command succeeded but version didn't change
+                        if (btn) {
+                            btn.textContent = '⚠️ Unchanged';
+                            btn.className = 'btn btn-sm';
+                            btn.style.minWidth = '110px';
+                            btn.style.background = 'hsl(45,60%,20%)';
+                            btn.style.color = 'hsl(45,80%,70%)';
+                            btn.style.border = '1px solid hsl(45,60%,35%)';
+                        }
+
+                        // Show remediation in the step modal instead of just a toast
+                        var altMethods = event.alternative_methods || [];
+                        var usedMethod = event.used_method || 'apt';
+                        var stepModal = document.getElementById('step-modal');
+                        if (stepModal && altMethods.length > 0) {
+                            var remPanel = stepModal.querySelector('.step-modal-body') || stepModal.querySelector('[style*="overflow"]');
+                            if (remPanel) {
+                                var methodLabels = {
+                                    '_default': '📥 Direct Download (recommended)',
+                                    'snap': '📦 Snap Package',
+                                    'brew': '🍺 Homebrew',
+                                    'pip': '🐍 pip',
+                                    'npm': '📦 npm',
+                                    'cargo': '📦 Cargo',
+                                };
+                                var btnsHtml = altMethods.map(function(m) {
+                                    var label = methodLabels[m] || ('📦 ' + m);
+                                    return '<button class="btn btn-sm" ' +
+                                        'style="margin:4px;background:hsl(210,45%,18%);color:hsl(210,70%,75%);border:1px solid hsl(210,40%,30%);cursor:pointer" ' +
+                                        'onclick="postureRetryUpdate(\'' + plan.tool + '\',\'' + m + '\')">' +
+                                        label + '</button>';
+                                }).join('');
+
+                                remPanel.innerHTML +=
+                                    '<div style="margin-top:1rem;padding:1rem;background:hsl(40,30%,12%);border:1px solid hsl(40,50%,30%);border-radius:var(--radius-md)">' +
+                                    '<div style="font-weight:700;color:hsl(40,80%,65%);margin-bottom:0.5rem">⚠️ Version unchanged — ' + (event.old_version || '?') + '</div>' +
+                                    '<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.75rem">' +
+                                    'The <code>' + usedMethod + '</code> package manager completed but didn\'t upgrade the version. ' +
+                                    'Your OS repository may not have a newer version. Try an alternative method:' +
+                                    '</div>' +
+                                    '<div>' + btnsHtml + '</div>' +
+                                    '</div>';
+                                // Don't auto-close — let the user pick a remediation
+                                return;
+                            }
+                        }
+                        // Fallback: just toast if no remediation available
+                        toast(
+                            (plan.label || plan.tool) + ' version unchanged (' + (event.old_version || '?') + '). ' +
+                            'Your package manager may not have a newer version.',
+                            'warning'
+                        );
+                    } else {
+                        if (btn) {
+                            btn.textContent = '✅ ' + verb;
+                            btn.className = 'btn btn-sm btn-success';
+                            btn.style.minWidth = '110px';
+                        }
+                        toast((plan.label || plan.tool) + ' ' + verb.toLowerCase() + ' successfully!', 'success');
                     }
-                    toast((plan.label || plan.tool) + ' installed successfully!', 'success');
 
                     // Restart notification
                     if (plan.restart_required) {
@@ -1221,7 +1281,7 @@
                         cardInvalidate('tools-status');
                         try { sessionStorage.removeItem('l0_detection'); } catch (_) {}
                         try { sessionStorage.removeItem('system_deps_cache'); } catch (_) {}
-                        if (options && options.onComplete) options.onComplete();
+                        if (options && options.onComplete) options.onComplete(event);
                     }, 1500);
                 } else {
                     if (btn) {

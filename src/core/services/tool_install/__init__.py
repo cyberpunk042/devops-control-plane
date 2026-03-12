@@ -22,6 +22,10 @@ from src.core.services.tool_install.resolver.plan_resolution import (  # noqa: F
     resolve_install_plan,
     resolve_install_plan_with_choices,
 )
+from src.core.services.tool_install.resolver.update_resolution import (  # noqa: F401
+    resolve_batch_update_plan,
+    resolve_update_plan,
+)
 
 # ── L3: Detection ──
 from src.core.services.tool_install.detection.hardware import (  # noqa: F401

@@ -15,6 +15,8 @@ _SYSTEM_RECIPES: dict[str, dict] = {
     "git": {
         "label": "Git",
         "category": "system",
+        # Official Git PPA provides latest stable Git for Ubuntu/Debian.
+        # Used as _default fallback when the OS-bundled version is frozen.
         "install": {
             "apt":    ["apt-get", "install", "-y", "git"],
             "dnf":    ["dnf", "install", "-y", "git"],
@@ -22,10 +24,18 @@ _SYSTEM_RECIPES: dict[str, dict] = {
             "pacman": ["pacman", "-S", "--noconfirm", "git"],
             "zypper": ["zypper", "install", "-y", "git"],
             "brew":   ["brew", "install", "git"],
+            "_default": [
+                "bash", "-c",
+                "apt-get install -y software-properties-common"
+                " && add-apt-repository -y ppa:git-core/ppa"
+                " && apt-get update"
+                " && apt-get install -y git",
+            ],
         },
         "needs_sudo": {
             "apt": True, "dnf": True, "apk": True,
             "pacman": True, "zypper": True, "brew": False,
+            "_default": True,
         },
         "verify": ["git", "--version"],
         "update": {
@@ -35,6 +45,13 @@ _SYSTEM_RECIPES: dict[str, dict] = {
             "pacman": ["pacman", "-S", "--noconfirm", "git"],
             "zypper": ["zypper", "update", "-y", "git"],
             "brew":   ["brew", "upgrade", "git"],
+            "_default": [
+                "bash", "-c",
+                "apt-get install -y software-properties-common"
+                " && add-apt-repository -y ppa:git-core/ppa"
+                " && apt-get update"
+                " && apt-get install -y git",
+            ],
         },
     },
     "git-filter-repo": {

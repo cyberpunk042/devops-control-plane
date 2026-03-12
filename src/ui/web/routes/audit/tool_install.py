@@ -9,8 +9,10 @@ Endpoints:
     POST /audit/check-deps         — check system packages
     POST /audit/resolve-choices    — get choices before install
     POST /audit/install-plan       — generate an ordered install plan
+    POST /audit/update-plan        — generate an update plan (posture remediation)
+    POST /audit/update-plan/batch  — generate a batch update plan
     GET  /tools/status             — centralized tool availability
-    POST /audit/update-tool        — update installed tool
+    POST /audit/update-tool        — update installed tool (synchronous)
     POST /audit/check-updates      — check tools for version info
     POST /audit/tool-version       — get version of a single tool
     POST /audit/remove-tool        — remove an installed tool
@@ -197,6 +199,79 @@ def audit_install_plan():
         plan = resolve_install_plan(tool, system_profile)
 
     status = 200 if not plan.get("error") else 422
+    return jsonify(plan), status
+
+
+# ── Update plan routes ───────────────────────────────────────
+
+
+@audit_bp.route("/audit/update-plan", methods=["POST"])
+def audit_update_plan():
+    """Resolve an update plan for an installed but outdated tool.
+
+    Produces a plan in the same format as ``/audit/install-plan``
+    so the frontend ``showStepModal()`` can reuse the existing UI.
+
+    Request body:
+        {"tool": "docker", "prefer_method": "_default"}
+
+    The optional ``prefer_method`` forces a specific update method
+    (e.g. ``_default`` for direct download when apt can't upgrade).
+
+    Response:
+        {"tool": "docker", "label": "Docker", "action": "update",
+         "from_version": "24.0.7", "steps": [...], ...}
+    """
+    from src.core.services.dev_overrides import resolve_system_profile
+    from src.core.services.tool_install.resolver.update_resolution import (
+        resolve_update_plan,
+    )
+
+    body = request.get_json(silent=True) or {}
+    tool = body.get("tool", "").strip().lower()
+    prefer_method = body.get("prefer_method", "")
+
+    if not tool:
+        return jsonify({"error": "No tool specified"}), 400
+
+    _refresh_server_path()
+    system_profile, _ = resolve_system_profile(current_app.config["PROJECT_ROOT"])
+    plan = resolve_update_plan(tool, system_profile, prefer_method=prefer_method or None)
+
+    status = 200 if not plan.get("error") else 400
+    return jsonify(plan), status
+
+
+@audit_bp.route("/audit/update-plan/batch", methods=["POST"])
+def audit_update_plan_batch():
+    """Resolve a combined update plan for multiple outdated tools.
+
+    Merges individual update plans into a single multi-tool plan
+    that the step modal can execute sequentially.
+
+    Request body:
+        {"tools": ["docker", "kubectl", "helm"]}
+
+    Response:
+        {"tools": [...], "action": "batch_update",
+         "steps": [...merged...], "skipped": [...], ...}
+    """
+    from src.core.services.dev_overrides import resolve_system_profile
+    from src.core.services.tool_install.resolver.update_resolution import (
+        resolve_batch_update_plan,
+    )
+
+    body = request.get_json(silent=True) or {}
+    tools = body.get("tools", [])
+
+    if not tools or not isinstance(tools, list):
+        return jsonify({"error": "No tools specified (expected list)"}), 400
+
+    _refresh_server_path()
+    system_profile, _ = resolve_system_profile(current_app.config["PROJECT_ROOT"])
+    plan = resolve_batch_update_plan(tools, system_profile)
+
+    status = 200 if not plan.get("error") else 400
     return jsonify(plan), status
 
 

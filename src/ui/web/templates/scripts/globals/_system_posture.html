@@ -1,0 +1,707 @@
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// ── System Posture — nav badge + detail modal ─────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//
+// Polls /api/posture/summary every 60s to update the nav badge.
+// Clicking the badge opens a modal with full pillar details.
+
+(function() {
+    'use strict';
+
+    // ── Constants ──────────────────────────────────────────────
+    const POLL_INTERVAL = 60000;
+    let _pollTimer = null;
+    let _lastPosture = null;
+
+    // ── Rank → CSS class mapping ─────────────────────────────
+    const RANK_CSS = {
+        current:    'ok',
+        aging:      'ok',
+        outdated:   'degraded',
+        deprecated: 'degraded',
+        dangerous:  'failed',
+        unknown:    'degraded',
+        na:         'ok',
+    };
+
+    const RANK_LABEL = {
+        current:    'Healthy',
+        aging:      'Aging',
+        outdated:   'Outdated',
+        deprecated: 'Degraded',
+        dangerous:  'Critical',
+        unknown:    'Unknown',
+        na:         'OK',
+    };
+
+    const RANK_EMOJI = {
+        current:    '🟢',
+        aging:      '🔵',
+        outdated:   '🟡',
+        deprecated: '🟠',
+        dangerous:  '🔴',
+        unknown:    '⚪',
+        na:         '—',
+    };
+
+    // ── Badge update ──────────────────────────────────────────
+    function updateBadge(summary) {
+        const badge = document.getElementById('health-badge');
+        if (!badge) return;
+
+        const rank = summary.overall_rank || 'unknown';
+        const cssClass = RANK_CSS[rank] || 'degraded';
+        const label = RANK_LABEL[rank] || 'Unknown';
+
+        badge.className = 'status-badge ' + cssClass;
+        badge.style.cursor = 'pointer';
+        badge.innerHTML = `
+            <span class="status-dot"></span>
+            <span>${label}</span>
+        `;
+        badge.onclick = openPostureModal;
+        badge.title = summary.summary || 'System Posture — click for details';
+    }
+
+    // ── Summary poll ──────────────────────────────────────────
+    async function fetchSummary() {
+        try {
+            const resp = await fetch('/api/posture/summary');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            _lastPosture = data;
+            updateBadge(data);
+        } catch (e) {
+            console.debug('[posture] summary fetch failed:', e);
+        }
+    }
+
+    function startPolling() {
+        fetchSummary();
+        if (_pollTimer) clearInterval(_pollTimer);
+        _pollTimer = setInterval(fetchSummary, POLL_INTERVAL);
+    }
+
+    // ── Modal ─────────────────────────────────────────────────
+    async function openPostureModal() {
+        if (typeof modalOpen !== 'function') return;
+
+        const loadingBody = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 2rem;gap:1rem;">
+                <div class="spinner" style="width:36px;height:36px;"></div>
+                <p style="color:var(--text-muted);font-size:0.95rem;">Scanning system posture…</p>
+            </div>
+        `;
+
+        const overlay = modalOpen({
+            title: '🛡️ System Posture',
+            body: loadingBody,
+            size: 'posture',
+            footerButtons: [
+                { label: '🔄 Rescan', cls: 'btn-primary', onclick: 'postureRescan()', id: 'posture-rescan-btn' },
+                { label: 'Close', onclick: 'modalClose()' },
+            ],
+            footerStatus: 'Loading…',
+        });
+
+        try {
+            const resp = await fetch('/api/posture');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+
+            const body = overlay.querySelector('.modal-body');
+            if (body) body.innerHTML = renderPosture(data);
+
+            const status = overlay.querySelector('.modal-footer-status');
+            if (status) status.textContent = data.summary || '';
+        } catch (e) {
+            const body = overlay.querySelector('.modal-body');
+            if (body) {
+                body.innerHTML = `
+                    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem;gap:0.75rem;">
+                        <span style="font-size:2rem;">⚠️</span>
+                        <p style="color:var(--error);font-size:1rem;font-weight:600;">Failed to load posture data</p>
+                        <p style="font-size:0.85rem;color:var(--text-muted);">${e.message}</p>
+                    </div>
+                `;
+            }
+        }
+    }
+
+    // ── Render: top-level ─────────────────────────────────────
+    function renderPosture(data) {
+        const pillars = data.pillars || {};
+        const overall = data.overall_rank || 'unknown';
+        const emoji = RANK_EMOJI[overall] || '⚪';
+
+        // ── Overview hero ─────────────────────────────────────
+        let html = `
+            <div class="posture-hero">
+                <div class="posture-hero-left">
+                    <span class="posture-hero-emoji">${emoji}</span>
+                    <div class="posture-hero-info">
+                        <span class="posture-hero-label status-badge ${RANK_CSS[overall] || 'degraded'}">${RANK_LABEL[overall] || 'Unknown'}</span>
+                        <span class="posture-hero-summary">${data.summary || ''}</span>
+                    </div>
+                </div>
+                <div class="posture-hero-right">
+                    <span class="posture-hero-meta">⏱ ${data.scan_duration_ms || 0}ms</span>
+                </div>
+            </div>
+        `;
+
+        // ── Pillar status bar (at-a-glance) ───────────────────
+        const pillarOrder = ['platform', 'toolchain', 'project', 'runtime'];
+        const pillarIcons = { platform: '💻', toolchain: '🔧', project: '📦', runtime: '⚡' };
+        const pillarLabels = { platform: 'Platform', toolchain: 'Toolchain', project: 'Project', runtime: 'Runtime' };
+
+        html += '<div class="posture-status-bar">';
+        for (const key of pillarOrder) {
+            const p = pillars[key];
+            if (!p) continue;
+            const r = p.rank || 'unknown';
+            const e = RANK_EMOJI[r] || '⚪';
+            const bad = p.warnings?.length || 0;
+            html += `
+                <div class="posture-status-chip ${RANK_CSS[r] || 'degraded'}" onclick="document.getElementById('posture-pillar-${key}')?.scrollIntoView({behavior:'smooth',block:'nearest'})">
+                    <span class="posture-status-chip-icon">${pillarIcons[key]}</span>
+                    <span class="posture-status-chip-label">${pillarLabels[key]}</span>
+                    <span class="posture-status-chip-rank">${e}</span>
+                    ${bad ? `<span class="posture-status-chip-badge">${bad}</span>` : ''}
+                </div>
+            `;
+        }
+        html += '</div>';
+
+        // ── Pillar details ────────────────────────────────────
+        html += '<div class="posture-pillars">';
+        for (const key of pillarOrder) {
+            const pillar = pillars[key];
+            if (!pillar) continue;
+            html += renderPillar(key, pillar, pillarIcons[key], pillarLabels[key]);
+        }
+        html += '</div>';
+        return html;
+    }
+
+    // ── Render: single pillar ────────────────────────────────
+    function renderPillar(key, pillar, icon, label) {
+        const rank = pillar.rank || 'unknown';
+        const emoji = RANK_EMOJI[rank] || '⚪';
+        const items = pillar.items || [];
+        const warnings = pillar.warnings || [];
+        const recommendations = pillar.recommendations || [];
+        const hasIssues = warnings.length > 0 || ['dangerous', 'deprecated', 'outdated'].includes(rank);
+
+        // Auto-expand pillars that have warnings — collapse healthy ones
+        const expanded = hasIssues ? 'expanded' : '';
+
+        // Batch update button for toolchain pillar
+        let batchBtn = '';
+        if (key === 'toolchain' && pillar.updatable_count > 0) {
+            batchBtn = `<button class="posture-btn posture-btn-batch" onclick="event.stopPropagation();postureUpdateAllOutdated()" title="Update all outdated tools">⬆️ Update All (${pillar.updatable_count})</button>`;
+        }
+
+        let html = `
+            <div class="posture-pillar ${expanded}" data-rank="${rank}" id="posture-pillar-${key}">
+                <div class="posture-pillar-header" onclick="this.parentElement.classList.toggle('expanded')">
+                    <span class="posture-pillar-icon">${icon}</span>
+                    <span class="posture-pillar-label">${label}</span>
+                    <span class="posture-pillar-rank">${emoji}</span>
+                    <span class="posture-pillar-count">${items.length}</span>
+                    ${batchBtn}
+                    <span class="posture-pillar-chevron">▸</span>
+                </div>
+                <div class="posture-pillar-body">
+        `;
+
+        // Item table
+        if (items.length > 0) {
+            html += '<table class="posture-table"><tbody>';
+            for (const item of items) {
+                const iRank = item.rank || 'unknown';
+                const iEmoji = RANK_EMOJI[iRank] || '⚪';
+                const iCss = RANK_CSS[iRank] || 'degraded';
+
+                // Clean up names: "project:git" → "Git"
+                let displayName = item.name;
+                if (displayName.includes(':')) {
+                    displayName = displayName.split(':').pop();
+                }
+                displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+
+                // Action column
+                const actionHtml = renderItemAction(item);
+
+                html += `
+                    <tr class="posture-row ${iCss}">
+                        <td class="posture-cell-emoji">${iEmoji}</td>
+                        <td class="posture-cell-name">${displayName}</td>
+                        <td class="posture-cell-value">${item.value || ''}</td>
+                        <td class="posture-cell-detail">${item.detail || ''}</td>
+                        <td class="posture-cell-action">${actionHtml}</td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+        }
+
+        // Warnings
+        if (warnings.length > 0) {
+            html += '<div class="posture-section-warnings">';
+            for (const w of warnings) {
+                html += `<div class="posture-warn-line">⚠️ ${w}</div>`;
+            }
+            html += '</div>';
+        }
+
+        // Recommendations
+        if (recommendations.length > 0) {
+            html += '<div class="posture-section-recs">';
+            html += '<div class="posture-recs-title">Recommendations</div>';
+            for (const r of recommendations) {
+                html += `<div class="posture-rec-line">→ ${r}</div>`;
+            }
+            html += '</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    }
+
+    // ── Render: item action button ────────────────────────────
+    function renderItemAction(item) {
+        const actions = item.actions;
+        if (!actions || !actions.length) return '';
+
+        const action = actions[0];
+        switch (action.type) {
+            case 'update':
+                return `<button class="posture-btn posture-btn-update" onclick="postureUpdateTool('${action.tool_id}', '${(action.label || '').replace(/'/g, "\\'")}')">⬆️ Update</button>`;
+            case 'manual':
+                return `<button class="posture-btn posture-btn-manual" onclick="postureShowManual('${(action.hint || '').replace(/'/g, "\\'")}')">📋 Manual</button>`;
+            case 'link':
+                return `<button class="posture-btn posture-btn-link" onclick="postureViewAudit('${action.card_id}')">🔍 Audit →</button>`;
+            case 'guide':
+                return `<button class="posture-btn posture-btn-guide" onclick="postureShowGuide(this)">📖 Guide</button>`;
+            case 'reset':
+                return `<button class="posture-btn posture-btn-reset" onclick="postureResetBreaker('${action.breaker_id}')">🔄 Reset</button>`;
+            case 'clear':
+                return `<button class="posture-btn posture-btn-reset" onclick="postureClearRetryQueue()">🗑️ Clear</button>`;
+            default:
+                return '';
+        }
+    }
+
+    // ── Action handlers ───────────────────────────────────────
+
+    // Update a single tool's posture row in-place after an update.
+    // Uses the done event data (new_version, old_version) to avoid a full rescan.
+    function _postureUpdateToolRow(toolId, doneEvent) {
+        var rows = document.querySelectorAll('.posture-row');
+        for (var r of rows) {
+            var nameCell = r.querySelector('.posture-cell-name');
+            if (!nameCell || nameCell.textContent.trim().toLowerCase() !== toolId.toLowerCase()) continue;
+
+            var newVer = (doneEvent && doneEvent.new_version) || '';
+            var oldVer = (doneEvent && doneEvent.old_version) || '';
+            var unchanged = doneEvent && doneEvent.version_unchanged;
+
+            var emojiCell = r.querySelector('.posture-cell-emoji');
+            var valueCell = r.querySelector('.posture-cell-value');
+            var detailCell = r.querySelector('.posture-cell-detail');
+            var actionCell = r.querySelector('.posture-cell-action');
+
+            if (unchanged) {
+                // Version didn't change — show warning state
+                r.style.opacity = '1';
+                r.className = r.className.replace(/posture-rank-\w+/g, '') + ' posture-rank-outdated';
+                if (emojiCell) emojiCell.textContent = '🟡';
+                if (valueCell) valueCell.textContent = newVer || oldVer;
+                if (detailCell) detailCell.textContent = 'Version unchanged — package manager has no newer version';
+                if (actionCell) actionCell.innerHTML =
+                    '<span style="font-size:0.72rem;color:hsl(40,80%,65%)">⚠️ Unchanged</span>';
+            } else if (newVer && newVer !== oldVer) {
+                // Successfully updated — show success state
+                r.style.opacity = '1';
+                r.className = r.className.replace(/posture-rank-\w+/g, '') + ' posture-rank-current';
+                if (emojiCell) emojiCell.textContent = '🟢';
+                if (valueCell) valueCell.innerHTML =
+                    '<span style="color:var(--success)">' + esc(newVer) + '</span>';
+                if (detailCell) detailCell.textContent = 'Updated from ' + oldVer;
+                if (actionCell) actionCell.innerHTML =
+                    '<span style="font-size:0.72rem;color:var(--success)">✅ Updated</span>';
+            } else {
+                // Fallback — just mark as verifying until next poll
+                r.style.opacity = '0.6';
+                if (emojiCell) emojiCell.textContent = '⏳';
+                if (valueCell) valueCell.innerHTML =
+                    '<span style="color:var(--text-muted);font-style:italic">verifying…</span>';
+                if (detailCell) detailCell.textContent = 'Awaiting next posture poll…';
+                if (actionCell) actionCell.innerHTML =
+                    '<span style="font-size:0.75rem;color:var(--text-muted)">⏳</span>';
+            }
+            break;
+        }
+
+        // Invalidate server-side toolchain cache so next badge poll is fresh
+        fetch('/api/posture/rescan-tool', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tool: toolId }),
+        }).then(function(resp) {
+            if (resp.ok) return resp.json();
+        }).then(function(data) {
+            if (data && data.overall_rank) {
+                updateBadge(data);
+            }
+        }).catch(function() {});
+    }
+
+    // Individual tool update — plan-based
+    window.postureUpdateTool = async function(toolId, toolLabel) {
+        try {
+            const resp = await fetch('/api/audit/update-plan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tool: toolId }),
+            });
+            const plan = await resp.json();
+
+            if (plan.error) {
+                toast('⚠️ ' + plan.error, 'error');
+                return;
+            }
+
+            // showStepModal is defined in _ops_modal.html — handles
+            // the full step-by-step execution window with SSE
+            if (typeof showStepModal === 'function') {
+                // Override: the step modal posts to execute with mode=update
+                plan._mode = 'update';
+                showStepModal(plan, {
+                    onComplete: function(doneEvent) {
+                        _postureUpdateToolRow(toolId, doneEvent);
+                    },
+                });
+            } else {
+                toast('⚠️ Step modal not available', 'error');
+            }
+        } catch (e) {
+            toast('❌ Failed to fetch update plan: ' + e.message, 'error');
+        }
+    };
+
+    // Retry update with a specific method (remediation from version-unchanged)
+    window.postureRetryUpdate = async function(toolId, method) {
+        // Close the current step modal
+        var stepModal = document.getElementById('step-modal');
+        if (stepModal) stepModal.remove();
+
+        try {
+            const resp = await fetch('/api/audit/update-plan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tool: toolId, prefer_method: method }),
+            });
+            const plan = await resp.json();
+
+            if (plan.error) {
+                toast('⚠️ ' + plan.error, 'error');
+                return;
+            }
+
+            if (typeof showStepModal === 'function') {
+                plan._mode = 'update';
+                showStepModal(plan, {
+                    onComplete: function(doneEvent) {
+                        _postureUpdateToolRow(toolId, doneEvent);
+                    },
+                });
+            }
+        } catch (e) {
+            toast('❌ Failed to retry update: ' + e.message, 'error');
+        }
+    };
+
+    // Batch update — all outdated tools
+    window.postureUpdateAllOutdated = async function() {
+        // Collect all updatable tool IDs from the posture data
+        try {
+            const resp = await fetch('/api/posture');
+            if (!resp.ok) throw new Error('Failed to fetch posture');
+            const data = await resp.json();
+
+            const tcItems = (data.pillars?.toolchain?.items || []);
+            const updatableTools = [];
+            for (const item of tcItems) {
+                const actions = item.actions || [];
+                if (actions.length && actions[0].type === 'update') {
+                    updatableTools.push(actions[0].tool_id);
+                }
+            }
+
+            if (!updatableTools.length) {
+                toast('✅ All tools are up to date!', 'success');
+                return;
+            }
+
+            // Fetch batch plan
+            const planResp = await fetch('/api/audit/update-plan/batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tools: updatableTools }),
+            });
+            const plan = await planResp.json();
+
+            if (plan.error) {
+                toast('⚠️ ' + plan.error, 'error');
+                return;
+            }
+
+            if (typeof showStepModal === 'function') {
+                plan._mode = 'update';
+                // For batch, use the first tool as the identifier
+                plan.tool = updatableTools[0];
+                showStepModal(plan, {
+                    onComplete: function() {
+                        postureRescan();
+                    },
+                });
+            }
+        } catch (e) {
+            toast('❌ Batch update failed: ' + e.message, 'error');
+        }
+    };
+
+    // Navigate to audit tab
+    window.postureViewAudit = function(cardId) {
+        // Close posture modal
+        if (typeof modalClose === 'function') modalClose();
+
+        // Use the app's tab navigation system
+        if (typeof switchTab === 'function') {
+            switchTab('audit');
+        }
+    };
+
+    // Show manual update hint
+    window.postureShowManual = function(hint) {
+        toast('📋 ' + hint, 'info', 8000);
+    };
+
+    // Show platform upgrade guide modal
+    window.postureShowGuide = function(btn) {
+        // Read the platform item data from the posture response
+        // We stored it in the row's parent context
+        const row = btn.closest('.posture-row');
+        let itemName = '';
+        let itemValue = '';
+        let itemDetail = '';
+        if (row) {
+            itemName = row.querySelector('.posture-cell-name')?.textContent || '';
+            itemValue = row.querySelector('.posture-cell-value')?.textContent || '';
+            itemDetail = row.querySelector('.posture-cell-detail')?.textContent || '';
+        }
+
+        const guideBody = `
+            <div style="padding:0.5rem 0">
+                <div style="display:flex;align-items:center;gap:0.75rem;padding:1rem;background:var(--surface);border-radius:var(--radius-md);border:1px solid var(--border);margin-bottom:1.25rem">
+                    <span style="font-size:2rem">🟠</span>
+                    <div>
+                        <div style="font-weight:700;font-size:1rem;color:var(--text)">${esc(itemName)} ${esc(itemValue)}</div>
+                        <div style="font-size:0.82rem;color:var(--text-muted)">${esc(itemDetail)}</div>
+                    </div>
+                </div>
+
+                <div style="font-size:0.88rem;color:var(--text);line-height:1.65;margin-bottom:1.25rem">
+                    <p style="margin:0 0 0.75rem">Your operating system has reached <strong>end-of-life</strong> and no longer receives security updates.
+                    This affects all tools installed through the system package manager — their versions are frozen at what this OS series provides.</p>
+                    <p style="margin:0">Upgrading resolves both the platform security posture and enables newer tool versions through <code>apt</code>.</p>
+                </div>
+
+                <div style="font-size:0.78rem;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.75rem">Upgrade Options</div>
+
+                <div style="display:flex;flex-direction:column;gap:0.75rem">
+                    <!-- Option 1: In-place upgrade -->
+                    <div style="padding:0.85rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md)">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+                            <div>
+                                <span style="font-weight:700;font-size:0.88rem">⬆️ In-Place Upgrade</span>
+                                <span style="font-size:0.68rem;padding:2px 6px;background:hsl(30,60%,20%);color:hsl(30,80%,70%);border-radius:4px;margin-left:0.5rem">Disruptive</span>
+                            </div>
+                            <button class="posture-btn posture-btn-update" onclick="postureStartOsUpgrade()" style="font-size:0.78rem;padding:0.35rem 0.85rem">
+                                Start Upgrade →
+                            </button>
+                        </div>
+                        <div style="font-size:0.78rem;color:var(--text-muted);line-height:1.5">
+                            Runs <code>do-release-upgrade</code> to upgrade to the next LTS release.
+                            This is a <strong>multi-step, disruptive</strong> operation that modifies system packages.
+                            Your WSL instance will need to be restarted afterward.
+                        </div>
+                    </div>
+
+                    <!-- Option 2: Fresh WSL distro -->
+                    <div style="padding:0.85rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md)">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+                            <div>
+                                <span style="font-weight:700;font-size:0.88rem">🆕 Install Fresh WSL Distro</span>
+                                <span style="font-size:0.68rem;padding:2px 6px;background:hsl(210,50%,20%);color:hsl(210,70%,70%);border-radius:4px;margin-left:0.5rem">Safe</span>
+                            </div>
+                        </div>
+                        <div style="font-size:0.78rem;color:var(--text-muted);line-height:1.5">
+                            Install Ubuntu 24.04 as a new WSL distribution alongside this one. You can migrate your projects at your own pace.
+                            <div style="margin-top:0.5rem">
+                                <code style="font-size:0.72rem;padding:4px 8px;background:var(--bg-primary);border-radius:4px;display:inline-block">
+                                    wsl --install Ubuntu-24.04
+                                </code>
+                                <button class="posture-btn posture-btn-manual" onclick="navigator.clipboard.writeText('wsl --install Ubuntu-24.04');toast('📋 Copied to clipboard','success')" style="margin-left:0.5rem;font-size:0.7rem">
+                                    📋 Copy
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Option 3: Manual -->
+                    <div style="padding:0.85rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md)">
+                        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+                            <span style="font-weight:700;font-size:0.88rem">📖 Manual Reference</span>
+                        </div>
+                        <div style="font-size:0.78rem;color:var(--text-muted);line-height:1.5">
+                            <div style="margin-bottom:0.4rem">• <a href="https://ubuntu.com/server/docs/how-to-upgrade-your-release" target="_blank" rel="noopener" style="color:var(--accent)">Ubuntu Server Upgrade Guide</a></div>
+                            <div style="margin-bottom:0.4rem">• <a href="https://learn.microsoft.com/en-us/windows/wsl/install" target="_blank" rel="noopener" style="color:var(--accent)">Microsoft WSL Documentation</a></div>
+                            <div>• <a href="https://wiki.ubuntu.com/Releases" target="_blank" rel="noopener" style="color:var(--accent)">Ubuntu Release Schedule</a></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        modalOpen({
+            title: '📖 Platform Upgrade Guide',
+            body: guideBody,
+            size: 'md',
+            replace: false,  // Stack on top of posture modal
+            footerButtons: [
+                { label: 'Close', onclick: 'modalClose()' },
+            ],
+        });
+    };
+
+    // Start do-release-upgrade via plan execution
+    window.postureStartOsUpgrade = async function() {
+        // Confirm first — this is disruptive
+        if (!confirm(
+            'This will run do-release-upgrade which modifies system packages.\\n\\n' +
+            'Your WSL instance will need to be restarted afterward.\\n\\n' +
+            'Are you sure you want to proceed?'
+        )) return;
+
+        // Close the guide modal
+        if (typeof modalClose === 'function') modalClose();
+
+        // Show as a toast for now — the actual upgrade needs a terminal
+        toast('🚀 Starting do-release-upgrade — check your terminal...', 'info', 10000);
+
+        try {
+            // The OS upgrade is too disruptive for the step modal.
+            // It requires interactive terminal access. Open a toast with guidance.
+            toast(
+                '⚠️ OS upgrades require an interactive terminal.\\n' +
+                'Run: sudo do-release-upgrade\\n' +
+                'Then restart WSL: wsl --shutdown',
+                'warning', 15000
+            );
+        } catch (e) {
+            toast('❌ ' + e.message, 'error');
+        }
+    };
+
+    // Reset a circuit breaker
+    window.postureResetBreaker = async function(breakerId) {
+        try {
+            const resp = await fetch('/api/health/circuit-breaker/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ breaker: breakerId }),
+            });
+            if (resp.ok) {
+                toast('✅ Circuit breaker reset: ' + breakerId, 'success');
+                postureRescan();
+            } else {
+                toast('⚠️ Failed to reset breaker', 'error');
+            }
+        } catch (e) {
+            toast('❌ ' + e.message, 'error');
+        }
+    };
+
+    // Clear exhausted retry queue items
+    window.postureClearRetryQueue = async function() {
+        try {
+            const resp = await fetch('/api/health/retry-queue/clear', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            if (resp.ok) {
+                toast('✅ Retry queue cleared', 'success');
+                postureRescan();
+            } else {
+                toast('⚠️ Failed to clear retry queue', 'error');
+            }
+        } catch (e) {
+            toast('❌ ' + e.message, 'error');
+        }
+    };
+
+    // ── Rescan ────────────────────────────────────────────────
+    window.postureRescan = async function() {
+        const btn = document.getElementById('posture-rescan-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '⏳ Scanning…';
+        }
+
+        try {
+            // Bust client-side caches so rescan picks up new versions
+            try { sessionStorage.removeItem('l0_detection'); } catch (_) {}
+            try { sessionStorage.removeItem('system_deps_cache'); } catch (_) {}
+            if (typeof cardInvalidate === 'function') cardInvalidate('tools-status');
+
+            const resp = await fetch('/api/posture/rescan', { method: 'POST' });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+
+            // Re-enrich happens server-side via the rescan endpoint
+            const body = document.querySelector('.modal-body');
+            if (body) body.innerHTML = renderPosture(data);
+
+            const status = document.querySelector('.modal-footer-status');
+            if (status) status.textContent = data.summary || 'Rescanned';
+
+            if (data.overall_rank) {
+                updateBadge({
+                    overall_rank: data.overall_rank,
+                    summary: data.summary,
+                });
+            }
+        } catch (e) {
+            console.error('[posture] rescan failed:', e);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '🔄 Rescan';
+            }
+        }
+    };
+
+    window.openPostureModal = openPostureModal;
+
+    // ── Start on page load ────────────────────────────────────
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startPolling);
+    } else {
+        startPolling();
+    }
+})();
+</script>
