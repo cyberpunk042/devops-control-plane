@@ -276,6 +276,32 @@ class TransportRouter:
                     return method_key
         return "python_proxy"  # fallback
 
+    # ── Quick single-channel check ─────────────────────────────
+
+    def quick_check(
+        self, port: int, path: str = "/json/version",
+    ) -> str | None:
+        """HTTP GET via the single best channel only.
+
+        For port scanning and existence checks where speed matters.
+        Uses only the fastest known channel with ``port_check`` timeout
+        (50ms for direct — matches the old launcher urllib behavior).
+
+        Unlike ``http_get()`` which iterates all ranked channels,
+        this makes ONE call and returns. Zero regression on the fast
+        path: when direct works at 6ms, this behaves identically to
+        the old ``urllib.urlopen(host_ip:port, timeout=0.05)``.
+
+        Returns:
+            Response body as string, or None on failure.
+        """
+        self._ensure_probed(port)
+        channels = self._ranked_channels(port)
+        if not channels:
+            return None
+        timeout = self.get_timeout("port_check", port)
+        return self._http_get_via(channels[0], port, path, timeout)
+
     # ── HTTP routing ──────────────────────────────────────────
 
     def http_get(

@@ -172,20 +172,16 @@ class ChromeInstance:
 def _port_in_use(port: int) -> bool:
     """Check if Chrome is listening on a TCP port.
 
-    In WSL2, delegates to the TransportRouter which uses the best
-    available channel (direct at ~6ms when portproxy is set up,
-    curl at ~260ms otherwise).  Channel knowledge is inherited
-    from prior probes so no re-probe overhead per port.
+    In WSL2, delegates to the TransportRouter's ``quick_check``
+    which uses the single best channel with ``port_check`` timeout
+    (50ms for direct — identical to the old urllib behavior).
+    Channel knowledge is inherited from prior probes so no
+    re-probe overhead per port.
     """
     from src.core.services.chrome.detection import is_wsl
     if is_wsl():
         from src.core.services.wsl_transport.router import get_router
-        router = get_router()
-        resp = router.http_get(
-            port, "/json/version",
-            timeout=router.get_timeout("http_get", port),
-        )
-        return resp is not None
+        return get_router().quick_check(port) is not None
     else:
         import urllib.request
         try:
@@ -201,20 +197,15 @@ def _port_in_use(port: int) -> bool:
 def _cdp_responding(port: int) -> bool:
     """Check if a CDP endpoint is responding on the given port.
 
-    In WSL2, delegates to the TransportRouter which tries the
-    fastest available channel.  This replaces the old pattern of
-    hardcoded urllib at 50ms that stalled for 15s on systems
-    without portproxy.
+    In WSL2, delegates to the TransportRouter's ``quick_check``
+    which uses the single best channel.  This replaces the old
+    pattern of hardcoded urllib at 50ms that stalled for 15s on
+    systems without portproxy.
     """
     from src.core.services.chrome.detection import is_wsl
     if is_wsl():
         from src.core.services.wsl_transport.router import get_router
-        router = get_router()
-        resp = router.http_get(
-            port, "/json/version",
-            timeout=router.get_timeout("http_get", port),
-        )
-        return resp is not None
+        return get_router().quick_check(port) is not None
     else:
         from src.ui.web.cdp_client import is_available
         return is_available(port=port)
@@ -233,11 +224,7 @@ def _get_browser_id(port: int) -> str | None:
 
     if is_wsl():
         from src.core.services.wsl_transport.router import get_router
-        router = get_router()
-        raw = router.http_get(
-            port, "/json/version",
-            timeout=router.get_timeout("http_get", port),
-        )
+        raw = get_router().quick_check(port)
         if raw:
             try:
                 data = _json.loads(raw)
