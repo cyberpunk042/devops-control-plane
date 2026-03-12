@@ -126,7 +126,11 @@
 
         // Client cache for live tab data (sub-keyed by tab)
         const liveKey = 'gh-live:' + what;
-        const cached = cardCached(liveKey);
+        // The __INITIAL_STATE__ hydrates under the server cache key (e.g. 'gh-pulls'),
+        // not the live-tab key ('gh-live:prs').  Check both to avoid redundant API calls.
+        const _ghHydratedMap = { prs: 'gh-pulls', runs: 'gh-runs', workflows: 'gh-workflows' };
+        const cached = cardCached(liveKey)
+            || (_ghHydratedMap[what] ? storeGet(_ghHydratedMap[what]) : null);
 
         if (!cached) {
             panel.innerHTML = '<span class="spinner"></span> Loading…';

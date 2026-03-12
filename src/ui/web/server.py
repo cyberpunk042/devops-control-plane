@@ -200,14 +200,37 @@ def create_app(
     except Exception:
         _stacks_js = []
 
+    # ── Mtime-cached devops cache reader ──────────────────────────────
+    # The cache file is 1.3MB+.  Parsing it on every GET / costs ~100-200ms.
+    # We keep the parsed dict in memory and only re-read when mtime changes.
+    from src.core.services.devops.cache import _cache_path
+    _devops_cache_file = _cache_path(Path(project_root))
+    _devops_cache_data: dict = {}
+    _devops_cache_mtime: float = 0.0
+
+    def _get_devops_cache() -> dict:
+        nonlocal _devops_cache_data, _devops_cache_mtime
+        try:
+            stat = _devops_cache_file.stat()
+            if stat.st_mtime != _devops_cache_mtime:
+                import json as _json
+                _devops_cache_data = _json.loads(
+                    _devops_cache_file.read_text(encoding="utf-8")
+                )
+                _devops_cache_mtime = stat.st_mtime
+        except (OSError, ValueError):
+            pass  # File missing or corrupt — use last good data
+        return _devops_cache_data
+
+    # Pre-warm on startup
+    _get_devops_cache()
+
     @app.context_processor
     def _inject_data_catalogs():  # type: ignore[no-untyped-def]
-        from src.core.services.devops.cache import _load_cache
-
-        # Build initial state from disk cache (available even on cold start)
+        # Build initial state from disk cache (mtime-guarded, no re-parse if unchanged)
         initial: dict[str, dict] = {}
         try:
-            cache = _load_cache(Path(project_root))
+            cache = _get_devops_cache()
             for key in _INJECT_KEYS:
                 entry = cache.get(key)
                 if entry and "data" in entry:
