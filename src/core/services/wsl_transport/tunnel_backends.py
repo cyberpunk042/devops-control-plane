@@ -1,0 +1,1423 @@
+"""
+WSL↔Windows tunnel backends.
+
+Provides multiple implementations for forwarding TCP traffic from
+WSL ``localhost:<port>`` to a Windows host, enabling CDP (Chrome
+DevTools Protocol) communication without curl.exe.
+
+Backends:
+    - **WslTunnel** (python_proxy) — in-process TCP proxy via
+      ``select.select()``.  Zero dependencies.  Recommended.
+    - **SocatTunnel** — shells out to ``socat``.  Needs apt install.
+    - **NetshTunnel** — Windows-side ``netsh portproxy``.  Persistent
+      across reboots.  Needs UAC elevation.
+    - **SshTunnel** — SSH local port forward. Needs OpenSSH on Windows.
+    - **MirroredConfig** — edits ``.wslconfig`` to set mirrored
+      networking.  Risky — can break IDE networking.
+
+All backends share the same interface:
+    ``start() → bool``, ``stop()``, ``is_running``,
+    ``validate() → dict``, ``stats → dict``
+
+Module-level API::
+
+    from src.core.services.wsl_transport.tunnel_backends import (
+        TUNNEL_METHODS,       # registry of available backends
+        maybe_start_tunnel,   # auto-start if WSL2 + hostname resolves
+        get_active_tunnel,    # returns tunnel instance | None
+        start_tunnel,         # start a specific backend
+        stop_tunnel,          # stop the active tunnel
+    )
+"""
+
+from __future__ import annotations
+
+import logging
+import select
+import socket
+import subprocess
+import shutil
+import threading
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# ── Module-level tunnel state ─────────────────────────────────────
+
+_active_tunnel = None  # type: WslTunnel | SocatTunnel | NetshTunnel | SshTunnel | MirroredConfig | None
+_tunnel_lock = threading.Lock()
+
+
+class WslTunnel:
+    """TCP tunnel from WSL localhost to a Windows host port.
+
+    Creates a server socket on ``127.0.0.1:<local_port>``, accepts
+    incoming connections, and for each one opens a TCP connection
+    to ``<target_host>:<target_port>`` and forwards bytes in both
+    directions using ``select.select()``.
+
+    Thread-safe.  All public methods can be called from any thread.
+    """
+
+    __slots__ = (
+        "_local_port", "_target_host", "_target_port",
+        "_server_sock", "_thread", "_running",
+        "_started_at", "_connections_total", "_connections_active",
+        "_bytes_forwarded", "_lock",
+    )
+
+    def __init__(
+        self,
+        local_port: int,
+        target_host: str,
+        target_port: int | None = None,
+    ):
+        """
+        Args:
+            local_port:  Port to listen on in WSL (e.g. 9222).
+            target_host: Windows host IP or hostname
+                         (from hostname.local resolution or gateway).
+            target_port: Port on the Windows side.
+                         Defaults to ``local_port``.
+        """
+        self._local_port = local_port
+        self._target_host = target_host
+        self._target_port = target_port or local_port
+        self._server_sock: socket.socket | None = None
+        self._thread: threading.Thread | None = None
+        self._running = False
+        self._started_at: str | None = None
+        self._connections_total = 0
+        self._connections_active = 0
+        self._bytes_forwarded = 0
+        self._lock = threading.Lock()
+
+    # ── Public API ────────────────────────────────────────────
+
+    @classmethod
+    def is_available(cls) -> bool:
+        """Always available — pure Python, zero dependencies."""
+        return True
+
+    @property
+    def local_port(self) -> int:
+        """The local port this tunnel listens on."""
+        return self._local_port
+
+    @property
+    def target_host(self) -> str:
+        """The remote host this tunnel forwards to."""
+        return self._target_host
+
+    def _test_target_reachable(self, timeout: float = 3.0) -> bool:
+        """Quick TCP connect test to target_host:target_port."""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            sock.connect((self._target_host, self._target_port))
+            sock.close()
+            return True
+        except (ConnectionRefusedError, OSError):
+            return False
+
+    def _ensure_windows_routing(self) -> bool:
+        """Ensure the Windows side routes traffic to Chrome.
+
+        Chrome binds to 127.0.0.1 on Windows — it is NOT reachable
+        at the vEthernet (WSL) interface IP.  This method sets up:
+
+        1. **netsh portproxy**: Windows forwards <hostname.local IP>:<port> →
+           127.0.0.1:<port>, making Chrome reachable at hostname.local.
+           Uses the specific host IP (NOT 0.0.0.0) to avoid breaking
+           WSL's localhostForwarding on other ports.
+        2. **Firewall rule**: Allows inbound TCP from the WSL2 vEthernet
+           interface so the proxy can connect.
+
+        Both are created in a SINGLE elevated PowerShell script (one
+        UAC prompt).  They persist across reboots — only needed once.
+
+        Returns True if the target becomes reachable after setup.
+        """
+        # Already reachable?  Nothing to do.
+        if self._test_target_reachable():
+            logger.info(
+                "Target %s:%d already reachable — no Windows-side setup needed",
+                self._target_host, self._target_port,
+            )
+            return True
+
+        listen_addr = self._target_host
+        logger.info(
+            "Target %s:%d not reachable — setting up netsh portproxy (listen=%s)",
+            self._target_host, self._target_port, listen_addr,
+        )
+
+        port = self._target_port
+        port_start = 9222
+        port_end = 9232
+
+        # netsh portproxy only — NO firewall rules.
+        # Firewall rules on vEthernet (WSL) break localhostForwarding.
+        # netsh portproxy traffic stays on Windows loopback, no rule needed.
+        script_lines = [
+            "# Auto-generated by WSL Channel — netsh portproxy for CDP",
+            "",
+            f"# Forward {listen_addr}:9222-9232 → 127.0.0.1:same",
+            "# Covers main Chrome (9222) and plan-launched instances (9223+)",
+            "# Uses specific IP (NOT 0.0.0.0) to avoid breaking localhostForwarding",
+        ]
+        for p in range(port_start, port_end + 1):
+            # Clean up any old 0.0.0.0 rules first
+            script_lines.append(
+                f"netsh interface portproxy delete v4tov4 listenport={p} listenaddress=0.0.0.0 2>$null"
+            )
+            # Delete previous specific-IP rule (idempotent)
+            script_lines.append(
+                f"netsh interface portproxy delete v4tov4 listenport={p} listenaddress={listen_addr} 2>$null"
+            )
+            script_lines.append(
+                f"netsh interface portproxy add v4tov4 listenport={p} listenaddress={listen_addr} connectport={p} connectaddress=127.0.0.1"
+            )
+        script_lines.append("")
+        script_lines.append("# Verify")
+        script_lines.append("netsh interface portproxy show v4tov4")
+        script_content = "\r\n".join(script_lines) + "\r\n"
+
+        script_path_wsl = "/mnt/c/Users/Public/wsl_cdp_routing_setup.ps1"
+        script_path_win = "C:\\Users\\Public\\wsl_cdp_routing_setup.ps1"
+
+        try:
+            from pathlib import Path as _Path
+
+            with open(script_path_wsl, "w", encoding="utf-8", newline="") as f:
+                f.write(script_content)
+
+            elevated_cmd = (
+                "Start-Process powershell -Verb RunAs -Wait "
+                "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass',"
+                f"'-File','{script_path_win}'"
+            )
+            r = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command", elevated_cmd],
+                capture_output=True, text=True, timeout=30,
+            )
+
+            # Clean up script
+            try:
+                _Path(script_path_wsl).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+            if r.returncode != 0:
+                logger.warning(
+                    "Windows routing setup failed (rc=%d): %s",
+                    r.returncode, r.stderr.strip()[:300],
+                )
+                return False
+
+            # Brief pause for rules to take effect, then re-test
+            import time as _time
+            _time.sleep(1.0)
+
+            reachable = self._test_target_reachable()
+            if reachable:
+                logger.info(
+                    "Windows routing setup complete — %s:%d is now reachable",
+                    self._target_host, self._target_port,
+                )
+            else:
+                logger.warning(
+                    "Windows routing rules created but %s:%d still not reachable "
+                    "(Chrome may not be running)",
+                    self._target_host, self._target_port,
+                )
+            return reachable
+
+        except subprocess.TimeoutExpired:
+            logger.warning("Windows routing setup timed out (UAC cancelled?)")
+            return False
+        except Exception as exc:
+            logger.warning("Windows routing setup failed: %s", exc)
+            return False
+
+    def start(self) -> bool:
+        """Start the tunnel listener in a background daemon thread.
+
+        Automatically sets up Windows-side routing (netsh portproxy +
+        firewall rule) if the target host is not reachable — this
+        requires one UAC elevation prompt (persists across reboots).
+
+        Returns:
+            True if started successfully, False if the port is
+            already in use or another error occurred.
+        """
+        if self._running:
+            logger.debug("Tunnel already running on port %d", self._local_port)
+            return True
+
+        # Ensure the Windows side routes traffic to Chrome
+        self._ensure_windows_routing()
+
+        # Bind the server socket first (fail fast if port taken)
+        try:
+            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv.bind(("127.0.0.1", self._local_port))
+            srv.listen(16)
+            srv.settimeout(1.0)  # so accept() can be interrupted
+        except OSError as exc:
+            logger.warning(
+                "Tunnel: cannot bind 127.0.0.1:%d — %s",
+                self._local_port, exc,
+            )
+            try:
+                srv.close()
+            except Exception:
+                pass
+            return False
+
+        self._server_sock = srv
+        self._running = True
+        self._started_at = datetime.now(timezone.utc).isoformat()
+        self._connections_total = 0
+        self._connections_active = 0
+        self._bytes_forwarded = 0
+
+        self._thread = threading.Thread(
+            target=self._accept_loop,
+            name=f"wsl-tunnel-{self._local_port}",
+            daemon=True,
+        )
+        self._thread.start()
+
+        logger.info(
+            "WSL tunnel started: 127.0.0.1:%d → %s:%d",
+            self._local_port, self._target_host, self._target_port,
+        )
+        return True
+
+    def stop(self) -> None:
+        """Stop the tunnel.  Closes the server socket and waits for
+        the accept loop thread to exit.  Thread-safe.
+        """
+        if not self._running:
+            return
+
+        self._running = False
+
+        # Close the server socket to unblock accept()
+        if self._server_sock:
+            try:
+                self._server_sock.close()
+            except Exception:
+                pass
+            self._server_sock = None
+
+        # Wait for the accept loop to finish
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3.0)
+        self._thread = None
+
+        logger.info("WSL tunnel stopped (port %d)", self._local_port)
+
+    @property
+    def is_running(self) -> bool:
+        """Is the tunnel actively listening?"""
+        return self._running and self._thread is not None and self._thread.is_alive()
+
+    def validate(self) -> dict:
+        """Test the tunnel end-to-end.
+
+        Connects through the tunnel to Chrome's ``/json/version``
+        endpoint and measures latency.
+
+        Returns:
+            {
+                "ok": True/False,
+                "latency_ms": 4.2,
+                "chrome_version": "Chrome/138.0..." | None,
+                "tunnel_port": 9222,
+                "target_host": "172.17.128.1",
+                "error": None | "connection refused",
+            }
+        """
+        import json
+        import urllib.request
+        import urllib.error
+
+        result: dict = {
+            "ok": False,
+            "latency_ms": None,
+            "chrome_version": None,
+            "tunnel_port": self._local_port,
+            "target_host": self._target_host,
+            "error": None,
+        }
+
+        if not self.is_running:
+            result["error"] = "tunnel not running"
+            return result
+
+        url = f"http://127.0.0.1:{self._local_port}/json/version"
+        t0 = time.monotonic()
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                body = resp.read().decode("utf-8")
+            elapsed = (time.monotonic() - t0) * 1000
+
+            result["ok"] = True
+            result["latency_ms"] = round(elapsed, 1)
+
+            try:
+                data = json.loads(body)
+                result["chrome_version"] = data.get("Browser")
+            except (ValueError, json.JSONDecodeError):
+                pass
+
+        except Exception as exc:
+            result["error"] = str(exc)[:200]
+            result["latency_ms"] = round(
+                (time.monotonic() - t0) * 1000, 1,
+            )
+
+        return result
+
+    @property
+    def stats(self) -> dict:
+        """Return tunnel statistics."""
+        with self._lock:
+            return {
+                "started_at": self._started_at,
+                "connections_total": self._connections_total,
+                "connections_active": self._connections_active,
+                "bytes_forwarded": self._bytes_forwarded,
+                "local_port": self._local_port,
+                "target_host": self._target_host,
+                "target_port": self._target_port,
+                "running": self.is_running,
+            }
+
+    # ── Internal ──────────────────────────────────────────────
+
+    def _accept_loop(self) -> None:
+        """Main loop: accept connections and spawn handler threads."""
+        logger.debug("Tunnel accept loop started on port %d", self._local_port)
+        while self._running:
+            try:
+                client_sock, client_addr = self._server_sock.accept()
+            except socket.timeout:
+                continue  # check self._running and loop
+            except OSError:
+                # Server socket was closed (stop() called)
+                break
+
+            # Spawn a handler thread for this connection
+            t = threading.Thread(
+                target=self._handle_connection,
+                args=(client_sock, client_addr),
+                name=f"wsl-tunnel-conn-{self._local_port}",
+                daemon=True,
+            )
+            t.start()
+
+        logger.debug("Tunnel accept loop exited (port %d)", self._local_port)
+
+    def _handle_connection(
+        self,
+        client_sock: socket.socket,
+        client_addr: tuple,
+    ) -> None:
+        """Handle a single proxied connection.
+
+        Opens a TCP connection to the target, then forwards bytes
+        in both directions using ``select.select()``.
+        """
+        with self._lock:
+            self._connections_total += 1
+            self._connections_active += 1
+
+        remote_sock: socket.socket | None = None
+        try:
+            remote_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            remote_sock.settimeout(5)
+            remote_sock.connect((self._target_host, self._target_port))
+
+            # Switch to non-blocking for the forwarding loop
+            remote_sock.setblocking(False)
+            client_sock.setblocking(False)
+            sockets = [client_sock, remote_sock]
+
+            while self._running:
+                readable, _, errored = select.select(
+                    sockets, [], sockets, 1.0,
+                )
+
+                if errored:
+                    break
+
+                for sock in readable:
+                    try:
+                        data = sock.recv(65536)
+                    except (BlockingIOError, ConnectionError):
+                        data = b""
+
+                    if not data:
+                        # Connection closed by one side
+                        return
+
+                    target = (
+                        remote_sock if sock is client_sock
+                        else client_sock
+                    )
+                    try:
+                        target.sendall(data)
+                    except (BrokenPipeError, ConnectionError, OSError):
+                        return
+
+                    with self._lock:
+                        self._bytes_forwarded += len(data)
+
+        except (ConnectionRefusedError, OSError) as exc:
+            logger.debug(
+                "Tunnel connection to %s:%d failed: %s",
+                self._target_host, self._target_port, exc,
+            )
+        finally:
+            if remote_sock:
+                try:
+                    remote_sock.close()
+                except Exception:
+                    pass
+            try:
+                client_sock.close()
+            except Exception:
+                pass
+
+            with self._lock:
+                self._connections_active -= 1
+
+
+# ── Alternative backends ──────────────────────────────────────────
+
+
+def _validate_via_localhost(port: int) -> dict:
+    """Shared validation: HTTP GET to localhost:<port>/json/version."""
+    import json
+    import urllib.request
+
+    result: dict = {
+        "ok": False,
+        "latency_ms": None,
+        "chrome_version": None,
+        "error": None,
+    }
+    url = f"http://127.0.0.1:{port}/json/version"
+    t0 = time.monotonic()
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read().decode("utf-8")
+        elapsed = (time.monotonic() - t0) * 1000
+        result["ok"] = True
+        result["latency_ms"] = round(elapsed, 1)
+        try:
+            data = json.loads(body)
+            result["chrome_version"] = data.get("Browser")
+        except (ValueError, json.JSONDecodeError):
+            pass
+    except Exception as exc:
+        result["error"] = str(exc)[:200]
+        result["latency_ms"] = round(
+            (time.monotonic() - t0) * 1000, 1,
+        )
+    return result
+
+
+class SocatTunnel:
+    """TCP tunnel via ``socat`` subprocess.
+
+    Spawns ``socat TCP-LISTEN:<port>,fork,reuseaddr TCP:<host>:<port>``
+    as a background process.
+
+    Prerequisites:
+        - ``socat`` installed (``apt install socat``)
+        - hostname.local resolves
+        - Firewall rule exists
+    """
+
+    __slots__ = (
+        "_local_port", "_target_host", "_target_port",
+        "_process", "_started_at", "_lock",
+    )
+
+    def __init__(
+        self,
+        local_port: int,
+        target_host: str,
+        target_port: int | None = None,
+    ):
+        self._local_port = local_port
+        self._target_host = target_host
+        self._target_port = target_port or local_port
+        self._process: subprocess.Popen | None = None
+        self._started_at: str | None = None
+        self._lock = threading.Lock()
+
+    @classmethod
+    def is_available(cls) -> bool:
+        """Available if ``socat`` is on PATH."""
+        return shutil.which("socat") is not None
+
+    @property
+    def local_port(self) -> int:
+        return self._local_port
+
+    @property
+    def target_host(self) -> str:
+        return self._target_host
+
+    def start(self) -> bool:
+        """Start socat as a background process."""
+        if self.is_running:
+            return True
+
+        socat_path = shutil.which("socat")
+        if not socat_path:
+            logger.warning("SocatTunnel: socat not found on PATH")
+            return False
+
+        try:
+            self._process = subprocess.Popen(
+                [
+                    socat_path,
+                    f"TCP-LISTEN:{self._local_port},fork,reuseaddr",
+                    f"TCP:{self._target_host}:{self._target_port}",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            # Brief wait to catch immediate failures (e.g. port busy)
+            time.sleep(0.3)
+            if self._process.poll() is not None:
+                stderr = self._process.stderr.read().decode("utf-8", errors="replace")[:300]
+                logger.warning("SocatTunnel: socat exited immediately: %s", stderr)
+                self._process = None
+                return False
+
+            self._started_at = datetime.now(timezone.utc).isoformat()
+            logger.info(
+                "SocatTunnel started: socat PID %d, port %d → %s:%d",
+                self._process.pid, self._local_port,
+                self._target_host, self._target_port,
+            )
+            return True
+
+        except OSError as exc:
+            logger.warning("SocatTunnel: failed to start socat: %s", exc)
+            return False
+
+    def stop(self) -> None:
+        """Kill the socat process."""
+        if self._process and self._process.poll() is None:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+            logger.info("SocatTunnel stopped (PID %d)", self._process.pid)
+        self._process = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._process is not None and self._process.poll() is None
+
+    def validate(self) -> dict:
+        result = _validate_via_localhost(self._local_port)
+        result["tunnel_port"] = self._local_port
+        result["target_host"] = self._target_host
+        if not self.is_running:
+            result["ok"] = False
+            result["error"] = "socat process not running"
+        return result
+
+    @property
+    def stats(self) -> dict:
+        return {
+            "started_at": self._started_at,
+            "local_port": self._local_port,
+            "target_host": self._target_host,
+            "target_port": self._target_port,
+            "running": self.is_running,
+            "method": "socat",
+            "pid": self._process.pid if self._process else None,
+        }
+
+
+class NetshTunnel:
+    """TCP tunnel via Windows ``netsh interface portproxy``.
+
+    Configures a persistent port proxy on the Windows side via
+    elevated PowerShell.  Survives reboots.
+
+    The proxy listens on ``<hostname.local IP>:<port>`` on Windows
+    and forwards to ``127.0.0.1:<port>`` (where Chrome is bound).
+    Uses the specific host IP (NOT 0.0.0.0) to avoid breaking
+    WSL's localhostForwarding on other ports.  WSL connects to the
+    Windows host IP, which hits the netsh listener.
+
+    Prerequisites:
+        - Elevated PowerShell (UAC prompt)
+        - Firewall rule exists
+        - hostname.local resolves (WSL connects via hostname.local)
+    """
+
+    __slots__ = (
+        "_local_port", "_target_host", "_target_port",
+        "_started_at", "_lock",
+    )
+
+    def __init__(
+        self,
+        local_port: int,
+        target_host: str,
+        target_port: int | None = None,
+    ):
+        self._local_port = local_port
+        self._target_host = target_host
+        self._target_port = target_port or local_port
+        self._started_at: str | None = None
+        self._lock = threading.Lock()
+
+    @classmethod
+    def is_available(cls) -> bool:
+        """Available if ``powershell.exe`` is on PATH (for elevated commands)."""
+        return shutil.which("powershell.exe") is not None
+
+    @property
+    def local_port(self) -> int:
+        return self._local_port
+
+    @property
+    def target_host(self) -> str:
+        return self._target_host
+
+    def start(self) -> bool:
+        """Create a netsh portproxy rule via elevated PowerShell."""
+        if self.is_running:
+            return True
+
+        # Build the netsh command — use specific host IP, NOT 0.0.0.0
+        # 0.0.0.0 breaks WSL's localhostForwarding on other ports
+        listen_addr = self._target_host or "127.0.0.1"
+        netsh_cmd = (
+            f"netsh interface portproxy add v4tov4 "
+            f"listenport={self._local_port} listenaddress={listen_addr} "
+            f"connectport={self._target_port} connectaddress=127.0.0.1"
+        )
+
+        # Write to a temp PS1 script and run elevated
+        script_path_wsl = "/mnt/c/Windows/Temp/wsl_netsh_proxy.ps1"
+        script_path_win = "C:\\Windows\\Temp\\wsl_netsh_proxy.ps1"
+
+        try:
+            with open(script_path_wsl, "w", encoding="utf-8") as f:
+                f.write(netsh_cmd + "\n")
+
+            elevated_cmd = (
+                "Start-Process powershell -Verb RunAs -Wait "
+                "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass',"
+                f"'-File','{script_path_win}'"
+            )
+            r = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command", elevated_cmd],
+                capture_output=True, text=True, timeout=30,
+            )
+
+            # Clean up script
+            try:
+                Path(script_path_wsl).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+            if r.returncode != 0:
+                logger.warning(
+                    "NetshTunnel: elevated command failed (rc=%d): %s",
+                    r.returncode, r.stderr.strip()[:300],
+                )
+                return False
+
+            # Verify it was created
+            if not self.is_running:
+                logger.warning("NetshTunnel: portproxy rule not found after creation")
+                return False
+
+            self._started_at = datetime.now(timezone.utc).isoformat()
+            logger.info(
+                "NetshTunnel started: netsh portproxy 0.0.0.0:%d → 127.0.0.1:%d",
+                self._local_port, self._target_port,
+            )
+            return True
+
+        except subprocess.TimeoutExpired:
+            logger.warning("NetshTunnel: timed out waiting for UAC")
+            return False
+        except Exception as exc:
+            logger.warning("NetshTunnel: failed to create portproxy: %s", exc)
+            return False
+
+    def stop(self) -> None:
+        """Remove the netsh portproxy rule via elevated PowerShell."""
+        listen_addr = self._target_host or "127.0.0.1"
+        netsh_cmd = (
+            f"netsh interface portproxy delete v4tov4 "
+            f"listenport={self._local_port} listenaddress={listen_addr}"
+        )
+
+        script_path_wsl = "/mnt/c/Windows/Temp/wsl_netsh_proxy_del.ps1"
+        script_path_win = "C:\\Windows\\Temp\\wsl_netsh_proxy_del.ps1"
+
+        try:
+            with open(script_path_wsl, "w", encoding="utf-8") as f:
+                f.write(netsh_cmd + "\n")
+
+            elevated_cmd = (
+                "Start-Process powershell -Verb RunAs -Wait "
+                "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass',"
+                f"'-File','{script_path_win}'"
+            )
+            subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command", elevated_cmd],
+                capture_output=True, text=True, timeout=30,
+            )
+
+            try:
+                Path(script_path_wsl).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+            logger.info(
+                "NetshTunnel stopped: removed portproxy on port %d",
+                self._local_port,
+            )
+        except Exception as exc:
+            logger.warning("NetshTunnel: failed to remove portproxy: %s", exc)
+
+    @property
+    def is_running(self) -> bool:
+        """Check if the netsh portproxy rule exists."""
+        try:
+            r = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command",
+                 "netsh interface portproxy show v4tov4"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode != 0:
+                return False
+            # Parse output: look for our port in the listing
+            for line in r.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 4:
+                    try:
+                        if int(parts[1]) == self._local_port:
+                            return True
+                    except (ValueError, IndexError):
+                        continue
+            return False
+        except Exception:
+            return False
+
+    def validate(self) -> dict:
+        """Validate via hostname.local (not localhost — netsh is Windows-side)."""
+        import json
+        import urllib.request
+
+        result: dict = {
+            "ok": False,
+            "latency_ms": None,
+            "chrome_version": None,
+            "tunnel_port": self._local_port,
+            "target_host": self._target_host,
+            "error": None,
+        }
+
+        if not self.is_running:
+            result["error"] = "netsh portproxy rule not found"
+            return result
+
+        # Netsh forwards on Windows side, so we connect via the host IP
+        url = f"http://{self._target_host}:{self._local_port}/json/version"
+        t0 = time.monotonic()
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                body = resp.read().decode("utf-8")
+            elapsed = (time.monotonic() - t0) * 1000
+            result["ok"] = True
+            result["latency_ms"] = round(elapsed, 1)
+            try:
+                data = json.loads(body)
+                result["chrome_version"] = data.get("Browser")
+            except (ValueError, json.JSONDecodeError):
+                pass
+        except Exception as exc:
+            result["error"] = str(exc)[:200]
+            result["latency_ms"] = round(
+                (time.monotonic() - t0) * 1000, 1,
+            )
+        return result
+
+    @property
+    def stats(self) -> dict:
+        return {
+            "started_at": self._started_at,
+            "local_port": self._local_port,
+            "target_host": self._target_host,
+            "target_port": self._target_port,
+            "running": self.is_running,
+            "method": "netsh",
+        }
+
+
+class SshTunnel:
+    """TCP tunnel via SSH local port forwarding.
+
+    Spawns ``ssh -N -L <port>:localhost:<port> <user>@<host>``
+    as a background process.
+
+    Prerequisites:
+        - OpenSSH server running on Windows
+        - SSH key or password auth configured
+        - hostname.local resolves
+    """
+
+    __slots__ = (
+        "_local_port", "_target_host", "_target_port",
+        "_ssh_user", "_process", "_started_at", "_lock",
+    )
+
+    def __init__(
+        self,
+        local_port: int,
+        target_host: str,
+        target_port: int | None = None,
+        ssh_user: str | None = None,
+    ):
+        self._local_port = local_port
+        self._target_host = target_host
+        self._target_port = target_port or local_port
+        self._ssh_user = ssh_user
+        self._process: subprocess.Popen | None = None
+        self._started_at: str | None = None
+        self._lock = threading.Lock()
+
+    @classmethod
+    def is_available(cls) -> bool:
+        """Available if ``ssh`` is on PATH and Windows has OpenSSH."""
+        if not shutil.which("ssh"):
+            return False
+        # Also need powershell.exe to detect Windows SSH user
+        return shutil.which("powershell.exe") is not None
+
+    @property
+    def local_port(self) -> int:
+        return self._local_port
+
+    @property
+    def target_host(self) -> str:
+        return self._target_host
+
+    def _detect_ssh_user(self) -> str | None:
+        """Detect the Windows username for SSH."""
+        if self._ssh_user:
+            return self._ssh_user
+        try:
+            r = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command",
+                 "$env:USERNAME"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip()
+        except Exception:
+            pass
+        return None
+
+    def start(self) -> bool:
+        """Start SSH tunnel as a background process."""
+        if self.is_running:
+            return True
+
+        ssh_path = shutil.which("ssh")
+        if not ssh_path:
+            logger.warning("SshTunnel: ssh not found on PATH")
+            return False
+
+        user = self._detect_ssh_user()
+        if not user:
+            logger.warning("SshTunnel: could not determine SSH user")
+            return False
+
+        forward_spec = (
+            f"{self._local_port}:localhost:{self._target_port}"
+        )
+        target = f"{user}@{self._target_host}"
+
+        try:
+            self._process = subprocess.Popen(
+                [
+                    ssh_path, "-N",
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "ConnectTimeout=10",
+                    "-o", "ServerAliveInterval=30",
+                    "-o", "ExitOnForwardFailure=yes",
+                    "-L", forward_spec,
+                    target,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            # Wait for SSH to establish or fail
+            time.sleep(2.0)
+            if self._process.poll() is not None:
+                stderr = self._process.stderr.read().decode(
+                    "utf-8", errors="replace",
+                )[:300]
+                logger.warning(
+                    "SshTunnel: ssh exited immediately: %s", stderr,
+                )
+                self._process = None
+                return False
+
+            self._started_at = datetime.now(timezone.utc).isoformat()
+            logger.info(
+                "SshTunnel started: ssh PID %d, %s → %s",
+                self._process.pid, forward_spec, target,
+            )
+            return True
+
+        except OSError as exc:
+            logger.warning("SshTunnel: failed to start ssh: %s", exc)
+            return False
+
+    def stop(self) -> None:
+        """Kill the SSH process."""
+        if self._process and self._process.poll() is None:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+            logger.info("SshTunnel stopped (PID %d)", self._process.pid)
+        self._process = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._process is not None and self._process.poll() is None
+
+    def validate(self) -> dict:
+        result = _validate_via_localhost(self._local_port)
+        result["tunnel_port"] = self._local_port
+        result["target_host"] = self._target_host
+        if not self.is_running:
+            result["ok"] = False
+            result["error"] = "ssh process not running"
+        return result
+
+    @property
+    def stats(self) -> dict:
+        return {
+            "started_at": self._started_at,
+            "local_port": self._local_port,
+            "target_host": self._target_host,
+            "target_port": self._target_port,
+            "running": self.is_running,
+            "method": "ssh",
+            "pid": self._process.pid if self._process else None,
+        }
+
+
+class MirroredConfig:
+    """Switch WSL networking to mirrored mode.
+
+    NOT a running tunnel.  Edits ``~/.wslconfig`` on the Windows side
+    to set ``networkingMode=mirrored``, which makes localhost work
+    natively between WSL and Windows.
+
+    ⚠️ RISKY: May break VS Code remote, Docker Desktop, and other
+    tools that depend on WSL's default NAT networking.
+
+    Requires WSL restart (``wsl --shutdown``) to take effect.
+
+    Prerequisites:
+        - Write access to ``%USERPROFILE%/.wslconfig``
+        - WSL restart (disruptive)
+    """
+
+    __slots__ = (
+        "_local_port", "_target_host", "_target_port",
+        "_started_at", "_wslconfig_path", "_lock",
+    )
+
+    def __init__(
+        self,
+        local_port: int,
+        target_host: str,
+        target_port: int | None = None,
+    ):
+        self._local_port = local_port
+        self._target_host = target_host
+        self._target_port = target_port or local_port
+        self._started_at: str | None = None
+        self._lock = threading.Lock()
+
+        # Resolve the .wslconfig path on the Windows side
+        self._wslconfig_path = self._find_wslconfig()
+
+    @classmethod
+    def is_available(cls) -> bool:
+        """Available if WSL mirrored networking is active."""
+        from .network import is_mirrored
+        return is_mirrored()
+
+    @property
+    def local_port(self) -> int:
+        return self._local_port
+
+    @property
+    def target_host(self) -> str:
+        return self._target_host
+
+    def _find_wslconfig(self) -> Path | None:
+        """Find the .wslconfig path via USERPROFILE."""
+        try:
+            r = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command",
+                 "$env:USERPROFILE"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                win_path = r.stdout.strip()
+                # Convert C:\Users\foo to /mnt/c/Users/foo
+                if len(win_path) >= 3 and win_path[1] == ":":
+                    drive = win_path[0].lower()
+                    rest = win_path[2:].replace("\\", "/")
+                    wsl_path = Path(f"/mnt/{drive}{rest}/.wslconfig")
+                    return wsl_path
+        except Exception:
+            pass
+        return None
+
+    def start(self) -> bool:
+        """Add networkingMode=mirrored to .wslconfig.
+
+        Returns True if the config was written.  The user must then
+        restart WSL (``wsl --shutdown``) for it to take effect.
+        """
+        if self._wslconfig_path is None:
+            logger.warning("MirroredConfig: could not find .wslconfig path")
+            return False
+
+        try:
+            # Read existing config
+            lines: list[str] = []
+            if self._wslconfig_path.exists():
+                lines = self._wslconfig_path.read_text(
+                    encoding="utf-8",
+                ).splitlines()
+
+            # Check if already set
+            for line in lines:
+                stripped = line.strip().lower()
+                if stripped == "networkingmode=mirrored":
+                    self._started_at = datetime.now(timezone.utc).isoformat()
+                    logger.info("MirroredConfig: already set")
+                    return True
+
+            # Find [wsl2] section or create it
+            wsl2_idx = -1
+            for i, line in enumerate(lines):
+                if line.strip().lower() == "[wsl2]":
+                    wsl2_idx = i
+                    break
+
+            if wsl2_idx == -1:
+                lines.append("[wsl2]")
+                lines.append("networkingMode=mirrored")
+            else:
+                # Insert after [wsl2] header
+                lines.insert(wsl2_idx + 1, "networkingMode=mirrored")
+
+            self._wslconfig_path.write_text(
+                "\n".join(lines) + "\n", encoding="utf-8",
+            )
+            self._started_at = datetime.now(timezone.utc).isoformat()
+            logger.info(
+                "MirroredConfig: wrote networkingMode=mirrored to %s. "
+                "WSL restart required.",
+                self._wslconfig_path,
+            )
+            return True
+
+        except Exception as exc:
+            logger.warning("MirroredConfig: failed to write .wslconfig: %s", exc)
+            return False
+
+    def stop(self) -> None:
+        """Remove networkingMode=mirrored from .wslconfig."""
+        if self._wslconfig_path is None or not self._wslconfig_path.exists():
+            return
+
+        try:
+            lines = self._wslconfig_path.read_text(
+                encoding="utf-8",
+            ).splitlines()
+
+            new_lines = [
+                line for line in lines
+                if line.strip().lower() != "networkingmode=mirrored"
+            ]
+
+            self._wslconfig_path.write_text(
+                "\n".join(new_lines) + "\n", encoding="utf-8",
+            )
+            logger.info(
+                "MirroredConfig: removed mirrored from %s. "
+                "WSL restart required.",
+                self._wslconfig_path,
+            )
+        except Exception as exc:
+            logger.warning(
+                "MirroredConfig: failed to revert .wslconfig: %s", exc,
+            )
+
+    @property
+    def is_running(self) -> bool:
+        """Check if networkingMode=mirrored is set in .wslconfig."""
+        if self._wslconfig_path is None or not self._wslconfig_path.exists():
+            return False
+        try:
+            content = self._wslconfig_path.read_text(encoding="utf-8").lower()
+            return "networkingmode=mirrored" in content
+        except Exception:
+            return False
+
+    def validate(self) -> dict:
+        """Validate: test if localhost works (only after WSL restart)."""
+        result = _validate_via_localhost(self._local_port)
+        result["tunnel_port"] = self._local_port
+        result["target_host"] = self._target_host
+        result["restart_required"] = True
+        if not self.is_running:
+            result["ok"] = False
+            result["error"] = "networkingMode=mirrored not set in .wslconfig"
+        return result
+
+    @property
+    def stats(self) -> dict:
+        return {
+            "started_at": self._started_at,
+            "local_port": self._local_port,
+            "target_host": self._target_host,
+            "target_port": self._target_port,
+            "running": self.is_running,
+            "method": "mirrored",
+            "wslconfig_path": str(self._wslconfig_path),
+        }
+
+
+# ── Tunnel methods registry ───────────────────────────────────────
+
+TUNNEL_METHODS: dict[str, dict] = {
+    "python_proxy": {
+        "label": "Python TCP Proxy",
+        "description": "In-app tunnel. Zero dependencies.",
+        "speed": "~5ms",
+        "recommended": True,
+        "risky": False,
+        "class": WslTunnel,
+    },
+    "socat": {
+        "label": "socat tunnel",
+        "description": "WSL-side port forward via socat.",
+        "speed": "~5ms",
+        "recommended": False,
+        "risky": False,
+        "class": SocatTunnel,
+    },
+    "netsh": {
+        "label": "netsh portproxy",
+        "description": "Windows-side, persistent across reboots.",
+        "speed": "~3ms",
+        "recommended": False,
+        "risky": False,
+        "class": NetshTunnel,
+    },
+    "ssh": {
+        "label": "SSH tunnel",
+        "description": "Encrypted. Needs OpenSSH on Windows.",
+        "speed": "~10ms",
+        "recommended": False,
+        "risky": False,
+        "class": SshTunnel,
+    },
+    "mirrored": {
+        "label": "Mirrored networking",
+        "description": "Changes WSL network mode. localhost works natively.",
+        "speed": "<1ms",
+        "recommended": False,
+        "risky": True,
+        "risk_detail": "May break VS Code, Docker Desktop, and other IDE networking.",
+        "class": MirroredConfig,
+    },
+}
+
+
+# ── Module-level API ──────────────────────────────────────────────
+
+
+def get_active_tunnel():
+    """Return the currently active tunnel, or None."""
+    return _active_tunnel
+
+
+def start_tunnel(
+    local_port: int,
+    target_host: str,
+    target_port: int | None = None,
+    method: str = "python_proxy",
+):
+    """Start a tunnel using the specified method.
+
+    Stops any existing tunnel first.  Only ONE tunnel active at a time.
+
+    Args:
+        local_port:  Port to listen on in WSL.
+        target_host: Windows host IP or hostname.
+        target_port: Port on the Windows side (defaults to local_port).
+        method:      Backend method key from TUNNEL_METHODS.
+
+    Returns:
+        The running tunnel instance, or None if start failed.
+    """
+    global _active_tunnel
+
+    if method not in TUNNEL_METHODS:
+        logger.error("Unknown tunnel method: %s", method)
+        return None
+
+    tunnel_cls = TUNNEL_METHODS[method]["class"]
+
+    with _tunnel_lock:
+        # Stop existing tunnel
+        if _active_tunnel is not None:
+            try:
+                if _active_tunnel.is_running:
+                    _active_tunnel.stop()
+            except Exception:
+                pass
+            _active_tunnel = None
+
+        # Create and start the requested backend
+        try:
+            tunnel = tunnel_cls(local_port, target_host, target_port)
+        except TypeError:
+            # SshTunnel has extra ssh_user param — use default
+            tunnel = tunnel_cls(local_port, target_host, target_port)
+
+        if tunnel.start():
+            _active_tunnel = tunnel
+            return tunnel
+
+        return None
+
+
+def stop_tunnel() -> None:
+    """Stop the active tunnel if any."""
+    global _active_tunnel
+    with _tunnel_lock:
+        if _active_tunnel:
+            _active_tunnel.stop()
+            _active_tunnel = None
+
+
+def maybe_start_tunnel() -> None:
+    """Auto-start the WSL tunnel if conditions are met.
+
+    Runs in a background thread so it never blocks the main thread.
+    Conditions:
+        1. Running under WSL2
+        2. hostname.local resolves to a Windows host IP
+        3. The local port (9222) is not already in use
+
+    If any condition fails, silently returns — the app falls back
+    to curl.exe as before.
+    """
+    from src.core.services.chrome.detection import is_wsl
+
+    if not is_wsl():
+        return
+
+    def _startup_thread():
+        """Background thread: resolve hostname and start tunnel."""
+        try:
+            import subprocess
+
+            # Get the Windows hostname
+            r = subprocess.run(
+                ["hostname"],
+                capture_output=True, text=True, timeout=3,
+            )
+            hostname = r.stdout.strip()
+            if not hostname:
+                logger.debug("WSL tunnel: hostname command returned empty")
+                return
+
+            # Resolve hostname.local via mDNS
+            fqdn = f"{hostname}.local"
+            try:
+                infos = socket.getaddrinfo(
+                    fqdn, None, socket.AF_INET, socket.SOCK_STREAM,
+                )
+                if not infos:
+                    logger.debug(
+                        "WSL tunnel: %s did not resolve", fqdn,
+                    )
+                    return
+                host_ip = infos[0][4][0]
+            except (socket.gaierror, OSError) as exc:
+                logger.debug(
+                    "WSL tunnel: %s resolution failed: %s", fqdn, exc,
+                )
+                return
+
+            # Start the tunnel
+            cdp_port = 9222  # default CDP port
+            tunnel = start_tunnel(
+                local_port=cdp_port,
+                target_host=host_ip,
+            )
+            if tunnel:
+                logger.info(
+                    "WSL tunnel auto-started: "
+                    "127.0.0.1:%d → %s (%s):%d",
+                    cdp_port, fqdn, host_ip, cdp_port,
+                )
+            else:
+                logger.debug(
+                    "WSL tunnel: could not start on port %d "
+                    "(port may be in use)",
+                    cdp_port,
+                )
+
+        except Exception as exc:
+            logger.debug("WSL tunnel startup failed: %s", exc)
+
+    thread = threading.Thread(
+        target=_startup_thread,
+        name="wsl-tunnel-startup",
+        daemon=True,
+    )
+    thread.start()

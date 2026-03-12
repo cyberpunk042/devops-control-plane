@@ -42,156 +42,8 @@ def set_endpoint(host: str, port: int = _DEFAULT_PORT) -> None:
     logger.info("CDP endpoint set to %s", _endpoint)
 
 
-# ── WSL2 detection ────────────────────────────────────────────
-
-_is_wsl2: bool | None = None
-_curl_exe_path: str | None = None
-_curl_exe_resolved: bool = False
-_win_temp_dir: str | None = None
-_win_temp_dir_resolved: bool = False
-_windows_host_ip: str | None = None
-_windows_host_ip_resolved: bool = False
-
-
-def _detect_wsl2() -> bool:
-    """Check if we're running under WSL2."""
-    global _is_wsl2
-    if _is_wsl2 is not None:
-        return _is_wsl2
-    try:
-        with open("/proc/version", encoding="utf-8") as f:
-            _is_wsl2 = "microsoft" in f.read().lower()
-    except OSError:
-        _is_wsl2 = False
-    return _is_wsl2
-
-
-def _get_windows_host_ip() -> str | None:
-    """Cached hostname.local → IP resolution.
-
-    When WSL2 has netsh portproxy + firewall rule set up, Chrome is
-    reachable at hostname.local:<port> via direct Python socket.
-    This is the fastest path (~5-15ms) — no subprocess, no tunnel.
-
-    Returns the IP or None if resolution fails.
-    """
-    global _windows_host_ip, _windows_host_ip_resolved
-    if _windows_host_ip_resolved:
-        return _windows_host_ip
-    _windows_host_ip_resolved = True
-    import socket
-    import subprocess
-    try:
-        r = subprocess.run(
-            ["hostname"], capture_output=True, text=True, timeout=3,
-        )
-        hostname = r.stdout.strip()
-        if not hostname:
-            return None
-        fqdn = f"{hostname}.local"
-        infos = socket.getaddrinfo(fqdn, None, socket.AF_INET, socket.SOCK_STREAM)
-        if infos:
-            _windows_host_ip = infos[0][4][0]
-            logger.info(
-                "Windows host IP resolved: %s → %s",
-                fqdn, _windows_host_ip,
-            )
-    except Exception:
-        pass
-    return _windows_host_ip
-
-
-def _direct_http_reachable(host_ip: str, port: int) -> bool:
-    """Quick TCP probe to check if host_ip:port accepts connections."""
-    import socket
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.5)
-        s.connect((host_ip, port))
-        s.close()
-        return True
-    except (ConnectionRefusedError, OSError):
-        return False
-
-
-def _is_tunnel_active(port: int | None = None) -> bool:
-    """Check if the WSL tunnel is running for the given port.
-
-    Fast in-memory check — reads a module-level variable, no I/O.
-    When the tunnel is active, localhost:<port> is reachable via
-    the TCP proxy, so we can skip the curl.exe bridge.
-    """
-    from src.core.services.chrome.wsl_tunnel import get_active_tunnel
-
-    tunnel = get_active_tunnel()
-    if tunnel is None or not tunnel.is_running:
-        return False
-    check_port = port if port is not None else 9222
-    return tunnel.local_port == check_port
-
-
-def _get_curl_exe() -> str | None:
-    """Cached lookup for curl.exe path."""
-    global _curl_exe_path, _curl_exe_resolved
-    if _curl_exe_resolved:
-        return _curl_exe_path
-    import shutil
-    _curl_exe_path = shutil.which("curl.exe")
-    _curl_exe_resolved = True
-    return _curl_exe_path
-
 
 # ── Low-level HTTP ────────────────────────────────────────────
-
-
-def _curl_exe_get(url: str, timeout: float = 2.0) -> str | None:
-    """Use Windows curl.exe to make an HTTP request from WSL2.
-
-    WSL2 runs in a separate network namespace from Windows.
-    Chrome binds its debug port to 127.0.0.1 on the WINDOWS side,
-    which is unreachable from WSL2's localhost.
-
-    curl.exe runs in the Windows network namespace, so it CAN
-    reach Chrome's localhost. This is a zero-config bridge.
-    """
-    import subprocess
-
-    curl_exe = _get_curl_exe()
-    if not curl_exe:
-        return None
-    try:
-        r = subprocess.run(
-            [curl_exe, "-s", "--connect-timeout", str(max(1, int(timeout))), url],
-            capture_output=True, text=True,
-            timeout=timeout + 2,
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            return r.stdout
-        return None
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-
-
-def _curl_exe_put(url: str, timeout: float = 2.0) -> str | None:
-    """PUT request via Windows curl.exe (same bridge as _curl_exe_get)."""
-    import subprocess
-
-    curl_exe = _get_curl_exe()
-    if not curl_exe:
-        return None
-    try:
-        r = subprocess.run(
-            [curl_exe, "-s", "-X", "PUT",
-             "--connect-timeout", str(max(1, int(timeout))), url],
-            capture_output=True, text=True,
-            timeout=timeout + 2,
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            return r.stdout
-        return None
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-
 
 def _get_json(
     path: str,
@@ -201,78 +53,22 @@ def _get_json(
 ) -> dict | list | None:
     """GET a Chrome JSON API endpoint.  Returns parsed JSON or None.
 
+    Delegates to the transport router which handles channel ranking
+    and fallback (tunnel → direct → curl) automatically.
+
     Args:
         port: When provided, target ``http://localhost:{port}`` instead
               of the global endpoint.  Used for multi-instance support.
     """
-    # WSL2: try fastest path first, fall back to slower ones.
-    #   1. Tunnel (localhost via TCP proxy) — ~5ms
-    #   2. Direct hostname.local (netsh portproxy) — ~10ms
-    #   3. curl.exe bridge (subprocess) — ~2000ms cold / ~50ms warm
-    if _detect_wsl2():
-        import time as _t
-        target_port = port if port is not None else _DEFAULT_PORT
+    from src.core.services.wsl_transport.router import get_router
 
-        # ── Path 1: tunnel (if active) ──
-        if _is_tunnel_active(port):
-            tunnel_url = f"http://localhost:{target_port}{path}"
-            _t0 = _t.monotonic()
-            try:
-                req = urllib.request.Request(tunnel_url)
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                logger.debug(
-                    "CDP HTTP via tunnel: %s (%.0fms)",
-                    path, (_t.monotonic() - _t0) * 1000,
-                )
-                return data
-            except (urllib.error.URLError, OSError, ValueError,
-                    json.JSONDecodeError):
-                pass  # Tunnel failed — fall through
-
-        # ── Path 2: direct hostname.local (netsh portproxy) ──
-        host_ip = _get_windows_host_ip()
-        if host_ip:
-            direct_url = f"http://{host_ip}:{target_port}{path}"
-            _t0 = _t.monotonic()
-            try:
-                req = urllib.request.Request(direct_url)
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                logger.debug(
-                    "CDP HTTP via direct (%s:%d): %s (%.0fms)",
-                    host_ip, target_port, path, (_t.monotonic() - _t0) * 1000,
-                )
-                return data
-            except (urllib.error.URLError, OSError, ValueError,
-                    json.JSONDecodeError):
-                pass  # Direct failed — fall through to curl.exe
-
-        # ── Path 3: curl.exe bridge (always available) ──
-        base = f"http://localhost:{port}" if port is not None else _base_url()
-        url = f"{base}{path}"
-        _t0 = _t.monotonic()
-        raw = _curl_exe_get(url, timeout=timeout)
-        if raw:
-            try:
-                data = json.loads(raw)
-                logger.debug(
-                    "CDP HTTP via curl.exe: %s (%.0fms)",
-                    path, (_t.monotonic() - _t0) * 1000,
-                )
-                return data
-            except (ValueError, json.JSONDecodeError):
-                pass
+    target_port = port if port is not None else _DEFAULT_PORT
+    raw = get_router().http_get(target_port, path, timeout)
+    if raw is None:
         return None
-
-    # Native Linux / direct access
-    base = f"http://localhost:{port}" if port is not None else _base_url()
-    url = f"{base}{path}"
     try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError):
+        return json.loads(raw)
+    except (ValueError, json.JSONDecodeError):
         return None
 
 
@@ -284,48 +80,17 @@ def _get_raw(
 ) -> str | None:
     """GET a Chrome debugging endpoint, return raw text or None.
 
+    Delegates to the transport router which handles channel ranking
+    and fallback automatically.
+
     Args:
         port: When provided, target ``http://localhost:{port}`` instead
               of the global endpoint.
     """
-    # WSL2: tunnel → direct hostname.local → curl.exe fallback
-    if _detect_wsl2():
-        target_port = port if port is not None else _DEFAULT_PORT
+    from src.core.services.wsl_transport.router import get_router
 
-        # ── Path 1: tunnel ──
-        if _is_tunnel_active(port):
-            tunnel_url = f"http://localhost:{target_port}{path}"
-            try:
-                req = urllib.request.Request(tunnel_url)
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    return resp.read().decode("utf-8")
-            except (urllib.error.URLError, OSError):
-                pass  # Tunnel failed — fall through
-
-        # ── Path 2: direct hostname.local (netsh portproxy) ──
-        host_ip = _get_windows_host_ip()
-        if host_ip:
-            direct_url = f"http://{host_ip}:{target_port}{path}"
-            try:
-                req = urllib.request.Request(direct_url)
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    return resp.read().decode("utf-8")
-            except (urllib.error.URLError, OSError):
-                pass  # Direct failed — fall through to curl.exe
-
-        # ── Path 3: curl.exe bridge ──
-        base = f"http://localhost:{port}" if port is not None else _base_url()
-        return _curl_exe_get(f"{base}{path}", timeout=timeout)
-
-    # Native Linux / direct access
-    base = f"http://localhost:{port}" if port is not None else _base_url()
-    url = f"{base}{path}"
-    try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8")
-    except (urllib.error.URLError, OSError):
-        return None
+    target_port = port if port is not None else _DEFAULT_PORT
+    return get_router().http_get(target_port, path, timeout)
 
 
 # ── Public API ────────────────────────────────────────────────
@@ -440,6 +205,7 @@ def create_tab(url: str, *, port: int | None = None) -> dict | None:
     """Open a new browser tab via CDP.
 
     Uses the ``PUT /json/new?url`` endpoint (PUT required by Chrome).
+    Delegates to the transport router for channel selection.
 
     Args:
         port: Target a specific Chrome instance instead of the global one.
@@ -448,28 +214,202 @@ def create_tab(url: str, *, port: int | None = None) -> dict | None:
         The target dict for the new tab, or None on failure.
     """
     from urllib.parse import quote
+    from src.core.services.wsl_transport.router import get_router
+
+    target_port = port if port is not None else _DEFAULT_PORT
     path = f"/json/new?{quote(url, safe='/:?=&%')}"
-    base = f"http://localhost:{port}" if port is not None else _base_url()
-    full_url = f"{base}{path}"
-
-    # Try direct PUT first
+    raw = get_router().http_put(target_port, path, timeout=2.0)
+    if raw is None:
+        return None
     try:
-        req = urllib.request.Request(full_url, method="PUT")
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError):
-        pass
+        return json.loads(raw)
+    except (ValueError, json.JSONDecodeError):
+        return None
 
-    # WSL2 fallback via curl.exe
-    if _detect_wsl2():
-        raw = _curl_exe_put(full_url, timeout=2.0)
-        if raw:
+# ── Session Pool ──────────────────────────────────────────────
+
+
+import threading as _threading
+import time as _time
+
+
+class _PoolEntry:
+    """Wrapper tracking last-used time for a pooled CdpSession."""
+
+    __slots__ = ("session", "last_used")
+
+    def __init__(self, session: "CdpSession") -> None:
+        self.session = session
+        self.last_used = _time.monotonic()
+
+    def touch(self) -> None:
+        self.last_used = _time.monotonic()
+
+
+class _SessionPool:
+    """Thread-safe pool of persistent CdpSession instances.
+
+    Keyed by ``(ws_url, thread_id)``.  Each thread gets its own
+    session to the same target — no cross-thread sharing of
+    WebSocket state.
+
+    Idle sessions (> ``MAX_IDLE`` seconds) are reaped automatically
+    on ``get()`` calls.
+    """
+
+    MAX_IDLE = 60  # seconds
+
+    def __init__(self) -> None:
+        self._pool: dict[tuple[str, int], _PoolEntry] = {}
+        self._lock = _threading.Lock()
+
+    def get(self, ws_url: str) -> "CdpSession | None":
+        """Return a pooled session for this URL + current thread.
+
+        Returns None if no pooled session exists or if it's no longer
+        connected.  Reaps stale sessions opportunistically.
+        """
+        key = (ws_url, _threading.get_ident())
+        with self._lock:
+            self._reap_stale_locked()
+            entry = self._pool.get(key)
+            if entry is None:
+                return None
+            if not entry.session.connected:
+                # Dead session — remove it
+                del self._pool[key]
+                return None
+            entry.touch()
+            return entry.session
+
+    def put(self, ws_url: str, session: "CdpSession") -> None:
+        """Pool a connected session for reuse."""
+        key = (ws_url, _threading.get_ident())
+        with self._lock:
+            # Close any existing session for this slot
+            old = self._pool.get(key)
+            if old is not None and old.session is not session:
+                try:
+                    old.session.close()
+                except Exception:
+                    pass
+            self._pool[key] = _PoolEntry(session)
+
+    def evict_port(self, port: int) -> None:
+        """Close and remove all sessions whose URL contains ``:port/``.
+
+        Called when Chrome is killed on that port — all sessions are
+        now dead.
+        """
+        port_fragment = f":{port}/"
+        with self._lock:
+            to_remove = [
+                key for key in self._pool
+                if port_fragment in key[0]
+            ]
+            for key in to_remove:
+                entry = self._pool.pop(key)
+                try:
+                    entry.session.close()
+                except Exception:
+                    pass
+
+    def _reap_stale_locked(self) -> None:
+        """Remove sessions idle > MAX_IDLE (caller holds lock)."""
+        now = _time.monotonic()
+        stale = [
+            key for key, entry in self._pool.items()
+            if (now - entry.last_used) > self.MAX_IDLE
+        ]
+        for key in stale:
+            entry = self._pool.pop(key)
             try:
-                return json.loads(raw)
-            except (ValueError, json.JSONDecodeError):
+                entry.session.close()
+            except Exception:
                 pass
 
-    return None
+
+# Module-level singleton
+_session_pool = _SessionPool()
+
+
+def evict_port(port: int) -> None:
+    """Evict all pooled sessions for a port and reset router state.
+
+    Call this when Chrome is killed on that port.
+    """
+    _session_pool.evict_port(port)
+    from src.core.services.wsl_transport.router import get_router
+    get_router().evict(port)
+
+
+# ── Boot / warm ───────────────────────────────────────────────
+
+
+def warm(port: int = _DEFAULT_PORT) -> dict:
+    """Warm the CDP infrastructure.
+
+    Called at server startup or when the user opens the CDP test
+    panel.  Performs adaptive setup based on the detected environment:
+
+    1. Initializes the transport router (environment detection).
+    2. Probes all channels for ``port`` (native, tunnel, direct, curl).
+    3. If WSL2 NAT mode and no fast channel → starts a tunnel,
+       then re-probes.
+    4. Only warms the PS bridge if no fast WS-capable channel
+       is available after probing.
+
+    Returns:
+        Status dict suitable for JSON response to the frontend.
+    """
+    from src.core.services.wsl_transport.router import get_router
+
+    router = get_router()
+
+    # Probe channels for this port
+    probe_results = router.probe(port)
+
+    # If WSL2 NAT mode and no fast channel, try starting a tunnel
+    if router.needs_tunnel():
+        backend = router.select_tunnel_backend()
+        logger.info("No fast channel — starting %s tunnel", backend)
+        try:
+            from src.core.services.wsl_transport.tunnel_backends import (
+                start_tunnel,
+            )
+            from src.core.services.wsl_transport.network import resolve_host_ip
+            target_host = resolve_host_ip()
+            if target_host:
+                tunnel = start_tunnel(
+                    local_port=port,
+                    target_host=target_host,
+                    method=backend,
+                )
+                if tunnel:
+                    # Re-probe now that tunnel is active
+                    probe_results = router.probe(port)
+        except Exception as exc:
+            logger.warning("Tunnel start failed: %s", exc)
+
+    # Only warm PS bridge if we still have no fast WS channel
+    bridge_st = bridge_status()
+    if not router.has_fast_channel(port):
+        logger.info("No fast WS channel — warming PS bridge")
+        warm_bridge()
+        bridge_st = bridge_status()
+    else:
+        logger.info("Fast channel available — skipping PS bridge warm")
+        bridge_st = {"needed": False, "ready": False, "warming": False}
+
+    return {
+        "ok": True,
+        **router.status(),
+        "bridge": bridge_st,
+        "pool_size": len(_session_pool._pool),
+    }
+
+
+# ── evaluate_js (pooled) ──────────────────────────────────────
 
 
 def evaluate_js(
@@ -481,13 +421,17 @@ def evaluate_js(
 ) -> dict | None:
     """Execute JavaScript on a Chrome tab via CDP WebSocket.
 
-    WSL2 cannot reach Chrome's WebSocket at localhost:9222 directly,
-    so we use PowerShell as a bridge — it runs on the Windows side
-    where localhost:9222 IS reachable.
+    Connection strategy (in order of preference):
 
-    The CDP command JSON is written to a temp file to avoid escaping
-    issues with large or complex JS expressions — embedding them
-    inline in a PowerShell string breaks on $, {}, quotes, etc.
+    1. **Pooled session** — reuse an existing CdpSession for this
+       ws_url + thread.  Near-zero overhead (~5ms).
+
+    2. **New CdpSession** — create via transport router (tunnel,
+       direct, or native PyWebSocket).  Pools it for subsequent
+       calls (~15ms first time).
+
+    3. **PS one-shot fallback** — ``ps_evaluate()`` via PowerShell
+       subprocess.  Always works on WSL2 (~200ms).
 
     Args:
         ws_url: WebSocket debugger URL from target's
@@ -496,642 +440,56 @@ def evaluate_js(
         timeout: Max seconds to wait.
         await_promise: If True, CDP will await the Promise returned
                        by the expression before returning the value.
-                       Required for ``async function()`` IIFEs.
 
     Returns:
         The CDP response dict, or None on failure.
     """
-    import subprocess
-    import shutil
-    import tempfile
-    import os
+    # 1. Try pooled session
+    session = _session_pool.get(ws_url)
+    if session is not None:
+        result = session.evaluate(
+            expression, timeout=timeout, await_promise=await_promise,
+        )
+        if result is not None:
+            return result
+        # Session died mid-use — fall through to create a new one
 
-    # Build the CDP command as a JSON file — no inline escaping needed
-    params = {"expression": expression}
-    if await_promise:
-        params["awaitPromise"] = True
-    cdp_cmd = json.dumps({
-        "id": 1,
-        "method": "Runtime.evaluate",
-        "params": params,
-    })
+    # 2. Create new CdpSession (uses router for fast WS connect)
+    session = CdpSession(ws_url, connect_timeout=min(timeout, 5.0))
+    if session.connected:
+        _session_pool.put(ws_url, session)
+        return session.evaluate(
+            expression, timeout=timeout, await_promise=await_promise,
+        )
 
-    # Write temp file to the WINDOWS filesystem so PowerShell can read it.
-    # WSL paths (\\wsl.localhost\...) don't work reliably from PS.
-    # The Windows temp dir is cached to avoid calling cmd.exe every time.
-    global _win_temp_dir, _win_temp_dir_resolved
-    if _detect_wsl2() and not _win_temp_dir_resolved:
-        try:
-            win_user = subprocess.run(
-                ["cmd.exe", "/C", "echo", "%USERNAME%"],
-                capture_output=True, text=True, timeout=3,
-            ).stdout.strip()
-            candidate = f"/mnt/c/Users/{win_user}/AppData/Local/Temp"
-            if os.path.isdir(candidate):
-                _win_temp_dir = candidate
-                logger.debug("CDP evaluate_js: Windows temp dir = %s", candidate)
-        except (subprocess.TimeoutExpired, OSError):
-            pass
-        _win_temp_dir_resolved = True
-    win_temp_dir = _win_temp_dir if _detect_wsl2() else None
-
-    tmp_fd, tmp_path = tempfile.mkstemp(
-        suffix=".json", prefix="cdp_cmd_",
-        dir=win_temp_dir,  # None falls back to system default
-    )
-    try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-            f.write(cdp_cmd)
-
-        # Convert to Windows path for PowerShell
-        if _detect_wsl2():
-            try:
-                win_path = subprocess.run(
-                    ["wslpath", "-w", tmp_path],
-                    capture_output=True, text=True, timeout=3,
-                ).stdout.strip()
-            except (subprocess.TimeoutExpired, OSError):
-                win_path = tmp_path
-        else:
-            win_path = tmp_path
-
-        # Escape backslashes for embedding in PS single-quoted string
-        win_path_escaped = win_path.replace("'", "''")
-
-        ps_script = f"""
-$ws = New-Object System.Net.WebSockets.ClientWebSocket
-$cts = New-Object System.Threading.CancellationTokenSource
-$cts.CancelAfter({int(timeout * 1000)})
-try {{
-    $ws.ConnectAsync([Uri]'{ws_url}', $cts.Token).Wait()
-    $cmd = [IO.File]::ReadAllText('{win_path_escaped}')
-    $bytes = [Text.Encoding]::UTF8.GetBytes($cmd)
-    $segment = New-Object System.ArraySegment[byte](,$bytes)
-    $ws.SendAsync($segment, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).Wait()
-    $buf = New-Object byte[] 262144
-    $seg = New-Object System.ArraySegment[byte](,$buf)
-    $result = $ws.ReceiveAsync($seg, $cts.Token).Result
-    $response = [Text.Encoding]::UTF8.GetString($buf, 0, $result.Count)
-    Write-Output $response
-    $ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, '', $cts.Token).Wait()
-}} catch {{
-    Write-Error $_.Exception.Message
-}}
-"""
-
-        try:
-            r = subprocess.run(
-                ["powershell.exe", "-NoProfile", "-Command", ps_script],
-                capture_output=True, text=True,
-                timeout=timeout + 5,
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                return json.loads(r.stdout.strip())
-            if r.stderr.strip():
-                logger.warning("CDP evaluate_js error: %s", r.stderr.strip()[:200])
-            return None
-        except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as exc:
-            logger.warning("CDP evaluate_js failed: %s", exc)
-            return None
-    finally:
-        # Always clean up the temp file
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+    # 3. Fallback: PS one-shot (always works on WSL2)
+    from src.core.services.wsl_transport.ps_bridge import ps_evaluate
+    return ps_evaluate(ws_url, expression, timeout, await_promise=await_promise)
 
 
 # ── Persistent CDP session ────────────────────────────────────
 
 
-class _PyWebSocket:
-    """Minimal Python-native WebSocket client (text-only, for CDP).
 
-    Implements RFC 6455 just enough for CDP: text frames,
-    client masking, multi-frame receive, close/ping handling.
-    No external dependencies — uses only Python's ``socket`` module.
-    """
+# _PyWebSocket has moved to wsl_transport.websocket.PyWebSocket.
+# This alias keeps all in-file callers working without change.
+from src.core.services.wsl_transport.websocket import PyWebSocket as _PyWebSocket
 
-    __slots__ = ("_sock",)
 
-    def __init__(self, ws_url: str, timeout: float = 5.0, host_override: str | None = None):
-        import socket
-        import base64
-        import os
-        from urllib.parse import urlparse
+# ── Pre-warmed PowerShell bridge (delegates to wsl_transport.ps_bridge) ──
 
-        parsed = urlparse(ws_url)
-        host = parsed.hostname or "localhost"
-        port = parsed.port or 80
-        path = parsed.path or "/"
+# Bridge management has moved to wsl_transport.ps_bridge.
+# These thin wrappers preserve the internal call sites.
 
-        self._sock = socket.create_connection((host, port), timeout=timeout)
-        self._sock.settimeout(timeout)
+from src.core.services.wsl_transport.ps_bridge import (
+    warm_bridge,
+    bridge_status,
+    bridge_connect as _bridge_connect,
+    bridge_disconnect as _bridge_disconnect,
+    bridge_send as _bridge_send,
+    cleanup_stale_bridge,
+)
 
-        # WebSocket upgrade handshake
-        # host_override lets us spoof Host: localhost when connecting
-        # through netsh portproxy (Chrome rejects non-localhost WS)
-        header_host = host_override or f"{host}:{port}"
-        key = base64.b64encode(os.urandom(16)).decode()
-        handshake = (
-            f"GET {path} HTTP/1.1\r\n"
-            f"Host: {header_host}\r\n"
-            f"Upgrade: websocket\r\n"
-            f"Connection: Upgrade\r\n"
-            f"Sec-WebSocket-Key: {key}\r\n"
-            f"Sec-WebSocket-Version: 13\r\n"
-            f"\r\n"
-        )
-        self._sock.sendall(handshake.encode())
-
-        resp = b""
-        while b"\r\n\r\n" not in resp:
-            chunk = self._sock.recv(4096)
-            if not chunk:
-                raise ConnectionError("WS handshake: connection closed")
-            resp += chunk
-
-        status_line = resp.split(b"\r\n")[0]
-        if b"101" not in status_line:
-            raise ConnectionError(
-                f"WS upgrade failed: {status_line.decode(errors='replace')}"
-            )
-
-    def send(self, text: str) -> None:
-        """Send a text frame (client-masked per RFC 6455)."""
-        import os
-
-        data = text.encode("utf-8")
-        mask = os.urandom(4)
-        header = bytearray()
-        header.append(0x81)  # FIN + TEXT opcode
-
-        length = len(data)
-        if length < 126:
-            header.append(0x80 | length)
-        elif length < 65536:
-            header.append(0x80 | 126)
-            header.extend(length.to_bytes(2, "big"))
-        else:
-            header.append(0x80 | 127)
-            header.extend(length.to_bytes(8, "big"))
-
-        header.extend(mask)
-        masked = bytearray(length)
-        for i in range(length):
-            masked[i] = data[i] ^ mask[i % 4]
-        self._sock.sendall(bytes(header) + bytes(masked))
-
-    def recv(self) -> str:
-        """Receive a complete text message (handles continuation frames)."""
-        fragments = []
-        while True:
-            hdr = self._recv_exact(2)
-            fin = hdr[0] & 0x80
-            opcode = hdr[0] & 0x0F
-            has_mask = hdr[1] & 0x80
-            length = hdr[1] & 0x7F
-
-            if length == 126:
-                length = int.from_bytes(self._recv_exact(2), "big")
-            elif length == 127:
-                length = int.from_bytes(self._recv_exact(8), "big")
-
-            mask_key = self._recv_exact(4) if has_mask else None
-            payload = self._recv_exact(length)
-
-            if mask_key:
-                payload = bytearray(payload)
-                for i in range(len(payload)):
-                    payload[i] ^= mask_key[i % 4]
-                payload = bytes(payload)
-
-            if opcode == 0x08:
-                raise ConnectionError("WS peer sent close frame")
-            if opcode == 0x09:
-                self._send_pong(payload)
-                continue
-            if opcode == 0x0A:
-                continue
-
-            fragments.append(payload)
-            if fin:
-                break
-
-        return b"".join(fragments).decode("utf-8")
-
-    def _recv_exact(self, n: int) -> bytes:
-        buf = bytearray()
-        while len(buf) < n:
-            chunk = self._sock.recv(n - len(buf))
-            if not chunk:
-                raise ConnectionError("WS connection lost")
-            buf.extend(chunk)
-        return bytes(buf)
-
-    def _send_pong(self, payload: bytes) -> None:
-        import os
-        mask = os.urandom(4)
-        header = bytearray([0x8A])
-        length = len(payload)
-        if length < 126:
-            header.append(0x80 | length)
-        else:
-            header.append(0x80 | 126)
-            header.extend(length.to_bytes(2, "big"))
-        header.extend(mask)
-        masked = bytearray(length)
-        for i in range(length):
-            masked[i] = payload[i] ^ mask[i % 4]
-        self._sock.sendall(bytes(header) + bytes(masked))
-
-    def close(self) -> None:
-        try:
-            self._sock.sendall(b"\x88\x80" + b"\x00\x00\x00\x00")
-        except Exception:
-            pass
-        try:
-            self._sock.close()
-        except Exception:
-            pass
-
-
-# ── Pre-warmed PowerShell bridge ──────────────────────────────
-#
-# One PowerShell process stays alive across replays.
-# Protocol: READY → CONNECT ws_url → CONNECTED → commands →
-#           DISCONNECT → DISCONNECTED → CONNECT again ...
-#
-# First boot costs ~3s (PS startup).  Subsequent connects: ~100ms.
-
-import threading as _threading
-import queue as _queue
-
-_bridge_lock = _threading.Lock()
-_bridge_process = None
-_bridge_script_path: str | None = None
-_bridge_ready = False
-_bridge_queue: "_queue.Queue[str | None]" = _queue.Queue()
-_bridge_reader_thread: _threading.Thread | None = None
-_stale_bridge_cleaned = False
-
-
-def cleanup_stale_bridge() -> None:
-    """Kill any orphaned PowerShell bridge processes from previous runs.
-
-    Called once at startup.  Runs in a background thread to avoid
-    blocking server launch.  Cleans up temp cdp_bridge_*.ps1 files
-    from C:\\Windows\\Temp as an indicator of stale processes.
-    """
-    global _stale_bridge_cleaned
-    if _stale_bridge_cleaned:
-        return
-    _stale_bridge_cleaned = True
-
-    if not _detect_wsl2():
-        return
-
-    import subprocess
-    import glob
-
-    # Clean up stale cdp_bridge_*.ps1 temp files
-    stale_scripts = glob.glob("/mnt/c/Windows/Temp/cdp_bridge_*.ps1")
-    for script in stale_scripts:
-        try:
-            os.remove(script)
-            logger.debug("Removed stale bridge script: %s", script)
-        except OSError:
-            pass
-
-
-def _bridge_reader_loop() -> None:
-    """Persistent reader: pumps stdout lines into _bridge_queue."""
-    global _bridge_process
-    while _bridge_process and _bridge_process.poll() is None:
-        try:
-            line = _bridge_process.stdout.readline()
-            if not line:
-                break
-            _bridge_queue.put(line.strip())
-        except Exception:
-            break
-    _bridge_queue.put(None)  # Sentinel: process died
-
-
-def _bridge_read(timeout: float = 10.0) -> str | None:
-    """Read the next line from the bridge (via queue). Thread-safe."""
-    try:
-        val = _bridge_queue.get(timeout=timeout)
-        return val
-    except _queue.Empty:
-        return None
-
-_BRIDGE_PS_SCRIPT = r"""
-$ErrorActionPreference = 'Stop'
-[Console]::Out.WriteLine('READY')
-[Console]::Out.Flush()
-
-while ($true) {
-    $cmd = [Console]::In.ReadLine()
-    if ($cmd -eq $null -or $cmd -eq 'EXIT') { break }
-
-    if ($cmd.StartsWith('CONNECT ')) {
-        $wsUrl = $cmd.Substring(8)
-        $ws = $null
-        try {
-            $ws = New-Object System.Net.WebSockets.ClientWebSocket
-            $cts = New-Object System.Threading.CancellationTokenSource
-            $ws.ConnectAsync([Uri]$wsUrl, $cts.Token).Wait()
-            [Console]::Out.WriteLine('CONNECTED')
-            [Console]::Out.Flush()
-
-            while ($true) {
-                $line = [Console]::In.ReadLine()
-                if ($line -eq $null -or $line -eq 'EXIT') {
-                    try { $ws.CloseAsync(
-                        [System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure,
-                        '', $cts.Token).Wait() } catch {}
-                    $ws.Dispose()
-                    exit
-                }
-                if ($line -eq 'DISCONNECT') {
-                    try { $ws.CloseAsync(
-                        [System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure,
-                        '', $cts.Token).Wait() } catch {}
-                    $ws.Dispose()
-                    [Console]::Out.WriteLine('DISCONNECTED')
-                    [Console]::Out.Flush()
-                    break
-                }
-
-                $bytes = [Text.Encoding]::UTF8.GetBytes($line)
-                $seg = New-Object System.ArraySegment[byte](,$bytes)
-                $ws.SendAsync($seg,
-                    [System.Net.WebSockets.WebSocketMessageType]::Text,
-                    $true, $cts.Token).Wait()
-
-                $all = New-Object System.Collections.Generic.List[byte]
-                do {
-                    $buf = New-Object byte[] 1048576
-                    $rseg = New-Object System.ArraySegment[byte](,$buf)
-                    $r = $ws.ReceiveAsync($rseg, $cts.Token).Result
-                    for ($i = 0; $i -lt $r.Count; $i++) { $all.Add($buf[$i]) }
-                } while (-not $r.EndOfMessage)
-
-                $resp = [Text.Encoding]::UTF8.GetString($all.ToArray())
-                [Console]::Out.WriteLine($resp)
-                [Console]::Out.Flush()
-            }
-        } catch {
-            if ($ws) { try { $ws.Dispose() } catch {} }
-            [Console]::Out.WriteLine('ERROR:' + $_.Exception.Message)
-            [Console]::Out.Flush()
-        }
-    }
-}
-"""
-
-
-def _ensure_bridge() -> bool:
-    """Ensure the pre-warmed PowerShell bridge process is running.
-
-    Returns True if the bridge is ready.  Thread-safe.
-    """
-    global _bridge_process, _bridge_script_path, _bridge_ready
-    global _bridge_reader_thread, _bridge_queue
-    import subprocess
-    import tempfile
-    import os
-
-    with _bridge_lock:
-        # Already alive?
-        if (
-            _bridge_ready
-            and _bridge_process is not None
-            and _bridge_process.poll() is None
-        ):
-            return True
-
-        # Clean up previous
-        _bridge_ready = False
-        if _bridge_process and _bridge_process.poll() is None:
-            try:
-                _bridge_process.kill()
-            except Exception:
-                pass
-        if _bridge_script_path:
-            try:
-                os.unlink(_bridge_script_path)
-            except OSError:
-                pass
-
-        # Drain old queue
-        _bridge_queue = _queue.Queue()
-
-        # Resolve Windows temp dir (once)
-        global _win_temp_dir, _win_temp_dir_resolved
-        if _detect_wsl2() and not _win_temp_dir_resolved:
-            try:
-                win_user = subprocess.run(
-                    ["cmd.exe", "/C", "echo", "%USERNAME%"],
-                    capture_output=True, text=True, timeout=3,
-                ).stdout.strip()
-                candidate = f"/mnt/c/Users/{win_user}/AppData/Local/Temp"
-                if os.path.isdir(candidate):
-                    _win_temp_dir = candidate
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-            _win_temp_dir_resolved = True
-
-        # Write script
-        win_temp = _win_temp_dir if _detect_wsl2() else None
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            suffix=".ps1", prefix="cdp_bridge_", dir=win_temp,
-        )
-        _bridge_script_path = tmp_path
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-            f.write(_BRIDGE_PS_SCRIPT)
-
-        # Convert path for WSL2
-        if _detect_wsl2():
-            try:
-                win_path = subprocess.run(
-                    ["wslpath", "-w", tmp_path],
-                    capture_output=True, text=True, timeout=3,
-                ).stdout.strip()
-            except (subprocess.TimeoutExpired, OSError):
-                win_path = tmp_path
-        else:
-            win_path = tmp_path
-
-        # Start PowerShell
-        try:
-            _bridge_process = subprocess.Popen(
-                [
-                    "powershell.exe", "-NoProfile",
-                    "-ExecutionPolicy", "Bypass",
-                    "-File", win_path,
-                ],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-
-            # Start persistent reader thread
-            _bridge_reader_thread = _threading.Thread(
-                target=_bridge_reader_loop,
-                name="cdp-bridge-reader",
-                daemon=True,
-            )
-            _bridge_reader_thread.start()
-
-            # Wait for READY signal via queue
-            line = _bridge_read(timeout=10.0)
-            _bridge_ready = (line == "READY")
-
-            if _bridge_ready:
-                logger.info(
-                    "CDP bridge process ready (PID %d)",
-                    _bridge_process.pid,
-                )
-            else:
-                logger.warning("CDP bridge failed to start (got: %s)", line)
-                try:
-                    _bridge_process.kill()
-                except Exception:
-                    pass
-                _bridge_process = None
-
-        except Exception as exc:
-            logger.warning("CDP bridge startup failed: %s", exc)
-            _bridge_process = None
-            _bridge_ready = False
-
-    return _bridge_ready
-
-
-_bridge_warming = False  # True while a warm-up thread is active
-
-
-def warm_bridge() -> None:
-    """Pre-start the PowerShell bridge in a background thread.
-
-    Call this at app startup so the ~3s PowerShell boot happens
-    before the user clicks "Replay".
-
-    Safe to call repeatedly — will not spawn duplicate threads.
-    """
-    global _bridge_warming
-    if not _detect_wsl2():
-        return
-    cleanup_stale_bridge()
-    # Already ready or already starting — nothing to do
-    if _bridge_ready and _bridge_process is not None and _bridge_process.poll() is None:
-        return
-    if _bridge_warming:
-        return
-    _bridge_warming = True
-
-    def _do_warm():
-        global _bridge_warming
-        try:
-            _ensure_bridge()
-        finally:
-            _bridge_warming = False
-
-    _threading.Thread(
-        target=_do_warm,
-        name="cdp-bridge-warmup",
-        daemon=True,
-    ).start()
-
-
-def bridge_status() -> dict:
-    """Return the current bridge status for the UI.
-
-    Returns:
-        dict with keys:
-            needed (bool): True if WSL2 requires the bridge
-            ready (bool): True if the bridge is warmed and ready
-            warming (bool): True if currently starting up
-    """
-    needed = _detect_wsl2()
-    if not needed:
-        return {"needed": False, "ready": True, "warming": False}
-
-    ready = (
-        _bridge_ready
-        and _bridge_process is not None
-        and _bridge_process.poll() is None
-    )
-    # "warming" = we know it's needed but it's not ready yet
-    warming = needed and not ready
-    return {"needed": True, "ready": ready, "warming": warming}
-
-
-def _bridge_connect(ws_url: str, timeout: float = 10.0) -> bool:
-    """Send CONNECT to the pre-warmed bridge.  Returns True on success."""
-    if not _ensure_bridge():
-        return False
-
-    try:
-        _bridge_process.stdin.write(f"CONNECT {ws_url}\n")
-        _bridge_process.stdin.flush()
-
-        line = _bridge_read(timeout=timeout)
-
-        if line == "CONNECTED":
-            return True
-
-        if line and line.startswith("ERROR:"):
-            logger.warning("CDP bridge connect error: %s", line)
-        else:
-            logger.warning(
-                "CDP bridge: unexpected response: %s", line,
-            )
-        return False
-
-    except Exception as exc:
-        logger.warning("CDP bridge connect failed: %s", exc)
-        return False
-
-
-def _bridge_disconnect() -> None:
-    """Send DISCONNECT to the bridge (returns it to idle state)."""
-    if _bridge_process and _bridge_process.poll() is None:
-        try:
-            _bridge_process.stdin.write("DISCONNECT\n")
-            _bridge_process.stdin.flush()
-
-            line = _bridge_read(timeout=5.0)
-            if line == "DISCONNECTED":
-                logger.debug("CDP bridge disconnected cleanly")
-            else:
-                logger.warning(
-                    "CDP bridge disconnect: unexpected response: %s", line,
-                )
-        except Exception:
-            pass
-
-
-def _bridge_send(cmd: str, timeout: float = 10.0) -> dict | None:
-    """Send a CDP command via the bridge and return parsed response."""
-    if not _bridge_process or _bridge_process.poll() is not None:
-        return None
-
-    try:
-        _bridge_process.stdin.write(cmd + "\n")
-        _bridge_process.stdin.flush()
-
-        line = _bridge_read(timeout=timeout)
-        if line:
-            return json.loads(line)
-        return None
-
-    except Exception as exc:
-        logger.warning("CDP bridge send failed: %s", exc)
-        return None
 
 
 # ── CdpSession ─────────────────────────────────────────────────
@@ -1176,83 +534,31 @@ class CdpSession:
         import time as _t
         _t0 = _t.monotonic()
 
-        # ── Strategy 0: Tunnel path (fastest, additive) ────────
-        # When the WSL tunnel is active, rewrite ws_url to go through
-        # localhost (the tunnel endpoint) instead of the Windows IP.
-        # If this fails, fall through to Strategy 1/2/3 as before.
-        if _detect_wsl2() and _is_tunnel_active():
-            from urllib.parse import urlparse, urlunparse
-            parsed = urlparse(ws_url)
-            tunnel_port = parsed.port or _DEFAULT_PORT
-            tunnel_ws_url = urlunparse(parsed._replace(
-                netloc=f"localhost:{tunnel_port}",
-            ))
-            _t_tun = _t.monotonic()
-            try:
-                self._ws = _PyWebSocket(tunnel_ws_url, timeout=connect_timeout)
-                self._mode = "tunnel"
-                self._connected = True
-                logger.info(
-                    "CdpSession connected via tunnel to %s (%.0fms)",
-                    tunnel_ws_url, (_t.monotonic() - _t_tun) * 1000,
-                )
-                return
-            except Exception as exc:
-                logger.debug(
-                    "Tunnel WS failed in %.0fms (%s), trying other strategies",
-                    (_t.monotonic() - _t_tun) * 1000, exc,
-                )
-
-        # ── Strategy 0b: Direct hostname.local (netsh portproxy) ──
-        # With netsh portproxy active, Chrome is reachable at the
-        # hostname.local IP.  Rewrite ws_url to use that IP directly.
-        # Chrome rejects WS with non-localhost Host, so we override it.
-        if _detect_wsl2():
-            host_ip = _get_windows_host_ip()
-            if host_ip:
-                from urllib.parse import urlparse, urlunparse
-                parsed = urlparse(ws_url)
-                direct_port = parsed.port or _DEFAULT_PORT
-                direct_ws_url = urlunparse(parsed._replace(
-                    netloc=f"{host_ip}:{direct_port}",
-                ))
-                _t_direct = _t.monotonic()
-                try:
-                    self._ws = _PyWebSocket(
-                        direct_ws_url, timeout=min(0.5, connect_timeout),
-                        host_override=f"localhost:{direct_port}",
-                    )
-                    self._mode = "direct"
-                    self._connected = True
-                    logger.info(
-                        "CdpSession connected via direct channel to %s (%.0fms)",
-                        direct_ws_url, (_t.monotonic() - _t_direct) * 1000,
-                    )
-                    return
-                except Exception as exc:
-                    logger.info(
-                        "Direct WS to %s failed in %.0fms (%s), trying bridge",
-                        host_ip, (_t.monotonic() - _t_direct) * 1000, exc,
-                    )
-
-        # ── Strategy 1: Python-native WebSocket (instant) ─────
+        # ── Phase 1: Transport router (tunnel/direct/native) ───
+        # The router probes all WS-capable channels, ranks them by
+        # latency, and returns a connected PyWebSocket via the
+        # fastest path.  Covers old strategies 0, 0b, and 1.
+        from src.core.services.wsl_transport.router import get_router
         _t1 = _t.monotonic()
-        try:
-            self._ws = _PyWebSocket(ws_url, timeout=connect_timeout)
+        ws = get_router().connect_ws(ws_url, timeout=connect_timeout)
+        if ws:
+            self._ws = ws
             self._mode = "python"
             self._connected = True
             logger.info(
-                "CdpSession connected via Python socket to %s (%.0fms)",
+                "CdpSession connected via router to %s (%.0fms)",
                 ws_url, (_t.monotonic() - _t1) * 1000,
             )
             return
-        except Exception as exc:
-            logger.debug(
-                "Python WS failed in %.0fms (%s), trying bridge",
-                (_t.monotonic() - _t1) * 1000, exc,
-            )
 
-        # ── Strategy 2: Pre-warmed bridge (fast) ──────────────
+        logger.debug(
+            "Router WS connect failed in %.0fms, trying bridge",
+            (_t.monotonic() - _t1) * 1000,
+        )
+
+        # ── Phase 2: Pre-warmed bridge (fast) ─────────────────
+        # PowerShell subprocess protocol — different interface than
+        # PyWebSocket.  Uses stdin/stdout to send CDP commands.
         _t2 = _t.monotonic()
         if _bridge_connect(ws_url, timeout=connect_timeout):
             self._mode = "bridge"
@@ -1269,7 +575,7 @@ class CdpSession:
             (_t.monotonic() - _t2) * 1000,
         )
 
-        # ── Strategy 3: Fresh PowerShell (slow, last resort) ──
+        # ── Phase 3: Fresh PowerShell (slow, last resort) ─────
         _t3 = _t.monotonic()
         logger.debug("Bridge unavailable, trying fresh PowerShell")
         self._init_fresh_ps(ws_url, connect_timeout)
@@ -1336,7 +642,9 @@ class CdpSession:
             "}\n"
         )
 
-        win_temp = _win_temp_dir if _detect_wsl2() else None
+        from src.core.services.wsl_transport.environment import get_environment
+        _env = get_environment()
+        win_temp = _env.win_temp_dir if _env.wsl2 else None
         tmp_fd, tmp_path = tempfile.mkstemp(
             suffix=".ps1", prefix="cdp_sess_", dir=win_temp,
         )
@@ -1344,7 +652,7 @@ class CdpSession:
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
             f.write(ps_script)
 
-        if _detect_wsl2():
+        if _env.wsl2:
             try:
                 win_path = subprocess.run(
                     ["wslpath", "-w", tmp_path],
@@ -1400,13 +708,11 @@ class CdpSession:
         """True if the session is alive."""
         if not self._connected:
             return False
-        if self._mode in ("python", "direct", "tunnel"):
+        if self._mode == "python":
             return self._ws is not None
         if self._mode == "bridge":
-            return (
-                _bridge_process is not None
-                and _bridge_process.poll() is None
-            )
+            bs = bridge_status()
+            return bs.get("ready", False)
         if self._mode == "fresh_ps":
             return (
                 self._fresh_process is not None
@@ -1436,7 +742,7 @@ class CdpSession:
             "params": params,
         })
 
-        if self._mode in ("python", "direct", "tunnel"):
+        if self._mode == "python":
             return self._evaluate_python(cmd, timeout)
         if self._mode == "bridge":
             return _bridge_send(cmd, timeout)
@@ -1466,7 +772,7 @@ class CdpSession:
             "params": params or {},
         })
 
-        if self._mode in ("python", "direct", "tunnel"):
+        if self._mode == "python":
             return self._evaluate_python(cmd, timeout)
         if self._mode == "bridge":
             return _bridge_send(cmd, timeout)
@@ -1566,7 +872,10 @@ class CdpSession:
         self.close()
 
     def __del__(self):
-        self.close()
+        try:
+            self.close()
+        except (ImportError, TypeError):
+            pass  # Python interpreter shutting down
 
 
 

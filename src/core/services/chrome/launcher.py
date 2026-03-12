@@ -168,154 +168,90 @@ class ChromeInstance:
 # ── Port Checking ────────────────────────────────────────────
 
 
-# ── WSL2 hostname.local resolution cache ─────────────────────
-
-_wsl_host_ip: str | None = None
-_wsl_host_resolved: bool = False
-
-
-def _resolve_wsl_host() -> str | None:
-    """Resolve the Windows host IP via hostname.local (mDNS).
-
-    Cached — only resolves once per process lifetime.
-    Returns the IP string if hostname.local resolves, else None.
-    """
-    global _wsl_host_ip, _wsl_host_resolved
-    if _wsl_host_resolved:
-        return _wsl_host_ip
-
-    _wsl_host_resolved = True
-    try:
-        import socket
-        r = subprocess.run(
-            ["hostname"],
-            capture_output=True, text=True, timeout=3,
-        )
-        hostname = r.stdout.strip()
-        if hostname:
-            infos = socket.getaddrinfo(
-                f"{hostname}.local", None,
-                socket.AF_INET, socket.SOCK_STREAM,
-            )
-            if infos:
-                _wsl_host_ip = infos[0][4][0]
-                logger.debug(
-                    "WSL host resolved: %s.local → %s",
-                    hostname, _wsl_host_ip,
-                )
-    except Exception:
-        pass
-    return _wsl_host_ip
-
 
 def _port_in_use(port: int) -> bool:
-    """Check if anything is listening on a Windows-side TCP port.
+    """Check if Chrome is listening on a TCP port.
 
-    In WSL2, Chrome binds to 127.0.0.1 on Windows. Python in WSL2
-    cannot directly reach this via localhost. Discovery order:
-    1. hostname.local direct channel (Python socket, ~5ms)
-    2. curl.exe bridge (Windows namespace, ~100ms)
-    3. Python socket fallback (works for non-WSL2 / mirrored)
+    In WSL2, uses urllib to the Windows **host IP** (the same
+    ``direct`` channel the router uses at 6-16ms).  localhost and
+    127.0.0.1 cannot reach Windows Chrome from WSL2.
     """
+    from src.core.services.chrome.detection import is_wsl
     if is_wsl():
-        # 1. Try hostname.local direct channel — HTTP check
-        # With netsh portproxy active, TCP connect always succeeds.
-        # Must check for actual Chrome by hitting /json/version.
-        host_ip = _resolve_wsl_host()
-        if host_ip:
-            import urllib.request
-            import urllib.error
-            try:
-                url = f"http://{host_ip}:{port}/json/version"
-                req = urllib.request.Request(url)
-                with urllib.request.urlopen(req, timeout=1) as resp:
-                    body = resp.read()
-                    if b"Browser" in body or b"webSocketDebuggerUrl" in body:
-                        return True  # Chrome is actually running
-                    return False
-            except (urllib.error.URLError, OSError, ValueError):
-                pass  # Not Chrome, or not reachable — fall through
-
-        # 2. Fallback: curl.exe bridge
-        curl_exe = get_curl_exe()
-        if curl_exe:
-            try:
-                r = subprocess.run(
-                    [curl_exe, "-s", "--connect-timeout", "1",
-                     "-o", "/dev/null", "-w", "%{http_code}",
-                     f"http://localhost:{port}/"],
-                    capture_output=True, text=True, timeout=3,
-                )
-                # curl returns 0 if it connected (even if HTTP error).
-                # Non-zero means connection refused / timeout = port free.
-                return r.returncode == 0
-            except (subprocess.TimeoutExpired, OSError):
-                return False
-
-    # Fallback: Python socket (works for native Linux, may work
-    # for WSL2 with mirrored networking)
-    import socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.settimeout(1)
-        sock.connect(("localhost", port))
-        sock.close()
-        return True  # something is listening
-    except (ConnectionRefusedError, OSError):
-        return False
-    finally:
-        sock.close()
+        from src.core.services.wsl_transport.network import resolve_host_ip
+        host_ip = resolve_host_ip()
+        if not host_ip:
+            # Fallback to curl.exe if host IP not resolved
+            from src.core.services.wsl_transport.curl_bridge import curl_get
+            return curl_get(
+                f"http://localhost:{port}/json/version", timeout=1.0,
+            ) is not None
+        import urllib.request
+        try:
+            urllib.request.urlopen(
+                f"http://{host_ip}:{port}/json/version",
+                timeout=0.5,
+            )
+            return True
+        except Exception:
+            return False
+    else:
+        import urllib.request
+        try:
+            urllib.request.urlopen(
+                f"http://localhost:{port}/json/version",
+                timeout=0.5,
+            )
+            return True
+        except Exception:
+            return False
 
 
 def _cdp_responding(port: int) -> bool:
     """Check if a CDP endpoint is responding on the given port.
 
-    Discovery order for WSL2:
-    1. hostname.local direct channel (Python urllib, ~5ms)
-    2. curl.exe bridge (Windows namespace, ~100ms)
-    3. Python urllib fallback (non-WSL2 / mirrored)
+    Uses ``curl_get`` directly with a short timeout for fast polling.
+    The full router probe (3s per channel) is too slow for the
+    tight poll loop in ``_wait_for_ready``.
     """
+    from src.core.services.chrome.detection import is_wsl
     if is_wsl():
-        # 1. Try hostname.local direct channel
-        # NOTE: Only trust a SUCCESS here. On failure, fall through
-        # to curl.exe — Chrome may bind to 127.0.0.1 only.
-        host_ip = _resolve_wsl_host()
-        if host_ip:
-            url = f"http://{host_ip}:{port}/json/version"
-            import urllib.request
-            import urllib.error
-            try:
-                req = urllib.request.Request(url)
-                with urllib.request.urlopen(req, timeout=0.5) as resp:
-                    return resp.status == 200
-            except (urllib.error.URLError, OSError):
-                pass  # Fall through to curl.exe
+        from src.core.services.wsl_transport.curl_bridge import curl_get
+        return curl_get(
+            f"http://localhost:{port}/json/version", timeout=1.0,
+        ) is not None
+    else:
+        from src.ui.web.cdp_client import is_available
+        return is_available(port=port)
 
-        # 2. Fallback: curl.exe bridge
-        curl_exe = get_curl_exe()
-        if curl_exe:
-            url = f"http://localhost:{port}/json/version"
-            try:
-                r = subprocess.run(
-                    [curl_exe, "-s", "--connect-timeout", "1", url],
-                    capture_output=True, text=True, timeout=2,
-                )
-                if r.returncode == 0 and r.stdout.strip():
-                    return True
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-            return False
 
-    # Fallback for non-WSL2
-    url = f"http://localhost:{port}/json/version"
-    import urllib.request
-    import urllib.error
-    try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=0.5) as resp:
-            return resp.status == 200
-    except (urllib.error.URLError, OSError):
-        return False
+def _get_browser_id(port: int) -> str | None:
+    """Get the unique browser identity on a port.
+
+    Returns the ``webSocketDebuggerUrl`` from ``/json/version``
+    which contains a UUID unique to each Chrome instance.
+    Returns None if nothing responds on the port.
+    """
+    from src.core.services.chrome.detection import is_wsl
+    if is_wsl():
+        from src.core.services.wsl_transport.curl_bridge import curl_get
+        import json as _json
+        raw = curl_get(
+            f"http://localhost:{port}/json/version", timeout=1.0,
+        )
+        if raw:
+            try:
+                data = _json.loads(raw)
+                return data.get("webSocketDebuggerUrl", "")
+            except (ValueError, AttributeError):
+                return raw[:80]
+        return None
+    else:
+        from src.ui.web.cdp_client import get_version
+        info = get_version(port=port)
+        if info:
+            return info.get("webSocketDebuggerUrl", "")
+        return None
 
 
 # ── Chrome Launcher ──────────────────────────────────────────
@@ -325,7 +261,7 @@ _DEFAULT_CHROME_EXE_WIN = (
     r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 )
 
-_PORT_RANGE_START = 9222
+_PORT_RANGE_START = 9222 # 9222 = user's main browser, never for plans TODO: Fix, but test for now
 _PORT_RANGE_SIZE = 10
 _READY_TIMEOUT = 15       # seconds to wait for CDP after launch
 _READY_POLL_INTERVAL = 0.5
@@ -428,6 +364,16 @@ class ChromeLauncher:
                 self.kill_all()
                 time.sleep(2)
 
+            # ── Step 2b: Capture existing browser ID (hijack guard) ──
+            # If something is already on this port, record its identity.
+            # After launch, we verify the identity CHANGED — proving
+            # our new Chrome actually bound the debug port.
+            existing_browser_id = _get_browser_id(port)
+            logger.info(
+                "Hijack guard: existing_browser_id on port %d = %s",
+                port, existing_browser_id,
+            )
+
             # ── Step 3: Route to environment-specific launch ──
             if is_wsl():
                 instance = self._launch_wsl(config, port)
@@ -436,6 +382,20 @@ class ChromeLauncher:
 
             # ── Step 4: Wait for CDP ready ──
             if self._wait_for_ready(instance):
+                # ── Step 4b: Verify it's OUR Chrome, not an existing one ──
+                if existing_browser_id:
+                    new_browser_id = _get_browser_id(port)
+                    logger.info(
+                        "Hijack guard: new_browser_id on port %d = %s",
+                        port, new_browser_id,
+                    )
+                    if new_browser_id == existing_browser_id:
+                        raise ChromeStartupFailed(
+                            f"Port {port} still has the same browser "
+                            f"(id={existing_browser_id[:40]}…). "
+                            f"New Chrome failed to bind the debug port. "
+                            f"An existing Chrome is already using it."
+                        )
                 logger.info(
                     "Chrome instance ready: port=%d pid=%d endpoint=%s",
                     port, instance.pid, instance.endpoint,
@@ -777,57 +737,36 @@ class ChromeLauncher:
                 # Browser.close to shut down the instance cleanly.
                 killed = False
                 try:
-                    import json as _json
-                    import urllib.request
-                    import urllib.error
+                    from src.ui.web.cdp_client import get_version, CdpSession
 
-                    # Resolve the Windows host IP for direct access
-                    host_ip = _resolve_wsl_host()
-                    base = (
-                        f"http://{host_ip}:{instance.port}"
-                        if host_ip
-                        else f"http://localhost:{instance.port}"
+                    # Get browser WS URL via transport router
+                    version = get_version(port=instance.port)
+                    ws_url = (
+                        version.get("webSocketDebuggerUrl", "")
+                        if version else ""
                     )
-
-                    # Get browser WS URL
-                    req = urllib.request.Request(f"{base}/json/version")
-                    with urllib.request.urlopen(req, timeout=2) as resp:
-                        data = _json.loads(resp.read())
-                    ws_url = data.get("webSocketDebuggerUrl", "")
-
-                    if ws_url and host_ip:
-                        # Rewrite ws_url to use the host IP
-                        from urllib.parse import urlparse, urlunparse
-                        parsed = urlparse(ws_url)
-                        ws_url = urlunparse(parsed._replace(
-                            netloc=f"{host_ip}:{instance.port}",
-                        ))
 
                     if ws_url:
                         # Connect to browser WS and send Browser.close.
                         # Browser.close causes Chrome to drop the WS
                         # immediately, so send_command's recv() would
                         # throw.  Fire-and-forget via raw ws.send().
-                        from src.ui.web.cdp_client import CdpSession
-                        import json as _json
                         logger.info(
                             "Attempting CdpSession to browser WS: %s",
                             ws_url,
                         )
                         session = CdpSession(ws_url, connect_timeout=3)
-                        logger.info(
-                            "CdpSession connected=%s mode=%s",
-                            session.connected,
-                            getattr(session, '_mode', '?'),
-                        )
                         if session.connected:
-                            close_cmd = _json.dumps({
-                                "id": 1,
-                                "method": "Browser.close",
-                                "params": {},
-                            })
                             logger.info("Sending Browser.close...")
-                            session._ws.send(close_cmd)
+                            # Browser.close drops the WS immediately,
+                            # so send_command's recv may fail — that's OK,
+                            # the close command is delivered before the drop.
+                            try:
+                                session.send_command(
+                                    "Browser.close", {},
+                                )
+                            except Exception:
+                                pass  # expected — connection drops
                             logger.info("Browser.close sent OK")
                             killed = True
                             logger.info(
@@ -871,6 +810,12 @@ class ChromeLauncher:
             if killed:
                 with self._lock:
                     self._instances.pop(instance.port, None)
+                # Evict pooled CDP sessions for this port
+                try:
+                    from src.ui.web.cdp_client import evict_port
+                    evict_port(instance.port)
+                except Exception:
+                    pass  # Non-critical cleanup
                 logger.info(
                     "Killed Chrome instance PID %d on port %d",
                     instance.pid, instance.port,

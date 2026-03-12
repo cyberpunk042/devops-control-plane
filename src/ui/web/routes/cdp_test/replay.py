@@ -274,85 +274,29 @@ def cdp_test_replay_status():
 
 @cdp_test_bp.route("/cdp-test/warm", methods=["POST"])
 def cdp_test_warm():
-    """Warm ALL CDP connection options: bridge + tunnel.
+    """Warm ALL CDP connection options.
 
     The frontend calls this when the user opens the CDP test config
-    or the plan execution modal.  On WSL2, this:
-    1. Pre-starts the PowerShell bridge (~3s cold start)
-    2. Starts the Python TCP tunnel if not already active
+    or the plan execution modal.  Delegates to ``cdp_client.warm()``
+    which adaptively sets up the transport layer:
+
+    - Probes all channels (native, tunnel, direct, curl)
+    - Starts a tunnel if WSL2 NAT mode and no fast channel
+    - Only warms PS bridge if no fast WS channel is available
+    - Returns full router status for observability
 
     Returns::
 
         {
             "ok": true,
-            "bridge": { "needed": true, "ready": false, "warming": true },
-            "tunnel": { "active": true, "port": 9222 }
+            "environment": { "wsl2": true, ... },
+            "network": { "host_ip": "172.17.128.1", ... },
+            "rankings": { "9222": { "direct": 4.2, "curl": 180.0 } },
+            "health": { ... },
+            "bridge": { "needed": true, "ready": false, ... },
+            "pool_size": 0
         }
     """
     from src.ui.web import cdp_client
-
-    # 1. Warm the WS bridge (background thread — non-blocking)
-    cdp_client.warm_bridge()
-    bridge_st = cdp_client.bridge_status()
-
-    # 2. Start the Python tunnel if on WSL2 and not already running
-    tunnel_st = {"active": False}
-    if cdp_client._detect_wsl2():
-        from src.core.services.chrome.wsl_tunnel import (
-            get_active_tunnel, start_tunnel,
-        )
-        existing = get_active_tunnel()
-        if existing and existing.is_running:
-            tunnel_st = {"active": True, "port": existing.local_port}
-        else:
-            # Resolve the Windows host IP
-            import socket as _socket
-            import subprocess
-            target_host = None
-            try:
-                hostname_r = subprocess.run(
-                    ["hostname"],
-                    capture_output=True, text=True, timeout=3,
-                )
-                hostname = hostname_r.stdout.strip()
-                if hostname:
-                    fqdn = f"{hostname}.local"
-                    try:
-                        infos = _socket.getaddrinfo(
-                            fqdn, None, _socket.AF_INET, _socket.SOCK_STREAM,
-                        )
-                        if infos:
-                            target_host = infos[0][4][0]
-                    except (_socket.gaierror, OSError):
-                        pass
-            except Exception:
-                pass
-
-            if target_host:
-                tunnel = start_tunnel(
-                    local_port=9222,
-                    target_host=target_host,
-                    method="python_proxy",
-                )
-                if tunnel:
-                    tunnel_st = {"active": True, "port": 9222}
-
-    # 3. Check WS worker (Python-native WebSocket path via tunnel)
-    ws_st = {"ready": False}
-    try:
-        import urllib.request
-        import json as _json
-        req = urllib.request.Request("http://localhost:9222/json/version")
-        with urllib.request.urlopen(req, timeout=1) as resp:
-            body = resp.read()
-            if b"Browser" in body or b"webSocketDebuggerUrl" in body:
-                ws_st = {"ready": True}
-    except Exception:
-        pass
-
-    return jsonify({
-        "ok": True,
-        "bridge": bridge_st,
-        "tunnel": tunnel_st,
-        "ws": ws_st,
-    })
+    status = cdp_client.warm()
+    return jsonify(status)

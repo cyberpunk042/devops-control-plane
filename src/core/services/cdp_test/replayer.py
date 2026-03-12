@@ -2085,7 +2085,7 @@ def replay_suite(
     # ── NOW activate (focus) the target tab ──────────────────
     # User sees the tab switch with backdrop already visible.
     _t_activate = time.monotonic()
-    cdp_client.activate_target(target_id)
+    cdp_client.activate_target(target_id, port=cdp_port)
     logger.info(
         "Replay: activate_target took %.0fms",
         (time.monotonic() - _t_activate) * 1000,

@@ -4273,19 +4273,36 @@
                 const data = await res.json();
 
                 const parts = [];
-                if (data.ws?.ready) { parts.push('✅ WS Worker'); } else { parts.push('❌ WS Worker'); }
-                if (data.tunnel?.active) { parts.push('✅ Tunnel'); } else { parts.push('❌ Tunnel'); }
+
+                // Transport channel status (replaces old WS Worker / Tunnel)
+                const rankings = data.rankings || {};
+                const portRanks = rankings['9222'] || {};
+                const channels = Object.keys(portRanks);
+                if (channels.length > 0) {
+                    // Find fastest channel
+                    const fastest = channels.reduce((a, b) => portRanks[a] < portRanks[b] ? a : b);
+                    const ms = Math.round(portRanks[fastest]);
+                    parts.push(`✅ ${fastest} (${ms}ms)`);
+                } else {
+                    parts.push('❌ No channel');
+                }
+
+                // Bridge status
                 if (data.bridge?.ready) { parts.push('✅ Bridge'); }
                 else if (data.bridge?.warming) { parts.push('⏳ Bridge warming…'); }
                 else if (!data.bridge?.needed) { parts.push('⚡ No bridge needed'); }
                 else { parts.push('❌ Bridge'); }
 
+                // Pool size
+                if (data.pool_size > 0) { parts.push(`🔗 Pool: ${data.pool_size}`); }
+
                 if (statusEl) {
                     statusEl.innerHTML = parts.join(' · ');
-                    statusEl.style.borderLeft = data.bridge?.ready || !data.bridge?.needed
+                    const hasChannel = channels.length > 0;
+                    statusEl.style.borderLeft = hasChannel
                         ? '3px solid #22c55e' : '3px solid #f59e0b';
                 }
-                if (data.bridge?.ready || !data.bridge?.needed) break;
+                if (channels.length > 0) break;  // Transport is ready
             }
         } catch (e) {
             if (statusEl) {
@@ -4316,18 +4333,19 @@
                 if (!statusEl) return;
 
                 const parts = [];
-                // WS Worker
-                if (data.ws?.ready) {
-                    parts.push('✅ WS Worker');
+
+                // Transport channel status
+                const rankings = data.rankings || {};
+                const portRanks = rankings['9222'] || {};
+                const channels = Object.keys(portRanks);
+                if (channels.length > 0) {
+                    const fastest = channels.reduce((a, b) => portRanks[a] < portRanks[b] ? a : b);
+                    const ms = Math.round(portRanks[fastest]);
+                    parts.push(`✅ ${fastest} (${ms}ms)`);
                 } else {
-                    parts.push('❌ WS Worker');
+                    parts.push('❌ No channel');
                 }
-                // Tunnel
-                if (data.tunnel?.active) {
-                    parts.push('✅ Tunnel');
-                } else {
-                    parts.push('❌ Tunnel');
-                }
+
                 // Bridge
                 if (data.bridge?.ready) {
                     parts.push('✅ Bridge');
@@ -4338,14 +4356,19 @@
                 } else {
                     parts.push('❌ Bridge');
                 }
+
+                // Pool
+                if (data.pool_size > 0) { parts.push(`🔗 Pool: ${data.pool_size}`); }
+
                 parts.push(`Target: <code style="font-size:0.68rem">${esc(targetUrl || 'auto-detect')}</code>`);
 
                 statusEl.innerHTML = parts.join(' · ');
-                statusEl.style.borderLeft = data.bridge?.ready || !data.bridge?.needed
+                const hasChannel = channels.length > 0;
+                statusEl.style.borderLeft = hasChannel
                     ? '3px solid #22c55e' : '3px solid #f59e0b';
 
                 // All ready — stop polling
-                if (data.bridge?.ready || !data.bridge?.needed) break;
+                if (hasChannel) break;
             }
         } catch (e) {
             if (statusEl) {
