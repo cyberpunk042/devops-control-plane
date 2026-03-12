@@ -10,7 +10,7 @@
 - ✅ Chunk 4: Warm-up Notification (notify, don't auto-install)
 
 **Remaining:**
-- ⬜ Chunk 3: Launcher Delegation (kill 15s stall)
+- ✅ Chunk 3: Launcher Delegation (router-delegated, 15s stall killed)
 - ⬜ Chunk 5: Notification System verification
 - ⬜ Chunk 6: Dead Code Cleanup
 
@@ -541,9 +541,9 @@ Recommendation: keep both but document the relationship clearly.
    ├──✅ Chunk 4: Warm-up Notification ─────── FEATURE (DONE)
    │     notify instead of auto-install (design changed)
    │
-   ├──⬜ Chunk 3: Launcher Delegation ─────── INFRASTRUCTURE (NEXT)
+   ├──✅ Chunk 3: Launcher Delegation ─────── INFRASTRUCTURE (DONE)
    │     use router, kill 15s stall
-   │     Files: launcher.py only
+   │     Files: launcher.py + router.py (_ensure_probed)
    │
    ├──⬜ Chunk 5: Notification System ─────── FEATURE
    │     verify end-to-end with accurate channel_level

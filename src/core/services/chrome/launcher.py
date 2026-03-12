@@ -172,33 +172,22 @@ class ChromeInstance:
 def _port_in_use(port: int) -> bool:
     """Check if Chrome is listening on a TCP port.
 
-    In WSL2, the ``netsh portproxy`` rules forward 9222-9232 on
-    the host IP to Windows localhost.  The proxy accepts TCP on
-    ALL forwarded ports, but only Chrome actually responds to HTTP.
-    Chrome responds in ~10-20ms; free ports hang until timeout.
-    A 100ms timeout catches every real Chrome while failing fast
-    on free ports.
+    In WSL2, delegates to the TransportRouter which uses the best
+    available channel (direct at ~6ms when portproxy is set up,
+    curl at ~260ms otherwise).  Channel knowledge is inherited
+    from prior probes so no re-probe overhead per port.
     """
-    import urllib.request
-
     from src.core.services.chrome.detection import is_wsl
     if is_wsl():
-        from src.core.services.wsl_transport.network import resolve_host_ip
-        host_ip = resolve_host_ip()
-        if not host_ip:
-            from src.core.services.wsl_transport.curl_bridge import curl_get
-            return curl_get(
-                f"http://localhost:{port}/json/version", timeout=1.0,
-            ) is not None
-        try:
-            urllib.request.urlopen(
-                f"http://{host_ip}:{port}/json/version",
-                timeout=0.05,  # Chrome responds in ~5-20ms via portproxy
-            )
-            return True
-        except Exception:
-            return False
+        from src.core.services.wsl_transport.router import get_router
+        router = get_router()
+        resp = router.http_get(
+            port, "/json/version",
+            timeout=router.get_timeout("http_get", port),
+        )
+        return resp is not None
     else:
+        import urllib.request
         try:
             urllib.request.urlopen(
                 f"http://localhost:{port}/json/version",
@@ -212,28 +201,20 @@ def _port_in_use(port: int) -> bool:
 def _cdp_responding(port: int) -> bool:
     """Check if a CDP endpoint is responding on the given port.
 
-    Uses the host IP direct channel (~10-20ms via portproxy).
-    Falls back to curl.exe if host IP is unavailable.
+    In WSL2, delegates to the TransportRouter which tries the
+    fastest available channel.  This replaces the old pattern of
+    hardcoded urllib at 50ms that stalled for 15s on systems
+    without portproxy.
     """
     from src.core.services.chrome.detection import is_wsl
     if is_wsl():
-        from src.core.services.wsl_transport.network import resolve_host_ip
-        host_ip = resolve_host_ip()
-        if host_ip:
-            import urllib.request
-            try:
-                urllib.request.urlopen(
-                    f"http://{host_ip}:{port}/json/version",
-                    timeout=0.05,
-                )
-                return True
-            except Exception:
-                return False
-        # Fallback
-        from src.core.services.wsl_transport.curl_bridge import curl_get
-        return curl_get(
-            f"http://localhost:{port}/json/version", timeout=1.0,
-        ) is not None
+        from src.core.services.wsl_transport.router import get_router
+        router = get_router()
+        resp = router.http_get(
+            port, "/json/version",
+            timeout=router.get_timeout("http_get", port),
+        )
+        return resp is not None
     else:
         from src.ui.web.cdp_client import is_available
         return is_available(port=port)
@@ -244,37 +225,25 @@ def _get_browser_id(port: int) -> str | None:
 
     Returns the ``webSocketDebuggerUrl`` from ``/json/version``
     which contains a UUID unique to each Chrome instance.
-    Uses host IP direct channel (~10-20ms). Returns None if
-    nothing responds.
+    Delegates to the TransportRouter for channel-adaptive transport.
+    Returns None if nothing responds.
     """
     import json as _json
     from src.core.services.chrome.detection import is_wsl
 
     if is_wsl():
-        from src.core.services.wsl_transport.network import resolve_host_ip
-        host_ip = resolve_host_ip()
-        if host_ip:
-            import urllib.request
-            try:
-                r = urllib.request.urlopen(
-                    f"http://{host_ip}:{port}/json/version",
-                    timeout=0.05,
-                )
-                data = _json.loads(r.read().decode())
-                return data.get("webSocketDebuggerUrl", "")
-            except Exception:
-                return None
-        # Fallback to curl
-        from src.core.services.wsl_transport.curl_bridge import curl_get
-        raw = curl_get(
-            f"http://localhost:{port}/json/version", timeout=1.0,
+        from src.core.services.wsl_transport.router import get_router
+        router = get_router()
+        raw = router.http_get(
+            port, "/json/version",
+            timeout=router.get_timeout("http_get", port),
         )
         if raw:
             try:
                 data = _json.loads(raw)
                 return data.get("webSocketDebuggerUrl", "")
             except (ValueError, AttributeError):
-                return raw[:80]
+                return raw[:80] if isinstance(raw, str) else None
         return None
     else:
         from src.ui.web.cdp_client import get_version

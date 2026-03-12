@@ -164,9 +164,24 @@ class TransportRouter:
         return results
 
     def _ensure_probed(self, port: int) -> None:
-        """Lazy probe on first use per port."""
-        if port not in self._probed_ports:
-            self.probe(port)
+        """Lazy probe on first use per port.
+
+        If another port has already been probed, borrow its rankings
+        instead of running a full probe.  All CDP ports share the same
+        channel infrastructure (same portproxy rules, same host IP),
+        so channel knowledge transfers across ports.
+        """
+        if port in self._probed_ports:
+            return
+        # Borrow from any already-probed port
+        with self._lock:
+            for _other, rankings in self._rankings.items():
+                if rankings:
+                    self._rankings[port] = list(rankings)
+                    self._probed_ports.add(port)
+                    return
+        # First port ever — full probe
+        self.probe(port)
 
     def _ranked_channels(self, port: int) -> list[str]:
         """Channels sorted by latency for this port."""
