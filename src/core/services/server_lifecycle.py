@@ -527,15 +527,10 @@ def install_signal_handlers() -> None:
         except Exception:
             pass
 
-        # 4. Stop WSL tunnel (prevents orphaned proxy on Windows)
-        try:
-            from src.core.services.chrome.wsl_tunnel import get_active_tunnel
-            tunnel = get_active_tunnel()
-            if tunnel and tunnel.is_running:
-                tunnel.stop()
-                logger.debug("WSL tunnel stopped on shutdown")
-        except Exception:
-            pass
+        # 4. WSL tunnel — do NOT stop on shutdown.
+        # netsh portproxy rules are persistent Windows-side config
+        # that should survive server restarts.  Deleting them on
+        # every Ctrl+C wipes the user's channel setup.
 
         # 5. Clean up PID file
         try:

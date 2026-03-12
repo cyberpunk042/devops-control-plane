@@ -182,22 +182,15 @@ class EventBus:
                         self._latest.pop(k.strip(), None)
 
             # Push to all subscriber queues
+            dead: list[queue.Queue[dict]] = []
             for q in self._subscribers:
                 try:
                     q.put_nowait(event)
                 except queue.Full:
-                    # Queue backlogged — drop oldest event instead of killing
-                    # the subscriber.  Dropping the subscriber forces a
-                    # reconnect which wastes a connection slot and sends a
-                    # full snapshot, making things worse.
-                    try:
-                        q.get_nowait()  # discard oldest
-                    except queue.Empty:
-                        pass
-                    try:
-                        q.put_nowait(event)
-                    except queue.Full:
-                        pass  # still full after drain — skip this event
+                    dead.append(q)
+            for q in dead:
+                self._subscribers.remove(q)
+                logger.info("Dropped unresponsive SSE subscriber (queue full)")
 
         # Log outside the lock (avoids holding lock during I/O)
         if event_type != "sys:heartbeat":
