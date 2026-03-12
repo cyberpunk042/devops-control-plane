@@ -727,8 +727,9 @@ function _wslChannelSetupAccept() {
         body: JSON.stringify({ port: 9222 }),
     }).then(function(result) {
         if (result && result.ok) {
-            // Invalidate CDP warm cache so next modal open re-probes
+            // Invalidate CDP warm cache and re-warm so any open modal updates
             if (typeof _cdpWarmResult !== 'undefined') { _cdpWarmResult = null; }
+            if (typeof _plansWarmCdp === 'function') { setTimeout(_plansWarmCdp, 500); }
             // Dismiss the notification
             api('/notifications').then(function(data) {
                 if (data && data.notifications) {

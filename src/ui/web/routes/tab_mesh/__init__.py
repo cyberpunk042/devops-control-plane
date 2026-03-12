@@ -1890,6 +1890,73 @@ def wsl_channel_status():
     })
 
 
+# ── Targeted scan endpoints (SRP — scan ONLY what changed) ───────
+
+
+@tab_mesh_bp.route("/tab-mesh/wsl-tunnel-state")
+def wsl_tunnel_state():
+    """Lightweight scan of ONLY tunnel state + channel level.
+
+    Called after start/stop to update just the tunnel-related UI
+    without re-scanning hostname, firewall, socat availability, etc.
+    """
+    from src.core.services.chrome.wsl_tunnel import get_active_tunnel
+    from src.core.services.wsl_transport.router import WslTransportRouter
+
+    tunnel = get_active_tunnel()
+    tunnel_active = tunnel is not None and tunnel.is_running if tunnel else False
+    tunnel_method = None
+    tunnel_stats = None
+    if tunnel_active:
+        tunnel_stats = tunnel.stats
+        tunnel_method = tunnel_stats.get("method")
+
+    # Quick channel level: check if we have a fast channel
+    router = WslTransportRouter()
+    has_fast = router.has_fast_channel(9222)
+    channel_level = 2 if has_fast else (1 if tunnel_active else 0)
+
+    return jsonify({
+        "tunnel_active": tunnel_active,
+        "tunnel_method": tunnel_method,
+        "tunnel_stats": tunnel_stats,
+        "channel_level": channel_level,
+    })
+
+
+@tab_mesh_bp.route("/tab-mesh/wsl-firewall-state")
+def wsl_firewall_state():
+    """Lightweight scan of ONLY firewall state.
+
+    Called after firewall fix to update just the firewall indicators
+    without re-scanning everything else.
+    """
+    fw = check_wsl_firewall_status()
+
+    return jsonify({
+        "firewall_rule_exists": fw.get("rule_exists", False),
+        "firewall_rule_enabled": fw.get("rule_enabled", False),
+        "firewall_port_reachable": fw.get("port_reachable", False),
+    })
+
+
+@tab_mesh_bp.route("/tab-mesh/wsl-curl-state")
+def wsl_curl_state():
+    """Lightweight scan of ONLY curl.exe availability.
+
+    Called after curl install to update just the curl indicator
+    without re-scanning everything else.
+    """
+    curl_available = shutil.which("curl.exe") is not None
+    curl_path = shutil.which("curl.exe")
+
+    return jsonify({
+        "curl_exe_available": curl_available,
+        "curl_exe_path": curl_path,
+    })
+
+
+
 @tab_mesh_bp.route("/tab-mesh/wsl-start-tunnel", methods=["POST"])
 def wsl_start_tunnel():
     """Start a WSL tunnel using the specified method.

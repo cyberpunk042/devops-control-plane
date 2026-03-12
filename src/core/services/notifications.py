@@ -164,16 +164,22 @@ def create_notification(
     """
     notifications = _load_raw(project_root)
 
-    # Deduplication: check for active notification of same type
+    # Deduplication: update existing active notification of same type
     if dedup:
         for existing in notifications:
             if existing.get("type") == notif_type and not existing.get("dismissed"):
-                logger.debug(
-                    "Notification deduped: type=%s already active (id=%s)",
-                    notif_type,
-                    existing.get("id"),
+                # Update in place — don't create a duplicate
+                existing["title"] = title
+                existing["message"] = message
+                existing["meta"] = meta or {}
+                existing["created_at"] = time.time()
+                _save_raw(project_root, notifications)
+                logger.info(
+                    "Notification updated (dedup): id=%s type=%s",
+                    existing.get("id"), notif_type,
                 )
-                return None
+                _publish("notification:new", key=existing["id"], data=existing)
+                return existing
 
     notif: dict[str, Any] = {
         "id": _make_id(),

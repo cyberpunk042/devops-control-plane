@@ -1024,57 +1024,40 @@
             '</div>';
 
         // ── Section 2: Detection Grid ──
-        var detections = [
-            [true, '✅ WSL2 ' + (status.networking_mode || 'NAT') + ' mode'],
-            [status.hostname_local_resolves,
-             status.hostname_local_resolves
+        html += '<div style="margin-bottom:14px">';
+        html += '<div style="font-size:0.66rem;padding:2px 0;color:var(--text-primary)">' +
+            '✅ WSL2 ' + (status.networking_mode || 'NAT') + ' mode</div>';
+        html += '<div style="font-size:0.66rem;padding:2px 0;color:' +
+            (status.hostname_local_resolves ? 'var(--text-primary)' : 'var(--text-muted)') + '">' +
+            (status.hostname_local_resolves
                 ? '✅ ' + (status.hostname || '?') + '.local → ' + (status.hostname_local_ip || '?')
-                : '❌ hostname.local not resolving'],
-            [status.firewall_port_reachable || status.firewall_rule_exists,
-             status.firewall_port_reachable
+                : '❌ hostname.local not resolving') + '</div>';
+        html += '<div id="wsl-det-firewall" style="font-size:0.66rem;padding:2px 0;color:' +
+            ((status.firewall_port_reachable || status.firewall_rule_exists) ? 'var(--text-primary)' : 'var(--text-muted)') + '">' +
+            (status.firewall_port_reachable
                 ? '✅ Firewall port reachable'
                 : status.firewall_rule_exists
                     ? '⚠️ Firewall rule exists but port unreachable'
-                    : '❌ Firewall rule missing'],
-            [status.curl_exe_available,
-             status.curl_exe_available
+                    : '❌ Firewall rule missing') + '</div>';
+        html += '<div id="wsl-det-curl" style="font-size:0.66rem;padding:2px 0;color:' +
+            (status.curl_exe_available ? 'var(--text-primary)' : 'var(--text-muted)') + '">' +
+            (status.curl_exe_available
                 ? '✅ curl.exe available'
                 : '⚠️ curl.exe not found — <a href="#" onclick="_wslInstallCurl();return false" ' +
-                  'style="color:var(--accent);text-decoration:underline;font-size:0.6rem">[Install]</a>'],
-            [status.tunnel_active,
-             status.tunnel_active
+                  'style="color:var(--accent);text-decoration:underline;font-size:0.6rem">[Install]</a>') + '</div>';
+        html += '<div id="wsl-det-tunnel" style="font-size:0.66rem;padding:2px 0;color:' +
+            (status.tunnel_active ? 'var(--text-primary)' : 'var(--text-muted)') + '">' +
+            (status.tunnel_active
                 ? '✅ Tunnel active (' + (status.tunnel_method || 'unknown') + ')'
-                : '❌ No tunnel running'],
-        ];
-
-        html += '<div style="margin-bottom:14px">';
-        for (var di = 0; di < detections.length; di++) {
-            var ok = detections[di][0];
-            var text = detections[di][1];
-            html += '<div style="font-size:0.66rem;padding:2px 0;color:' +
-                (ok ? 'var(--text-primary)' : 'var(--text-muted)') + '">' +
-                text + '</div>';
-        }
+                : '❌ No tunnel running') + '</div>';
         html += '</div>';
 
         // ── Section 3: Active Tunnel Controls ──
+        html += '<div id="wsl-tunnel-controls">';
         if (status.tunnel_active) {
-            html += '<div style="padding:10px 12px;border-radius:var(--radius-sm);' +
-                'background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.15);margin-bottom:14px">' +
-                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
-                '<span style="font-size:0.72rem;font-weight:600;color:var(--success)">🟢 Tunnel Active</span>' +
-                '<button class="btn btn-sm btn-ghost" style="font-size:0.58rem;margin-left:auto;' +
-                'color:var(--danger);border-color:var(--danger)" ' +
-                'onclick="_wslStopTunnel()">Stop</button></div>';
-            if (status.tunnel_stats) {
-                var ts = status.tunnel_stats;
-                html += '<div style="font-size:0.6rem;color:var(--text-muted);font-family:var(--font-mono)">';
-                html += 'Method: ' + (ts.method || '?') + ' · Port: ' + (ts.local_port || '?');
-                if (ts.started_at) html += ' · Since: ' + ts.started_at.substring(11, 19);
-                html += '</div>';
-            }
-            html += '</div>';
+            html += _wslRenderTunnelActive(status.tunnel_stats);
         }
+        html += '</div>';
 
         // ── Section 4: Tunnel Choices ──
         var choices = status.choices || [];
@@ -1185,7 +1168,7 @@
 
         // ── Section 6: Actions ──
         var inModal = _wslChannelContainerId !== 'mesh-panel-body';
-        html += '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">';
+        html += '<div id="wsl-action-bar" style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">';
         if (!inModal) html += '<button class="btn btn-sm btn-ghost" onclick="_renderMeshPanel()">← Back</button>';
         html += '<button class="btn btn-sm btn-ghost" onclick="_wslRescan()">🔄 Re-scan</button>';
 
@@ -1223,15 +1206,16 @@
             var data = await resp.json();
 
             if (data.ok) {
-                // Invalidate CDP warm cache so next modal open re-probes
+                // Invalidate CDP warm cache and re-warm so any open modal updates
                 if (typeof _cdpWarmResult !== 'undefined') { _cdpWarmResult = null; }
+                if (typeof _plansWarmCdp === 'function') { setTimeout(_plansWarmCdp, 500); }
                 if (btn) {
                     btn.textContent = '✅ Started';
                     btn.style.background = 'var(--success)';
                     btn.style.color = 'white';
                 }
-                // Re-render after brief pause
-                setTimeout(_wslRescan, 500);
+                // Targeted: scan only tunnel state after start
+                setTimeout(_wslRefreshTunnelState, 300);
             } else {
                 if (btn) {
                     btn.textContent = '❌ Failed';
@@ -1255,7 +1239,7 @@
     async function _wslStopTunnel() {
         try {
             await fetch('/api/tab-mesh/wsl-stop-tunnel', { method: 'POST' });
-            _wslRescan();
+            _wslRefreshTunnelState();
         } catch (err) {
             console.error('[WSL Channel] Stop failed:', err);
         }
@@ -1404,8 +1388,8 @@
                     statusEl.innerHTML = '<span style="color:var(--success)">' +
                         data.message + '</span>';
                 }
-                // Re-scan to update prereq indicators
-                setTimeout(_wslRescan, 1000);
+                // Targeted: scan only firewall state after fix
+                setTimeout(_wslRefreshFirewallState, 500);
             } else {
                 if (btn) { btn.textContent = '❌ Failed'; btn.disabled = false; }
                 if (statusEl) {
@@ -1424,6 +1408,134 @@
      */
     function _wslRescan() {
         _meshShowWslChannel(_wslChannelContainerId);
+    }
+
+    /**
+     * Render the tunnel-active control box HTML.
+     */
+    function _wslRenderTunnelActive(tunnelStats) {
+        var h = '<div style="padding:10px 12px;border-radius:var(--radius-sm);' +
+            'background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.15);margin-bottom:14px">' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+            '<span style="font-size:0.72rem;font-weight:600;color:var(--success)">🟢 Tunnel Active</span>' +
+            '<button class="btn btn-sm btn-ghost" style="font-size:0.58rem;margin-left:auto;' +
+            'color:var(--danger);border-color:var(--danger)" ' +
+            'onclick="_wslStopTunnel()">Stop</button></div>';
+        if (tunnelStats) {
+            h += '<div style="font-size:0.6rem;color:var(--text-muted);font-family:var(--font-mono)">';
+            h += 'Method: ' + (tunnelStats.method || '?') + ' · Port: ' + (tunnelStats.local_port || '?');
+            if (tunnelStats.started_at) h += ' · Since: ' + tunnelStats.started_at.substring(11, 19);
+            h += '</div>';
+        }
+        h += '</div>';
+        return h;
+    }
+
+    /**
+     * Targeted refresh: scan ONLY tunnel state, update tunnel-related DOM.
+     */
+    async function _wslRefreshTunnelState() {
+        try {
+            var resp = await fetch('/api/tab-mesh/wsl-tunnel-state');
+            var data = await resp.json();
+
+            // Update detection grid tunnel row
+            var tunnelDet = document.getElementById('wsl-det-tunnel');
+            if (tunnelDet) {
+                tunnelDet.style.color = data.tunnel_active ? 'var(--text-primary)' : 'var(--text-muted)';
+                tunnelDet.innerHTML = data.tunnel_active
+                    ? '✅ Tunnel active (' + (data.tunnel_method || 'unknown') + ')'
+                    : '❌ No tunnel running';
+            }
+
+            // Update tunnel controls section
+            var tunnelCtrl = document.getElementById('wsl-tunnel-controls');
+            if (tunnelCtrl) {
+                tunnelCtrl.innerHTML = data.tunnel_active
+                    ? _wslRenderTunnelActive(data.tunnel_stats)
+                    : '';
+            }
+
+            // Update action bar: show/hide start button
+            var startBtn = document.getElementById('wsl-start-btn');
+            if (data.tunnel_active && startBtn) {
+                startBtn.style.display = 'none';
+            } else if (!data.tunnel_active && !startBtn) {
+                // Re-add start button if missing
+                var actionBar = document.getElementById('wsl-action-bar');
+                if (actionBar) {
+                    var btn = document.createElement('button');
+                    btn.className = 'btn btn-sm btn-primary';
+                    btn.id = 'wsl-start-btn';
+                    btn.onclick = _wslStartTunnel;
+                    btn.textContent = '▶ Set Up';
+                    // Insert before validate button
+                    var validate = actionBar.querySelector('[onclick*="Validate"]');
+                    if (validate) actionBar.insertBefore(btn, validate);
+                    else actionBar.appendChild(btn);
+                }
+            }
+        } catch (err) {
+            console.error('[WSL Channel] Tunnel state refresh failed:', err);
+        }
+    }
+
+    /**
+     * Targeted refresh: scan ONLY firewall state, update firewall DOM.
+     */
+    async function _wslRefreshFirewallState() {
+        try {
+            var resp = await fetch('/api/tab-mesh/wsl-firewall-state');
+            var data = await resp.json();
+
+            // Update detection grid firewall row
+            var fwDet = document.getElementById('wsl-det-firewall');
+            if (fwDet) {
+                var ok = data.firewall_port_reachable || data.firewall_rule_exists;
+                fwDet.style.color = ok ? 'var(--text-primary)' : 'var(--text-muted)';
+                fwDet.innerHTML = data.firewall_port_reachable
+                    ? '✅ Firewall port reachable'
+                    : data.firewall_rule_exists
+                        ? '⚠️ Firewall rule exists but port unreachable'
+                        : '❌ Firewall rule missing';
+            }
+
+            // Update firewall prereq indicators if they exist
+            var fwPreqs = document.querySelectorAll('[id^="wsl-pq-"][id$="-firewall"]');
+            // Also check by content for generic prereq spans
+            document.querySelectorAll('[id^="wsl-pq-"]').forEach(function(el) {
+                if (el.textContent.indexOf('firewall') >= 0) {
+                    var isOk = data.firewall_rule_exists;
+                    el.style.color = isOk ? 'var(--success)' : 'var(--danger)';
+                    el.innerHTML = (isOk ? '✅' : '❌') + ' firewall';
+                    el.dataset.ok = isOk ? '1' : '0';
+                }
+            });
+        } catch (err) {
+            console.error('[WSL Channel] Firewall state refresh failed:', err);
+        }
+    }
+
+    /**
+     * Targeted refresh: scan ONLY curl state, update curl DOM.
+     */
+    async function _wslRefreshCurlState() {
+        try {
+            var resp = await fetch('/api/tab-mesh/wsl-curl-state');
+            var data = await resp.json();
+
+            // Update detection grid curl row
+            var curlDet = document.getElementById('wsl-det-curl');
+            if (curlDet) {
+                curlDet.style.color = data.curl_exe_available ? 'var(--text-primary)' : 'var(--text-muted)';
+                curlDet.innerHTML = data.curl_exe_available
+                    ? '✅ curl.exe available'
+                    : '⚠️ curl.exe not found — <a href="#" onclick="_wslInstallCurl();return false" ' +
+                      'style="color:var(--accent);text-decoration:underline;font-size:0.6rem">[Install]</a>';
+            }
+        } catch (err) {
+            console.error('[WSL Channel] Curl state refresh failed:', err);
+        }
     }
 
     // ── Phase 7: End-to-End Validation ────────────────────────────
@@ -1576,7 +1688,7 @@
                     (data.version ? ' · Version: ' + data.version : '') +
                     '</span>';
                 // Re-scan to update detection grid
-                setTimeout(_wslRescan, 1000);
+                setTimeout(_wslRefreshCurlState, 500);
             } else {
                 var html = '<span style="color:var(--danger)">❌ ' +
                     (data.message || 'All installation methods failed.') + '</span>';
