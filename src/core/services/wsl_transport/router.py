@@ -186,14 +186,68 @@ class TransportRouter:
         channels = self._ranked_channels(port)
         return any(ch in ("native", "tunnel", "direct") for ch in channels)
 
-    def needs_tunnel(self) -> bool:
-        """True if WSL2 is active and no fast direct channel is available."""
+    def needs_tunnel(self, port: int = 9222) -> bool:
+        """Whether a tunnel should be started for this port.
+
+        Returns True when:
+        - Running on WSL2
+        - Not mirrored networking
+        - No fast channel (native/direct/tunnel) found in probe results
+
+        This checks ACTUAL PROBE RESULTS, not just DNS resolution.
+        DNS can resolve (mDNS works) but the direct channel can still
+        be dead (no portproxy rules).
+        """
         if not self._env.wsl2:
             return False
         if self._mirrored:
             return False
-        # Check if direct or native works without a tunnel
-        return not self._host_ip
+        return not self.has_fast_channel(port)
+
+    # ── Adaptive timeouts ──────────────────────────────────────
+
+    # Timeout profiles: ~3-5x expected latency per channel
+    _TIMEOUT_PROFILES: dict[str, dict[str, float | None]] = {
+        "native":  {"port_check": 0.010, "http_get": 0.050, "ws_connect": 0.100},
+        "tunnel":  {"port_check": 0.050, "http_get": 0.100, "ws_connect": 0.200},
+        "direct":  {"port_check": 0.050, "http_get": 0.100, "ws_connect": 0.200},
+        "curl":    {"port_check": 0.500, "http_get": 1.000, "ws_connect": None},
+    }
+    _FALLBACK_PROFILE: dict[str, float] = {
+        "port_check": 0.500, "http_get": 1.000, "ws_connect": 1.000,
+    }
+
+    def get_timeout(self, operation: str, port: int = 9222) -> float:
+        """Get the appropriate timeout for an operation.
+
+        Uses the fastest known channel for this port to size the
+        timeout.  Falls back to conservative values if nothing
+        has been probed yet.
+
+        Args:
+            operation: ``"port_check"``, ``"http_get"``, or ``"ws_connect"``.
+            port: CDP port (default 9222).
+
+        Returns:
+            Timeout in seconds.
+        """
+        with self._lock:
+            rankings = self._rankings.get(port)
+        if rankings:
+            fastest_channel = rankings[0][0]  # (channel_name, latency)
+            profile = self._TIMEOUT_PROFILES.get(
+                fastest_channel, self._FALLBACK_PROFILE,
+            )
+        else:
+            profile = self._FALLBACK_PROFILE
+
+        timeout = profile.get(operation)
+        if timeout is None:
+            # Operation not supported on this channel
+            return self._FALLBACK_PROFILE.get(operation, 1.0)
+        return timeout
+
+    # ── Tunnel selection ──────────────────────────────────────
 
     def select_tunnel_backend(self) -> str:
         """Pick best available tunnel backend from TUNNEL_METHODS."""

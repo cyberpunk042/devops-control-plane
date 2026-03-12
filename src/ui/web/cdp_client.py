@@ -21,6 +21,7 @@ import logging
 import re
 import urllib.request
 import urllib.error
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -369,27 +370,33 @@ def warm(port: int = _DEFAULT_PORT) -> dict:
     # Probe channels for this port
     probe_results = router.probe(port)
 
-    # If WSL2 NAT mode and no fast channel, try starting a tunnel
-    if router.needs_tunnel():
-        backend = router.select_tunnel_backend()
-        logger.info("No fast channel — starting %s tunnel", backend)
+    # If WSL2 NAT mode and no fast channel, notify the user
+    if router.needs_tunnel(port):
+        logger.info(
+            "No fast channel for port %d — creating setup notification",
+            port,
+        )
         try:
-            from src.core.services.wsl_transport.tunnel_backends import (
-                start_tunnel,
+            from flask import current_app
+            from src.core.services.notifications import create_notification
+            project_root = Path(current_app.config["PROJECT_ROOT"])
+            create_notification(
+                project_root,
+                notif_type="wsl_channel_setup",
+                title="CDP Channel: Port Forwarding Needed",
+                message=(
+                    "No fast channel to Chrome detected. The system is "
+                    "using the curl.exe fallback (~260ms/call). Set up "
+                    "port forwarding for fast direct access (~5ms)."
+                ),
+                meta={
+                    "action_tab": "wsl-channel",
+                    "action_hash": "#wsl-channel",
+                },
+                dedup=True,
             )
-            from src.core.services.wsl_transport.network import resolve_host_ip
-            target_host = resolve_host_ip()
-            if target_host:
-                tunnel = start_tunnel(
-                    local_port=port,
-                    target_host=target_host,
-                    method=backend,
-                )
-                if tunnel:
-                    # Re-probe now that tunnel is active
-                    probe_results = router.probe(port)
         except Exception as exc:
-            logger.warning("Tunnel start failed: %s", exc)
+            logger.debug("Could not create setup notification: %s", exc)
 
     # Only warm PS bridge if we still have no fast WS channel
     bridge_st = bridge_status()

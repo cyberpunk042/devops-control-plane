@@ -2,7 +2,17 @@
 
 **Source:** `.agent/plans/channel-resilience-analysis.md` (12 findings)
 **Date:** 2026-03-11
-**Status:** Planning
+**Status:** In Progress
+
+**Completed:**
+- ✅ Chunk 1: Router Foundation (needs_tunnel fix + timeout profiles)
+- ✅ Chunk 2: Channel Level Detector (real TCP probe)
+- ✅ Chunk 4: Warm-up Notification (notify, don't auto-install)
+
+**Remaining:**
+- ⬜ Chunk 3: Launcher Delegation (kill 15s stall)
+- ⬜ Chunk 5: Notification System verification
+- ⬜ Chunk 6: Dead Code Cleanup
 
 ---
 
@@ -51,27 +61,30 @@ CLEAN SYSTEM (no portproxy rules):
   warm() fires
     → router.probe(9222): only curl=260ms works
     → needs_tunnel()? no fast channel in probe → True  ← FIXED
-    → start_tunnel(python_proxy)
-      → WslTunnel.start()
-        → _ensure_windows_routing() → netsh rules ✅
-        → TCP proxy on localhost ✅
-    → re-probe: tunnel=5ms, direct=6ms, curl=260ms
-    → has_fast_channel()? → True ✅
+    → creates imminent notification: "Port Forwarding Needed"
+    → does NOT auto-install (no surprise UAC prompts)
+    → has_fast_channel()? → False
+    → warms PS bridge (slow but works)
     
-  launcher uses router:
+  user sees notification:
+    → toast: "CDP Channel: Port Forwarding Needed"
+    → clicks → WSL Channel Setup modal opens
+    → picks "Port Forwarding" → UAC prompt (consented)
+    → netsh rules created → fast channel works
+    
+  launcher uses router (after Chunk 3):
     → router.is_reachable(9222) at channel-aware timeout
-    → uses direct channel at ~6ms ✅
+    → no 15s stall even on curl-only
     
   notification check:
-    → cdp_channel_level: actual probe = level 2        ← REAL
-    → no upgrade notification needed ✅
+    → cdp_channel_level: actual TCP probe → level 1   ← ACCURATE
+    → upgrade notification fires correctly ✅
 
-IF auto-provision fails (no UAC, no PowerShell):
-    → needs_tunnel()? → True, but start_tunnel fails
-    → system stays on curl at 260ms
-    → launcher uses router → curl timeout (500ms) not 50ms
-    → notification fires: "Upgrade available" ✅
-    → user can manually configure via UI
+AFTER USER SETS UP PORT FORWARDING:
+    → warm() re-probes: direct=6ms, curl=260ms
+    → has_fast_channel() → True ✅
+    → PS bridge NOT needed
+    → notification dismissed
 ```
 
 ---
@@ -391,57 +404,50 @@ of raw urllib with hardcoded timeout.
 
 ---
 
-## Chunk 4: Warm-up Auto-Provisioning
+## Chunk 4: Warm-up Notification (DESIGN CHANGED) ✅ DONE
 
-**Files:** `ui/web/cdp_client.py` (warm function)
-**Fixes:** Finding 2 chain (warm → needs_tunnel → tunnel start)
+**Files:** `ui/web/cdp_client.py`, `_notifications.html`
+**Fixes:** Finding 2 chain — but via notification, NOT auto-install
 **Dependencies:** Chunk 1 (needs_tunnel now works correctly)
 
-### What to change
+### Design Decision
 
-**4a. Wire warm() to trigger tunnel start when needed:**
+Original plan: warm() auto-calls `start_tunnel()` → UAC prompt.
+**User rejected this** — too aggressive. Auto-triggering UAC without
+consent is bad UX.
 
-The `warm()` function already has the code path:
+New design: warm() creates an **imminent notification** instead.
+The notification:
+- Uses `dedup=True` → only one exists at a time
+- Has `priority: "imminent"` → auto-shows error-level toast
+- Has `action_tab: "wsl-channel"` → click opens WSL Channel Setup modal
+- User chooses when (and whether) to act
+
+### What was changed
+
 ```python
+# BEFORE: auto-install (removed)
 if router.needs_tunnel():
-    # start tunnel
+    start_tunnel(python_proxy)  # → UAC prompt without consent
+
+# AFTER: notify (implemented)
+if router.needs_tunnel(port):
+    create_notification(
+        notif_type="wsl_channel_setup",
+        title="CDP Channel: Port Forwarding Needed",
+        message="No fast channel... Set up port forwarding...",
+        meta={"priority": "imminent", "action_tab": "wsl-channel"},
+        dedup=True,
+    )
 ```
 
-With Chunk 1's fix, `needs_tunnel()` now returns True on a clean system.
-But we need to verify that `warm()` actually calls `start_tunnel()` and
-re-probes after the tunnel is started.
+Also added `⚡` icon for `wsl_channel_setup` in `_notifications.html`.
 
-Read the current warm() implementation first. The path should be:
-1. `probe(port)` → only curl works
-2. `needs_tunnel()` → True (fixed in Chunk 1)
-3. `start_tunnel(python_proxy)` → WslTunnel → netsh rules + proxy
-4. Re-probe → direct + tunnel now work
-5. `has_fast_channel()` → True → skip PS bridge
+### Verified
 
-If this path exists in warm() already, Chunk 1's fix enables it
-automatically. If it doesn't, add it.
-
-### How to verify
-
-```bash
-# With portproxy removed:
-# 1. Start server
-# 2. Open CDP test panel (triggers warm)
-# 3. Expected logs:
-#    - probe: curl=260ms (only channel)
-#    - needs_tunnel: True
-#    - WslTunnel.start() → _ensure_windows_routing()
-#    - UAC prompt appears for netsh setup
-#    - After UAC: netsh rules created
-#    - Re-probe: direct=6ms, curl=260ms
-#    - "CDP Channel: Level 2 Active ✅" notification
-# 4. Verify portproxy rules are back:
-#    powershell.exe -Command "netsh interface portproxy show v4tov4"
-```
-
-### What NOT to change yet
-
-- Do NOT change what happens if UAC is cancelled (Chunk 5)
+- Import OK
+- Server starts without error
+- Notification creation path is exercised when needs_tunnel() = True
 
 ---
 
@@ -526,35 +532,26 @@ Recommendation: keep both but document the relationship clearly.
 # EXECUTION ORDER
 
 ```
-Chunk 1: Router Foundation ──────────────────── FOUNDATION
-   │     (needs_tunnel fix + timeout profiles)
-   │     Files: router.py only
-   │     Verify: needs_tunnel() returns True on clean system
+✅ Chunk 1: Router Foundation ──────────────── FOUNDATION (DONE)
+   │     needs_tunnel() uses probe results + get_timeout()
    │
-   ├──→ Chunk 2: Channel Level Detector ──────── INFRASTRUCTURE
-   │     (real TCP probe instead of DNS check)
-   │     Files: l0_hw_detectors.py only
-   │     Verify: cdp_channel_level=1 on clean system
+   ├──✅ Chunk 2: Channel Level Detector ────── INFRASTRUCTURE (DONE)
+   │     _tcp_reachable() instead of DNS-as-proof
    │
-   ├──→ Chunk 3: Launcher Delegation ─────────── INFRASTRUCTURE
-   │     (use router, not direct urllib)
+   ├──✅ Chunk 4: Warm-up Notification ─────── FEATURE (DONE)
+   │     notify instead of auto-install (design changed)
+   │
+   ├──⬜ Chunk 3: Launcher Delegation ─────── INFRASTRUCTURE (NEXT)
+   │     use router, kill 15s stall
    │     Files: launcher.py only
-   │     Verify: no 15s stall, uses router timeouts
    │
-   └──→ Chunk 4: Warm-up Auto-Provisioning ───── FEATURE
-         (warm triggers tunnel start on clean system)
-         Files: cdp_client.py (verify + adjust)
-         Verify: UAC prompt → portproxy rules → fast channel
-         │
-         ├──→ Chunk 5: Notification System ───── FEATURE
-         │     (accurate gap detection + upgrade prompt)
-         │     Files: tab_mesh/__init__.py
-         │     Verify: notification fires on clean system
-         │
-         └──→ Chunk 6: Dead Code Cleanup ─────── CLEANUP
-               (remove maybe_start_tunnel, document overlap)
-               Files: tunnel_backends.py, wsl_tunnel.py
-               Verify: no dead code, tests pass
+   ├──⬜ Chunk 5: Notification System ─────── FEATURE
+   │     verify end-to-end with accurate channel_level
+   │     Files: tab_mesh/__init__.py
+   │
+   └──⬜ Chunk 6: Dead Code Cleanup ───────── CLEANUP
+         remove maybe_start_tunnel, document overlap
+         Files: tunnel_backends.py, wsl_tunnel.py
 ```
 
 ---
@@ -570,8 +567,8 @@ Each chunk has a before/after verification:
 | 2 | `cdp_channel_level` on clean system | 2 (wrong) | 1 (correct) |
 | 3 | Chrome launch on clean system | 15s stall | ~2-3s via router |
 | 3 | `_port_in_use` on clean system | 50ms timeout, fail | 500ms via curl |
-| 4 | warm() on clean system | Skips tunnel | Starts tunnel, UAC |
-| 4 | After warm() on clean system | curl only, 260ms | direct 6ms |
+| 4 | warm() on clean system | Skips tunnel | Creates imminent notification |
+| 4 | Notification type | N/A | `wsl_channel_setup` (deduped) |
 | 5 | Notification on clean system | Silent (level 2) | "Upgrade Available" |
 | 6 | `maybe_start_tunnel` callers | 0 (dead code) | Removed |
 

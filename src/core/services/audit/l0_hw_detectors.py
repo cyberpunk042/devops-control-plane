@@ -282,6 +282,24 @@ def _detect_kernel_profile() -> dict:
 # ═══════════════════════════════════════════════════════════════════
 
 
+def _tcp_reachable(host: str | None, port: int, timeout: float = 0.2) -> bool:
+    """Quick TCP connect test — does something answer at host:port?
+
+    Used by the channel level detector to distinguish between
+    "hostname resolves" (DNS works) and "something is listening"
+    (portproxy rules exist).  Without this, DNS resolution is
+    wrongly taken as proof that the direct channel works.
+    """
+    if not host:
+        return False
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (ConnectionRefusedError, TimeoutError, OSError):
+        return False
+
+
 def _detect_wsl_interop() -> dict:
     """Detect WSL interop capabilities.
 
@@ -407,13 +425,15 @@ def _detect_wsl_interop() -> dict:
     # Level 0: No bridge at all (no curl.exe, no direct channel)
     # Level 1: curl.exe bridge (fallback, ~100ms/call)
     # Level 2: Direct channel via hostname.local (recommended, ~5ms)
-    #          hostname.local resolves = Layer 2 prerequisite met.
-    #          Firewall (Layer 3) and Chrome binding (Layer 4) are
-    #          checked separately in the diagnose/notification flow.
+    #          Requires BOTH: hostname.local resolves AND something
+    #          is actually listening (netsh portproxy or Chrome).
+    #          DNS alone is not proof — portproxy rules may be missing.
     # Level 3: Mirrored networking (risky — may break VS Code)
     if result["networking_mode"] == "mirrored":
         result["cdp_channel_level"] = 3
-    elif result["hostname_local_resolves"]:
+    elif result["hostname_local_resolves"] and _tcp_reachable(
+        result["hostname_local_ip"], 9222,
+    ):
         result["cdp_channel_level"] = 2
     elif result["curl_exe_available"]:
         result["cdp_channel_level"] = 1

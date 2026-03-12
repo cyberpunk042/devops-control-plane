@@ -3,7 +3,23 @@
     // ── Phase 1: Reusable Modal System ─────────────────────────────────
     // ═══════════════════════════════════════════════════════════════════
 
-    let _activeModal = null;
+    // ── Modal stack ────────────────────────────────────────────────
+    // Supports stacking: system modals can open on top of user modals
+    // without destroying them. Default behaviour (replace: true) is
+    // backwards compatible — the top modal is closed before opening.
+    const _modalStack = [];
+    const _MODAL_BASE_Z = 1000;
+
+    // Backwards-compat getter — external code (modal_preview, gh_auth)
+    // accesses _activeModal.escHandler / .onClose on the top modal.
+    Object.defineProperty(window, '_activeModal', {
+        get() { return _modalStack.length ? _modalStack[_modalStack.length - 1] : null; },
+        set(v) {
+            // Some code sets _activeModal = null after manual cleanup.
+            // With a stack this is a no-op (they already called modalClose).
+        },
+        configurable: true,
+    });
 
     /**
      * Open a standard modal.
@@ -14,13 +30,35 @@
      * @param {Array<{label:string, cls?:string, onclick?:string, id?:string, disabled?:boolean}>} [opts.footerButtons]
      * @param {string} [opts.footerStatus] - initial status text
      * @param {Function} [opts.onClose] - callback when modal is closed
+     * @param {boolean} [opts.replace=true] - if true (default), close the top
+     *        modal before opening. Set to false to stack on top.
      * @returns {HTMLElement} the overlay element
      */
     function modalOpen(opts) {
-        modalClose(); // close any existing
+        const replace = opts.replace !== false;
+
+        if (replace && _modalStack.length > 0) {
+            // Same-flow replacement: close top, push new
+            _modalPopTop();
+        }
+
+        const level = _modalStack.length;
+        const zIndex = _MODAL_BASE_Z + level;
+
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
+        // Keep 'active-modal-overlay' on the topmost for backwards compat
         overlay.id = 'active-modal-overlay';
+        overlay.style.zIndex = zIndex;
+
+        // If we're stacking, demote the previous overlay's ID so
+        // it won't be found by getElementById lookups.
+        if (level > 0) {
+            const prev = _modalStack[level - 1];
+            if (prev && prev.overlay) {
+                prev.overlay.id = 'modal-overlay-' + (level - 1);
+            }
+        }
 
         const sizeCls = opts.size ? ` ${opts.size}` : '';
         const footerBtns = (opts.footerButtons || []).map(b =>
@@ -49,23 +87,52 @@
             if (e.target === overlay) modalClose();
         });
 
-        // Close on Escape
-        const escHandler = e => { if (e.key === 'Escape') modalClose(); };
+        // Close on Escape — only the topmost responds
+        const escHandler = e => {
+            if (e.key === 'Escape') {
+                // Only close if this is still the top modal
+                const top = _modalStack[_modalStack.length - 1];
+                if (top && top.escHandler === escHandler) modalClose();
+            }
+        };
         document.addEventListener('keydown', escHandler);
 
-        _activeModal = { overlay, escHandler, onClose: opts.onClose };
+        const entry = { overlay, escHandler, onClose: opts.onClose };
+        _modalStack.push(entry);
         document.body.appendChild(overlay);
         return overlay;
     }
 
-    /** Close the active modal. */
+    /** Close the topmost modal. If stacked, reveals the one underneath. */
     function modalClose() {
-        if (!_activeModal) return;
-        const { overlay, escHandler, onClose } = _activeModal;
-        document.removeEventListener('keydown', escHandler);
-        overlay.remove();
-        _activeModal = null;
-        if (onClose) onClose();
+        if (_modalStack.length === 0) return;
+        _modalPopTop();
+    }
+
+    /** Internal: pop and destroy the top modal entry. */
+    function _modalPopTop() {
+        const entry = _modalStack.pop();
+        if (!entry) return;
+        document.removeEventListener('keydown', entry.escHandler);
+        entry.overlay.remove();
+
+        // Restore 'active-modal-overlay' ID on the new top
+        if (_modalStack.length > 0) {
+            const newTop = _modalStack[_modalStack.length - 1];
+            if (newTop && newTop.overlay) {
+                newTop.overlay.id = 'active-modal-overlay';
+            }
+        }
+
+        if (entry.onClose) entry.onClose();
+    }
+
+    /** Get the current modal stack depth (0 = no modals open). */
+    function modalDepth() { return _modalStack.length; }
+
+    /** Close ALL modals (used for hard resets). */
+    function modalCloseAll() {
+        while (_modalStack.length > 0) _modalPopTop();
     }
 
     /**

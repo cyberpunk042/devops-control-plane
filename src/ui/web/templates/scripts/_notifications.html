@@ -146,6 +146,7 @@ function _notifIcon(type) {
         'config_changed': '⚙️',
         'missing_dep': '📦',
         'wsl_channel_upgrade': '🚀',
+        'wsl_channel_setup': '⚡',
         'wsl_hostname_resolution': '🌐',
         'wsl_firewall_rule': '🛡️',
         'wsl_curl_exe_missing': '🔧',
@@ -429,9 +430,16 @@ function _esc(str) {
 // for notification/error events.  We listen here — fully decoupled
 // from the SSE connection logic.
 
+var _seenNotifIds = {};  // dedup: prevent double-counting from SSE replays
+
 document.addEventListener('sse:notification:new', function(e) {
     var notif = e.detail && e.detail.data;
     if (!notif) return;
+
+    // Deduplicate: multiple SSE connections can deliver the same event
+    var nid = notif.id || '';
+    if (nid && _seenNotifIds[nid]) return;
+    if (nid) _seenNotifIds[nid] = true;
 
     // Update badge: increment count
     var badge = document.getElementById('notif-count-badge');
@@ -464,11 +472,44 @@ document.addEventListener('sse:notification:new', function(e) {
         }, 400);
     }
 
-    // WSL interop — show toast for actionable notifications
-    if (notif.type && notif.type.indexOf('wsl_') === 0) {
-        var priority = notif.meta && notif.meta.priority;
-        var level = priority === 'imminent' ? 'error' : 'info';
-        toast(notif.title + ' — ' + (notif.message || '').substring(0, 120), level, 8000);
+    // WSL channel setup — auto-open a consent modal on reception
+    if (notif.type === 'wsl_channel_setup') {
+        setTimeout(function() {
+            if (typeof modalOpen !== 'function') return;
+            modalOpen({
+                title: '⚡ CDP Channel Setup',
+                replace: false,  // Stack on top — don't destroy user's modal
+                body:
+                    '<div style="padding:0.5rem 0;font-size:0.85rem;line-height:1.6;color:var(--text,#e0e0e0)">' +
+                        '<p style="margin:0 0 1rem">' +
+                            'No fast channel to Chrome detected. The system is using ' +
+                            'the <strong>curl.exe fallback</strong> (~260ms/call).' +
+                        '</p>' +
+                        '<p style="margin:0 0 1rem">' +
+                            'Port forwarding is the recommended setup for WSL2. ' +
+                            'It creates persistent rules so Chrome is reachable ' +
+                            'at ~5ms — <strong>50× faster</strong>.' +
+                        '</p>' +
+                        '<p style="margin:0;color:var(--text-muted,#999);font-size:0.78rem">' +
+                            'This requires a one-time admin prompt (UAC) to create ' +
+                            'netsh portproxy rules. The rules persist across reboots.' +
+                        '</p>' +
+                    '</div>',
+                size: 'normal',
+                footerButtons: [
+                    { label: 'Later', cls: 'btn-secondary', onclick: 'modalClose()' },
+                    { label: 'More Options', cls: 'btn-secondary', onclick: '_wslChannelSetupMore()' },
+                    { label: 'Set Up Port Forwarding', cls: 'btn-primary', onclick: '_wslChannelSetupAccept()' },
+                ],
+            });
+        }, 600);
+    }
+
+    // WSL interop — only toast for success confirmations, NOT discovery alerts.
+    // Discovery alerts (firewall_rule, channel_upgrade, etc.) stay in the
+    // notification panel badge. The consent modal is the entry point, not toasts.
+    if (notif.type === 'wsl_channel_active') {
+        toast(notif.title + ' — ' + (notif.message || '').substring(0, 120), 'success', 6000);
     }
 
     // Cross-tab sync: broadcast to other tabs
@@ -621,6 +662,11 @@ function _notifHandleBCMessage(e) {
     switch (msg.type) {
         case 'notif:new':
             // Another tab received a new notification via SSE
+            var bcNotif = msg.notif || {};
+            var bcNid = bcNotif.id || '';
+            if (bcNid && _seenNotifIds[bcNid]) break;  // already counted via SSE
+            if (bcNid) _seenNotifIds[bcNid] = true;
+
             var badge = document.getElementById('notif-count-badge');
             var current = badge ? parseInt(badge.textContent, 10) || 0 : 0;
             _updateNotifBadge(current + 1);
@@ -648,6 +694,122 @@ function _notifHandleBCMessage(e) {
         case 'notif:acked':
             _updateErrorBadge(0);
             break;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  WSL Channel Setup — consent modal handlers
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * User accepted port forwarding setup from the consent modal.
+ * Calls the existing /tab-mesh/wsl-start-tunnel endpoint.
+ */
+function _wslChannelSetupAccept() {
+    // Update modal to show progress
+    if (typeof modalOpen === 'function') {
+        modalOpen({
+            title: '⚡ CDP Channel Setup',
+            body:
+                '<div style="text-align:center;padding:2rem;color:var(--text-muted,#999);font-size:0.85rem">' +
+                    '<div style="font-size:1.5rem;margin-bottom:8px">⏳</div>' +
+                    'Setting up port forwarding…<br>' +
+                    '<span style="font-size:0.78rem">An admin prompt (UAC) may appear on Windows.</span>' +
+                '</div>',
+            size: 'normal',
+            footerButtons: [],
+        });
+    }
+
+    api('/tab-mesh/wsl-start-tunnel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'python_proxy', port: 9222 }),
+    }).then(function(result) {
+        if (result && result.ok) {
+            // Dismiss the notification
+            api('/notifications').then(function(data) {
+                if (data && data.notifications) {
+                    for (var i = 0; i < data.notifications.length; i++) {
+                        if (data.notifications[i].type === 'wsl_channel_setup') {
+                            _dismissNotif(data.notifications[i].id);
+                            break;
+                        }
+                    }
+                }
+            }).catch(function() {});
+
+            modalOpen({
+                title: '⚡ CDP Channel Setup',
+                body:
+                    '<div style="text-align:center;padding:2rem;font-size:0.85rem">' +
+                        '<div style="font-size:1.5rem;margin-bottom:8px">✅</div>' +
+                        '<strong style="color:var(--clr-success,#22c55e)">Port forwarding is active!</strong><br>' +
+                        '<span style="color:var(--text-muted,#999);font-size:0.78rem">' +
+                            'Chrome is now reachable at ~5ms (was ~260ms).' +
+                        '</span>' +
+                    '</div>',
+                size: 'normal',
+                footerButtons: [
+                    { label: 'Done', cls: 'btn-primary', onclick: 'modalClose()' },
+                ],
+            });
+        } else {
+            var errMsg = (result && result.error) || 'Unknown error';
+            modalOpen({
+                title: '⚡ CDP Channel Setup',
+                body:
+                    '<div style="padding:0.5rem 0;font-size:0.85rem;color:var(--text,#e0e0e0)">' +
+                        '<p style="margin:0 0 1rem;color:var(--clr-danger,#ef4444)">' +
+                            'Setup failed: ' + _esc(errMsg) +
+                        '</p>' +
+                        '<p style="margin:0;color:var(--text-muted,#999);font-size:0.78rem">' +
+                            'You can try again from Tab Mesh → WSL Channel Setup, ' +
+                            'or set up portproxy rules manually.' +
+                        '</p>' +
+                    '</div>',
+                size: 'normal',
+                footerButtons: [
+                    { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+                ],
+            });
+        }
+    }).catch(function(err) {
+        modalOpen({
+            title: '⚡ CDP Channel Setup',
+            body:
+                '<div style="padding:0.5rem 0;font-size:0.85rem;color:var(--clr-danger,#ef4444)">' +
+                    'Request failed. The server may be restarting.' +
+                '</div>',
+            size: 'normal',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+    });
+}
+
+/**
+ * User wants more options — open the full WSL Channel Setup panel.
+ */
+function _wslChannelSetupMore() {
+    if (typeof modalOpen === 'function') {
+        modalOpen({
+            title: '🔌 WSL Channel Setup',
+            body: '<div id="wsl-channel-modal-body" style="min-height:200px">' +
+                '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.76rem">' +
+                    '<div style="font-size:1.5rem;margin-bottom:8px">🔍</div>' +
+                    'Scanning WSL channel…' +
+                '</div>' +
+            '</div>',
+            size: 'wide',
+            footerButtons: [
+                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+        if (typeof _meshShowWslChannel === 'function') {
+            _meshShowWslChannel('wsl-channel-modal-body');
+        }
     }
 }
 
