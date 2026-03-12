@@ -408,8 +408,9 @@ def health(ctx: click.Context, as_json: bool) -> None:
 @click.option("--host", default=None, help="Bind address (default: from project.yml or 127.0.0.1).")
 @click.option("--port", "-p", default=None, type=int, help="Port number (default: from project.yml or 8000).")
 @click.option("--mock", is_flag=True, help="Use mock adapter (no real execution).")
+@click.option("--timing", is_flag=True, help="Enable request timing diagnostics (prints summary on Ctrl+C).")
 @click.pass_context
-def web(ctx: click.Context, host: str | None, port: int | None, mock: bool) -> None:
+def web(ctx: click.Context, host: str | None, port: int | None, mock: bool, timing: bool) -> None:
     "Start the web admin dashboard."
     from src.ui.web.server import create_app, run_server
 
@@ -426,6 +427,12 @@ def web(ctx: click.Context, host: str | None, port: int | None, mock: bool) -> N
         config_path=config_path,
         mock_mode=mock,
     )
+
+    # Enable request timing diagnostics
+    if timing:
+        from src.ui.web.request_timing import enable as enable_timing
+        enable_timing(app)
+        click.secho("   ⏱  Timing mode ON — press Ctrl+C for summary", fg="cyan")
 
     debug = ctx.obj.get("debug", False)
 
