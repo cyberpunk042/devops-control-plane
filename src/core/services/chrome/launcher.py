@@ -172,31 +172,33 @@ class ChromeInstance:
 def _port_in_use(port: int) -> bool:
     """Check if Chrome is listening on a TCP port.
 
-    In WSL2, uses urllib to the Windows **host IP** (the same
-    ``direct`` channel the router uses at 6-16ms).  localhost and
-    127.0.0.1 cannot reach Windows Chrome from WSL2.
+    In WSL2, the ``netsh portproxy`` rules forward 9222-9232 on
+    the host IP to Windows localhost.  The proxy accepts TCP on
+    ALL forwarded ports, but only Chrome actually responds to HTTP.
+    Chrome responds in ~10-20ms; free ports hang until timeout.
+    A 100ms timeout catches every real Chrome while failing fast
+    on free ports.
     """
+    import urllib.request
+
     from src.core.services.chrome.detection import is_wsl
     if is_wsl():
         from src.core.services.wsl_transport.network import resolve_host_ip
         host_ip = resolve_host_ip()
         if not host_ip:
-            # Fallback to curl.exe if host IP not resolved
             from src.core.services.wsl_transport.curl_bridge import curl_get
             return curl_get(
                 f"http://localhost:{port}/json/version", timeout=1.0,
             ) is not None
-        import urllib.request
         try:
             urllib.request.urlopen(
                 f"http://{host_ip}:{port}/json/version",
-                timeout=0.5,
+                timeout=0.05,  # Chrome responds in ~5-20ms via portproxy
             )
             return True
         except Exception:
             return False
     else:
-        import urllib.request
         try:
             urllib.request.urlopen(
                 f"http://localhost:{port}/json/version",
@@ -210,12 +212,24 @@ def _port_in_use(port: int) -> bool:
 def _cdp_responding(port: int) -> bool:
     """Check if a CDP endpoint is responding on the given port.
 
-    Uses ``curl_get`` directly with a short timeout for fast polling.
-    The full router probe (3s per channel) is too slow for the
-    tight poll loop in ``_wait_for_ready``.
+    Uses the host IP direct channel (~10-20ms via portproxy).
+    Falls back to curl.exe if host IP is unavailable.
     """
     from src.core.services.chrome.detection import is_wsl
     if is_wsl():
+        from src.core.services.wsl_transport.network import resolve_host_ip
+        host_ip = resolve_host_ip()
+        if host_ip:
+            import urllib.request
+            try:
+                urllib.request.urlopen(
+                    f"http://{host_ip}:{port}/json/version",
+                    timeout=0.05,
+                )
+                return True
+            except Exception:
+                return False
+        # Fallback
         from src.core.services.wsl_transport.curl_bridge import curl_get
         return curl_get(
             f"http://localhost:{port}/json/version", timeout=1.0,
@@ -230,12 +244,28 @@ def _get_browser_id(port: int) -> str | None:
 
     Returns the ``webSocketDebuggerUrl`` from ``/json/version``
     which contains a UUID unique to each Chrome instance.
-    Returns None if nothing responds on the port.
+    Uses host IP direct channel (~10-20ms). Returns None if
+    nothing responds.
     """
+    import json as _json
     from src.core.services.chrome.detection import is_wsl
+
     if is_wsl():
+        from src.core.services.wsl_transport.network import resolve_host_ip
+        host_ip = resolve_host_ip()
+        if host_ip:
+            import urllib.request
+            try:
+                r = urllib.request.urlopen(
+                    f"http://{host_ip}:{port}/json/version",
+                    timeout=0.05,
+                )
+                data = _json.loads(r.read().decode())
+                return data.get("webSocketDebuggerUrl", "")
+            except Exception:
+                return None
+        # Fallback to curl
         from src.core.services.wsl_transport.curl_bridge import curl_get
-        import json as _json
         raw = curl_get(
             f"http://localhost:{port}/json/version", timeout=1.0,
         )
@@ -264,7 +294,7 @@ _DEFAULT_CHROME_EXE_WIN = (
 _PORT_RANGE_START = 9222 # 9222 = user's main browser, never for plans TODO: Fix, but test for now
 _PORT_RANGE_SIZE = 10
 _READY_TIMEOUT = 15       # seconds to wait for CDP after launch
-_READY_POLL_INTERVAL = 0.5
+_READY_POLL_INTERVAL = 0.2  # 200ms poll (Chrome starts in <1s)
 
 
 class ChromeLauncher:

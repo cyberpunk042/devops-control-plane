@@ -359,7 +359,7 @@ class TransportRouter:
         t0 = time.monotonic()
         try:
             req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=0.5) as resp:
+            with urllib.request.urlopen(req, timeout=0.15) as resp:
                 resp.read()
             lat = (time.monotonic() - t0) * 1000
             self._health[channel].record_success(lat)
