@@ -32,7 +32,6 @@
             _mediatorRenderGraph(data);
             _mediatorRenderEventStream();
             _mediatorStartAgeTimer();
-            _mediatorStartListening();
             // Show root overview on first load (preserve selection on refresh)
             if (!_mediatorSelectedPath && !_mediatorSelectedBranch) {
                 _mediatorSelectRoot();
@@ -795,7 +794,7 @@
                 <div style="display:flex;align-items:center;gap:8px">
                     <span style="font-weight:600;font-size:0.76rem;color:var(--text-secondary)">⚡ Live Events</span>
                     <span style="font-size:0.68rem;color:var(--text-muted)">${connDot}</span>
-                    <span style="font-size:0.65rem;color:var(--text-muted)">${_mediatorEvents.length} event${_mediatorEvents.length !== 1 ? 's' : ''}</span>
+                    <span class="mediator-event-count" style="font-size:0.65rem;color:var(--text-muted)">${_mediatorEvents.length} event${_mediatorEvents.length !== 1 ? 's' : ''}</span>
                 </div>
                 <div style="display:flex;gap:6px">
                     <button class="btn btn-sm btn-ghost" onclick="_mediatorClearEvents()" style="font-size:0.65rem">Clear</button>
@@ -825,6 +824,21 @@
             if (_mediatorEvents.length > 100) _mediatorEvents.pop();
 
             _mediatorAppendEvent(evt);
+
+            // Update event counter
+            const counterEl = document.querySelector('#mediator-events .mediator-event-count');
+            if (counterEl) counterEl.textContent = _mediatorEvents.length + ' event' + (_mediatorEvents.length !== 1 ? 's' : '');
+
+            // Refresh tree/summary when data changes (write or invalidated)
+            if ((evt.type === 'write' || evt.type === 'invalidated') && _mediatorDiagData) {
+                // Debounce: refresh at most every 2 seconds
+                if (!_mediatorStartListening._refreshTimer) {
+                    _mediatorStartListening._refreshTimer = setTimeout(() => {
+                        _mediatorStartListening._refreshTimer = null;
+                        loadMediatorDiag();
+                    }, 2000);
+                }
+            }
         };
         document.addEventListener('mediator:event', _mediatorEventsListener);
     }
@@ -867,7 +881,11 @@
         const icons = {
             write: '✏️', invalidated: '💥', cascade: '💥',
             refresh: '🔄', bust: '💥', dispatch: '📡',
-            stale: '📡', get: '📥'
+            stale: '📡', get: '📥',
+            // Index progress events
+            'cycle:start': '🚀', 'cycle:done': '✅',
+            'node:start': '⏳', 'node:done': '✅', 'node:failed': '❌',
+            'dispatch': '📡', 'watcher:change': '👁️',
         };
         const icon = icons[evt.type] || '•';
 
@@ -875,7 +893,11 @@
         const typeColors = {
             write: '#6366f1', invalidated: '#d97706', cascade: '#d97706',
             refresh: '#059669', bust: '#d97706', dispatch: '#6366f1',
-            stale: '#d97706', get: 'var(--text-muted)'
+            stale: '#d97706', get: 'var(--text-muted)',
+            // Index progress events
+            'cycle:start': '#818cf8', 'cycle:done': '#34d399',
+            'node:start': '#818cf8', 'node:done': '#34d399', 'node:failed': '#ef4444',
+            'watcher:change': '#f59e0b',
         };
         const typeColor = typeColors[evt.type] || 'var(--text-muted)';
 
@@ -887,12 +909,18 @@
         const firstPath = paths[0] || '';
         const clickAttr = firstPath ? `onclick="_mediatorSelectNode('${esc(firstPath)}')"` : '';
 
-        // Extra info column
+        // Build extra info based on event type
         let extra = '';
         if (evt.seq) extra = `seq #${evt.seq}`;
-        if (evt.elapsed_s) extra += `  ${evt.elapsed_s}s`;
+        if (evt.elapsed_ms != null) extra += `  ${evt.elapsed_ms}ms`;
+        if (evt.entries != null) extra += `  ${evt.entries} entries`;
+        if (evt.step && evt.total) extra += `  [${evt.step}/${evt.total}]`;
+        if (evt.ok != null && evt.total) extra += `  ${evt.ok}/${evt.total} ok`;
+        if (evt.count) extra += `  ${evt.count} nodes`;
+        if (evt.error) extra += `  ⚠ ${evt.error.substring(0, 60)}`;
+        if (evt.empty === true) extra += '  (empty delta)';
         if (evt.task_id) extra += `  ${evt.task_id}`;
-        if (evt.trigger) extra += `  (${evt.trigger})`;
+        if (evt.trigger && !evt.step) extra += `  (${evt.trigger})`;
 
         const fadeIn = animate ? 'animation:mediatorFadeIn 0.3s ease-out' : '';
 
@@ -916,4 +944,167 @@
         const btn = document.getElementById('mediator-pause-btn');
         if (btn) btn.textContent = _mediatorEventsPaused ? 'Resume' : 'Pause';
     }
+
+    // ── Live Index Status Panel ─────────────────────────────────
+    // Tracks per-node state in real time via SSE events.
+    // State: { path: { status: 'pending'|'computing'|'done'|'failed', elapsed_ms, entries, error, ts } }
+    let _statusNodes = {};
+    let _statusListener = null;
+    let _statusCycleInfo = null;  // { phase, total, startTs }
+    let _statusVisible = false;
+
+    function _mediatorShowStatus() {
+        const container = document.getElementById('debug-mediator-status');
+        if (!container) return;
+
+        // Render the accumulated state instantly — SSE events keep it updated
+        _statusRender(container);
+    }
+
+    function _statusStartListening() {
+        _statusStopListening();
+        _statusListener = function(e) {
+            const evt = e.detail;
+            if (!evt) return;
+
+            const path = (evt.paths && evt.paths[0]) || '';
+            const type = evt.type || '';
+
+            if (type === 'cycle:start') {
+                _statusCycleInfo = { phase: evt.trigger, total: evt.total, startTs: Date.now(), ok: 0, failed: 0 };
+                // Reset all nodes to pending
+                for (const p of (evt.paths || [])) {
+                    _statusNodes[p] = { status: 'pending', elapsed_ms: null, entries: null, error: null, ts: Date.now() };
+                }
+            } else if (type === 'node:start' && path) {
+                _statusNodes[path] = { status: 'computing', elapsed_ms: null, entries: null, error: null, ts: Date.now() };
+            } else if (type === 'node:done' && path) {
+                _statusNodes[path] = { status: 'done', elapsed_ms: evt.elapsed_ms, entries: evt.entries, error: null, ts: Date.now() };
+                if (_statusCycleInfo) _statusCycleInfo.ok++;
+            } else if (type === 'node:failed' && path) {
+                _statusNodes[path] = { status: 'failed', elapsed_ms: evt.elapsed_ms, entries: null, error: evt.error, ts: Date.now() };
+                if (_statusCycleInfo) _statusCycleInfo.failed++;
+            } else if (type === 'cycle:done') {
+                if (_statusCycleInfo) {
+                    _statusCycleInfo.elapsed_ms = evt.elapsed_ms;
+                    _statusCycleInfo.ok = evt.ok;
+                }
+            } else if (type === 'dispatch') {
+                // Background dispatch — mark those nodes as computing
+                for (const p of (evt.paths || [])) {
+                    if (!_statusNodes[p] || _statusNodes[p].status === 'pending') {
+                        _statusNodes[p] = { status: 'computing', elapsed_ms: null, entries: null, error: null, ts: Date.now() };
+                    }
+                }
+            } else if (type === 'write' && path) {
+                // A resolver computed — mark as done
+                if (_statusNodes[path] && _statusNodes[path].status === 'computing') {
+                    _statusNodes[path].status = 'done';
+                    _statusNodes[path].ts = Date.now();
+                }
+            }
+
+            // Re-render
+            const container = document.getElementById('debug-mediator-status');
+            if (container && _statusVisible) _statusRender(container);
+        };
+        document.addEventListener('mediator:event', _statusListener);
+    }
+
+    function _statusStopListening() {
+        if (_statusListener) {
+            document.removeEventListener('mediator:event', _statusListener);
+            _statusListener = null;
+        }
+    }
+
+    function _statusRender(container) {
+        const allPaths = Object.keys(_statusNodes).sort();
+        const counts = { pending: 0, computing: 0, done: 0, failed: 0 };
+        for (const n of Object.values(_statusNodes)) counts[n.status]++;
+        const total = allPaths.length;
+        const pct = total > 0 ? Math.round((counts.done / total) * 100) : 0;
+
+        let html = '<div style="padding:12px 16px;font-size:0.73rem;font-family:var(--font-mono,Consolas,Monaco,monospace)">';
+
+        // Title + cycle info
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+        html += '<span style="font-weight:700;font-size:0.85rem;color:var(--text-primary)">📈 Live Index Status</span>';
+        if (_statusCycleInfo && _statusCycleInfo.elapsed_ms) {
+            html += '<span style="color:var(--text-muted);font-size:0.68rem">Last cycle: ' + _statusCycleInfo.elapsed_ms + 'ms</span>';
+        } else if (_statusCycleInfo && !_statusCycleInfo.elapsed_ms) {
+            html += '<span style="color:#818cf8;font-size:0.68rem">⏳ Computing...</span>';
+        }
+        html += '</div>';
+
+        // Progress bar
+        html += '<div style="height:6px;background:var(--bg-tertiary,#2a2a3e);border-radius:3px;margin-bottom:8px;overflow:hidden">';
+        html += '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,#818cf8,#34d399);border-radius:3px;transition:width 0.3s"></div>';
+        html += '</div>';
+
+        // Summary counts
+        html += '<div style="display:flex;gap:14px;margin-bottom:12px;flex-wrap:wrap">';
+        html += '<span style="color:#34d399">✅ ' + counts.done + ' done</span>';
+        html += '<span style="color:#818cf8">⏳ ' + counts.computing + ' computing</span>';
+        html += '<span style="color:var(--text-muted)">⬜ ' + counts.pending + ' pending</span>';
+        if (counts.failed > 0) html += '<span style="color:#ef4444">❌ ' + counts.failed + ' failed</span>';
+        html += '<span style="color:var(--text-muted)">' + pct + '%</span>';
+        html += '</div>';
+
+        // Per-node rows grouped by domain
+        const domains = {};
+        for (const p of allPaths) {
+            const d = p.split('.')[0];
+            if (!domains[d]) domains[d] = [];
+            domains[d].push(p);
+        }
+
+        for (const [domain, paths] of Object.entries(domains).sort()) {
+            const domainDone = paths.filter(p => _statusNodes[p].status === 'done').length;
+            const domainColor = domainDone === paths.length ? '#34d399' : domainDone === 0 ? 'var(--text-muted)' : '#f59e0b';
+            html += '<div style="margin-bottom:8px">';
+            html += '<div style="font-weight:600;color:' + domainColor + ';margin-bottom:3px;font-size:0.72rem">' + domain + ' (' + domainDone + '/' + paths.length + ')</div>';
+
+            for (const p of paths) {
+                const n = _statusNodes[p];
+                const name = p.split('.').slice(1).join('.');
+                let icon, color, detail;
+
+                switch (n.status) {
+                    case 'computing':
+                        icon = '⏳'; color = '#818cf8'; detail = 'computing...';
+                        break;
+                    case 'done':
+                        icon = '✅'; color = '#34d399';
+                        detail = '';
+                        if (n.elapsed_ms != null) detail += n.elapsed_ms + 'ms';
+                        if (n.entries != null) detail += (detail ? ' · ' : '') + n.entries + ' entries';
+                        if (!detail) detail = 'cached';
+                        break;
+                    case 'failed':
+                        icon = '❌'; color = '#ef4444';
+                        detail = n.error ? n.error.substring(0, 80) : 'error';
+                        if (n.elapsed_ms != null) detail = n.elapsed_ms + 'ms · ' + detail;
+                        break;
+                    default:
+                        icon = '⬜'; color = 'var(--text-muted)'; detail = 'pending';
+                }
+
+                html += '<div style="display:flex;align-items:center;gap:8px;padding:2px 8px;border-bottom:1px solid var(--border-subtle)">';
+                html += '<span style="min-width:16px">' + icon + '</span>';
+                html += '<span style="flex:1;color:' + color + '">' + name + '</span>';
+                html += '<span style="color:var(--text-muted);font-size:0.64rem;text-align:right">' + detail + '</span>';
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    // Start capturing events immediately at page load.
+    // Data accumulates silently; renders only when views are active.
+    _statusStartListening();
+    _mediatorStartListening();
 </script>

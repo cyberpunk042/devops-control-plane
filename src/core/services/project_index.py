@@ -120,9 +120,95 @@ _project_root: Path | None = None
 _thread: threading.Thread | None = None
 
 
+_bridge_active = threading.local()
+
+
 def get_index() -> ProjectIndex:
-    """Return the singleton project index instance."""
-    return _index
+    """Return the project index, preferring mediator-backed data.
+
+    Bridge strategy (Phase 8F):
+    1. If the mediator is initialized and has index data, build a
+       ProjectIndex from mediator nodes.  This is incremental, fast,
+       and always up-to-date.
+    2. Otherwise fall back to the legacy singleton ``_index``.
+
+    Re-entrancy guard: the peek resolver calls peek.py functions
+    which call get_index() recursively.  The guard ensures that
+    recursive calls fall back to the legacy singleton instead of
+    deadlocking on the mediator.
+    """
+    # Re-entrancy guard: if we're already inside the bridge,
+    # return the legacy singleton to avoid deadlock.
+    if getattr(_bridge_active, "active", False):
+        return _index
+
+    try:
+        return _index_from_mediator()
+    except Exception:
+        return _index
+
+
+def _index_from_mediator() -> ProjectIndex:
+    """Build a ProjectIndex from mediator data.
+
+    Raises any exception if the mediator is not available or
+    index nodes haven't been computed yet.
+    """
+    from src.core.services.mediator import get_mediator
+
+    m = get_mediator()  # raises RuntimeError if not init'd
+
+    # Set re-entrancy guard before any mediator calls
+    _bridge_active.active = True
+    try:
+        return _build_index_from_mediator(m)
+    finally:
+        _bridge_active.active = False
+
+
+def _build_index_from_mediator(m) -> ProjectIndex:  # type: ignore[no-untyped-def]
+    """Inner builder — separated so the re-entrancy guard is always released."""
+    # Check if scan has been computed (guards against cold mediator)
+    scan_result = m.get("index.scan")
+    if scan_result.get("error"):
+        raise RuntimeError("index.scan not available")
+
+    scan_data = scan_result["data"]
+    if scan_data is None:
+        raise RuntimeError("index.scan returned None")
+
+    # Build ProjectIndex from mediator nodes
+    idx = ProjectIndex()
+
+    # File map
+    try:
+        idx.file_map = m.get("index.files")["data"] or {}
+    except Exception:
+        idx.file_map = {}
+
+    # Dir map
+    try:
+        idx.dir_map = m.get("index.dirs")["data"] or {}
+    except Exception:
+        idx.dir_map = {}
+
+    # All paths
+    try:
+        idx.all_paths = m.get("index.paths")["data"] or set()
+    except Exception:
+        pass
+
+    # File count
+    idx.file_count = len(scan_data)
+    idx.ready = True
+
+    # SPEC-7.9: Bridge does NOT fetch index.symbols — deadlock risk.
+    # SPEC-7.10: Bridge does NOT fetch index.peek — deadlock risk.
+    # Callers needing symbols/peek should use mediator directly:
+    #   m.get("index.symbols") or m.get("index.peek")
+    # The peek.py module already does this via mediator-direct helpers.
+
+    return idx
 
 
 # ── Stale detection ─────────────────────────────────────────────

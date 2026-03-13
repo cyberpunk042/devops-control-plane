@@ -91,6 +91,9 @@
             'notification:new', 'notification:dismissed', 'notification:deleted',
             'error:new',
             'mediator:write', 'mediator:invalidated',
+            'index:cycle:start', 'index:node:start', 'index:node:done',
+            'index:node:failed', 'index:cycle:done', 'index:dispatch',
+            'index:watcher:change',
         ],
 
         /** Open the SSE connection. Safe to call multiple times. */
@@ -183,6 +186,37 @@
                             seq: mData.mediator_seq,
                             paths: mPaths,
                             ts: Date.now(),
+                        }
+                    }));
+                    break;
+                }
+
+                // Index progress events → DOM CustomEvents
+                // Real-time visibility into index computation
+                case 'index:cycle:start':
+                case 'index:node:start':
+                case 'index:node:done':
+                case 'index:node:failed':
+                case 'index:cycle:done':
+                case 'index:dispatch':
+                case 'index:watcher:change': {
+                    const iData = payload.data || {};
+                    const iType = type.replace('index:', '');
+                    document.dispatchEvent(new CustomEvent('mediator:event', {
+                        detail: {
+                            type: iType,
+                            trigger: iData.path || iData.phase || 'index',
+                            seq: payload.seq,
+                            paths: iData.path ? [iData.path] : (iData.paths || []),
+                            ts: Date.now(),
+                            elapsed_ms: iData.elapsed_ms,
+                            entries: iData.entries,
+                            step: iData.step,
+                            total: iData.total,
+                            error: iData.error,
+                            ok: iData.ok,
+                            count: iData.count,
+                            empty: iData.empty,
                         }
                     }));
                     break;

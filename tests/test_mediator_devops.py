@@ -9,6 +9,7 @@ import pytest
 from src.core.services.mediator.core import QueryMediator
 from src.core.services.mediator.registrations.detect import register_detect
 from src.core.services.mediator.registrations.devops import register_devops
+from src.core.services.mediator.registrations.index import register_index
 from src.core.services.mediator.registrations.posture import register_posture
 from src.core.services.mediator.tree import DataTree
 
@@ -18,9 +19,10 @@ from src.core.services.mediator.tree import DataTree
 
 @pytest.fixture
 def mediator_devops_only() -> QueryMediator:
-    """Mediator with detect + devops nodes (devops depends on detect)."""
+    """Mediator with index + detect + devops nodes."""
     tree = DataTree()
     m = QueryMediator(tree, Path("."))
+    register_index(m)
     register_detect(m)
     register_devops(m)
     return m
@@ -28,10 +30,11 @@ def mediator_devops_only() -> QueryMediator:
 
 @pytest.fixture
 def mediator_full() -> QueryMediator:
-    """Mediator with all three domains: posture, detect, devops."""
+    """Mediator with all four domains: posture, index, detect, devops."""
     tree = DataTree()
     m = QueryMediator(tree, Path("."))
     register_posture(m)
+    register_index(m)
     register_detect(m)
     register_devops(m)
     return m
@@ -60,12 +63,12 @@ EXPECTED_DEVOPS_NODES = {
 class TestDevopsRegistration:
     """Test that devops nodes are registered correctly."""
 
-    def test_thirteen_nodes_registered(
+    def test_devops_nodes_registered(
         self, mediator_devops_only: QueryMediator
     ) -> None:
-        """14 devops nodes + 13 detect nodes = 27 total."""
+        """9 index + 13 detect + 14 devops = 36 total."""
         paths = set(mediator_devops_only.tree.all_paths())
-        assert len(paths) == 27
+        assert len(paths) == 36
         assert EXPECTED_DEVOPS_NODES.issubset(paths)
 
     def test_devops_branch_exists(
@@ -174,16 +177,16 @@ class TestDevopsDependencies:
             f"dependents({detect_path})={deps}, expected {devops_path}"
         )
 
-    def test_detect_nodes_have_no_depends_on(
+    def test_detect_nodes_depend_on_index_classify(
         self, mediator_devops_only: QueryMediator
     ) -> None:
-        """Detect nodes should still have no dependencies."""
+        """Detect nodes should depend on index.classify (trilateral wiring)."""
         for path in mediator_devops_only.tree.all_paths():
             if path.startswith("detect."):
                 node = mediator_devops_only.tree.resolve(path)
                 assert node is not None
-                assert node.depends_on == [], (
-                    f"{path} has depends_on={node.depends_on}"
+                assert "index.classify" in node.depends_on, (
+                    f"{path} does not depend on index.classify"
                 )
 
 
@@ -237,20 +240,20 @@ class TestDevopsCascade:
 class TestCombinedTree:
     """Test all three domains coexist correctly."""
 
-    def test_thirty_two_total_nodes(
+    def test_total_nodes(
         self, mediator_full: QueryMediator
     ) -> None:
-        """Combined tree should have 33 registered nodes."""
+        """Combined tree should have 42 registered nodes (6 posture + 9 index + 13 detect + 14 devops)."""
         paths = mediator_full.tree.all_paths()
-        assert len(paths) == 33
+        assert len(paths) == 42
 
-    def test_three_top_level_branches(
+    def test_four_top_level_branches(
         self, mediator_full: QueryMediator
     ) -> None:
-        """Tree should have three top-level branches."""
+        """Tree should have four top-level branches."""
         top = mediator_full.tree.children("")
         names = sorted(c.path for c in top)
-        assert names == ["detect", "devops", "posture"]
+        assert names == ["detect", "devops", "index", "posture"]
 
     def test_posture_cascade_still_works(
         self, mediator_full: QueryMediator
@@ -274,12 +277,12 @@ class TestCombinedTree:
 class TestDevopsDiag:
     """Test diagnostics for devops nodes."""
 
-    def test_diag_summary_shows_thirty_two(
+    def test_diag_summary_shows_total(
         self, mediator_full: QueryMediator
     ) -> None:
-        """diag() should show 33 registered nodes."""
+        """diag() should show 42 registered nodes."""
         info = mediator_full.diag()
-        assert info["tree"]["registered"] == 33
+        assert info["tree"]["registered"] == 42
 
     def test_diag_devops_branch(
         self, mediator_full: QueryMediator

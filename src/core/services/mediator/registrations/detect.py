@@ -17,9 +17,17 @@ Registers 13 nodes matching the devops cache's compute registry::
     detect.docs       — Documentation status                  (TTL=120s)
     detect.dns        — DNS/CDN configuration                 (TTL=120s)
 
-All nodes are independent leaves in Phase 2 — no cascade dependencies.
-Phase 3 adds devops.* nodes that depend on these, enabling automatic
-cascade invalidation.
+All nodes depend on ``index.classify`` — when the project's file
+composition changes (detected by the FS watcher), the cascade
+invalidates all detection cache entries::
+
+    index.scan → index.classify → detect.* → devops.* → posture.*
+
+This is the trilateral bridge: one filesystem signal at the root
+propagates through the entire mediator tree.
+
+Phase 3 added devops.* nodes that depend on these, enabling automatic
+cascade invalidation through devops into posture.
 
 Resolvers point to the RAW ops functions (same as the devops cache's
 ``_ensure_registry()`` in ``routes/devops/__init__.py``).
@@ -83,6 +91,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: docker_ops.docker_status(root),
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     tree.register(TreeRegistration(
@@ -90,6 +99,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: k8s_ops.k8s_status(root),
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     tree.register(TreeRegistration(
@@ -97,6 +107,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: terraform_ops.terraform_status(root),
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     tree.register(TreeRegistration(
@@ -104,6 +115,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: dns_cdn_ops.dns_cdn_status(root),
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     # ── VCS detection ──────────────────────────────────────────────
@@ -112,6 +124,7 @@ def register_detect(mediator: QueryMediator) -> None:
         path="detect.git",
         resolver=lambda: git_ops.git_status(root),
         ttl=30,              # shorter — git status changes frequently
+        depends_on=["index.classify"],
     ))
 
     tree.register(TreeRegistration(
@@ -119,6 +132,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: git_ops.gh_status(root),
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     tree.register(TreeRegistration(
@@ -126,6 +140,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: ci_ops.ci_status(root),
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     # ── Code analysis detection ────────────────────────────────────
@@ -135,6 +150,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=_compute_security,
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     tree.register(TreeRegistration(
@@ -142,6 +158,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: package_ops.package_status_enriched(root),
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     tree.register(TreeRegistration(
@@ -149,6 +166,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: quality_ops.quality_status(root),
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     tree.register(TreeRegistration(
@@ -156,6 +174,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: testing_ops.testing_status(root),
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     tree.register(TreeRegistration(
@@ -163,6 +182,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: docs_ops.docs_status(root),
         ttl=120,
         persist=True,
+        depends_on=["index.classify"],
     ))
 
     # ── Environment detection ──────────────────────────────────────
@@ -171,6 +191,7 @@ def register_detect(mediator: QueryMediator) -> None:
         path="detect.env",
         resolver=lambda: env_ops.env_card_status(root),
         ttl=60,              # shorter — env files change occasionally
+        depends_on=["index.classify"],
     ))
 
     logger.debug("registered detect.* nodes (13 total)")

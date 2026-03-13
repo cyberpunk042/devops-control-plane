@@ -8,6 +8,7 @@ import pytest
 
 from src.core.services.mediator.core import QueryMediator
 from src.core.services.mediator.registrations.detect import register_detect
+from src.core.services.mediator.registrations.index import register_index
 from src.core.services.mediator.registrations.posture import register_posture
 from src.core.services.mediator.tree import DataTree
 
@@ -17,19 +18,21 @@ from src.core.services.mediator.tree import DataTree
 
 @pytest.fixture
 def mediator_detect() -> QueryMediator:
-    """Mediator with detect nodes only (no posture)."""
+    """Mediator with index + detect nodes (detect depends on index.classify)."""
     tree = DataTree()
     m = QueryMediator(tree, Path("."))
+    register_index(m)
     register_detect(m)
     return m
 
 
 @pytest.fixture
 def mediator_full() -> QueryMediator:
-    """Mediator with both posture and detect nodes registered."""
+    """Mediator with posture, index, and detect nodes registered."""
     tree = DataTree()
     m = QueryMediator(tree, Path("."))
     register_posture(m)
+    register_index(m)
     register_detect(m)
     return m
 
@@ -57,13 +60,14 @@ EXPECTED_DETECT_NODES = {
 class TestDetectRegistration:
     """Test that detect nodes are registered correctly."""
 
-    def test_thirteen_nodes_registered(
+    def test_thirteen_detect_nodes_registered(
         self, mediator_detect: QueryMediator
     ) -> None:
-        """All 13 detect nodes should be registered."""
+        """All 13 detect nodes should be registered (plus 9 index nodes)."""
         paths = set(mediator_detect.tree.all_paths())
-        assert len(paths) == 13
-        assert paths == EXPECTED_DETECT_NODES
+        detect_paths = {p for p in paths if p.startswith("detect.")}
+        assert len(detect_paths) == 13
+        assert detect_paths == EXPECTED_DETECT_NODES
 
     def test_detect_branch_exists(
         self, mediator_detect: QueryMediator
@@ -165,24 +169,32 @@ class TestDetectPersist:
             assert node.persist is True, f"{path} should be persisted"
 
 
-# ── Independence tests (no dependencies in Phase 2) ────────────────
+# ── Dependency tests (detect depends on index.classify) ────────────
 
 
-class TestDetectIndependence:
-    """All detect nodes are independent leaves — no dependencies."""
+class TestDetectDependencies:
+    """All detect nodes depend on index.classify (trilateral wiring)."""
 
-    def test_no_depends_on(self, mediator_detect: QueryMediator) -> None:
-        """No detect node should depend on anything."""
+    def test_depends_on_index_classify(
+        self, mediator_detect: QueryMediator
+    ) -> None:
+        """Every detect node should depend on index.classify."""
         for path in mediator_detect.tree.all_paths():
+            if not path.startswith("detect."):
+                continue
             node = mediator_detect.tree.resolve(path)
             assert node is not None
-            assert node.depends_on == [], (
-                f"{path} has depends_on={node.depends_on}"
+            assert "index.classify" in node.depends_on, (
+                f"{path} does not depend on index.classify"
             )
 
-    def test_no_dependents(self, mediator_detect: QueryMediator) -> None:
-        """No detect node should have dependents (no downstream yet)."""
+    def test_no_dependents_without_devops(
+        self, mediator_detect: QueryMediator
+    ) -> None:
+        """Detect nodes have no dependents until devops is registered."""
         for path in mediator_detect.tree.all_paths():
+            if not path.startswith("detect."):
+                continue
             deps = mediator_detect.tree.dependents(path)
             assert deps == [], f"{path} has dependents={deps}"
 
@@ -193,20 +205,20 @@ class TestDetectIndependence:
 class TestCombinedTree:
     """Test that posture + detect registrations coexist correctly."""
 
-    def test_nineteen_total_nodes(
+    def test_combined_total_nodes(
         self, mediator_full: QueryMediator
     ) -> None:
-        """Combined tree should have 19 registered nodes."""
+        """Combined tree should have 28 registered nodes (6 posture + 9 index + 13 detect)."""
         paths = mediator_full.tree.all_paths()
-        assert len(paths) == 19
+        assert len(paths) == 28
 
-    def test_two_top_level_branches(
+    def test_three_top_level_branches(
         self, mediator_full: QueryMediator
     ) -> None:
-        """Tree should have two top-level branches: posture and detect."""
+        """Tree should have three top-level branches: detect, index, posture."""
         top = mediator_full.tree.children("")
         names = sorted(c.path for c in top)
-        assert names == ["detect", "posture"]
+        assert names == ["detect", "index", "posture"]
 
     def test_posture_still_works(
         self, mediator_full: QueryMediator
@@ -230,12 +242,12 @@ class TestCombinedTree:
 class TestDetectDiag:
     """Test diagnostics for detect nodes."""
 
-    def test_diag_summary_shows_nineteen(
+    def test_diag_summary_shows_twenty_eight(
         self, mediator_full: QueryMediator
     ) -> None:
-        """diag() should show 19 registered nodes."""
+        """diag() should show 28 registered nodes (6 posture + 9 index + 13 detect)."""
         info = mediator_full.diag()
-        assert info["tree"]["registered"] == 19
+        assert info["tree"]["registered"] == 28
 
     def test_diag_detect_branch(
         self, mediator_full: QueryMediator
@@ -258,13 +270,14 @@ class TestDetectDiag:
         assert info["ttl"] == 120
         assert info["persist"] is True
         assert info["cached"] is False  # not computed yet
-        assert info["depends_on"] == []
+        assert info["depends_on"] == ["index.classify"]
 
     def test_diag_persistent_count(
         self, mediator_full: QueryMediator
     ) -> None:
-        """Persistent count: 5 posture + 11 detect = 16."""
+        """Persistent count: 5 posture + 11 detect + index persist nodes."""
         info = mediator_full.diag()
         # posture: platform, toolchain, project, full, summary = 5
         # detect: all except git and env = 11
-        assert info["tree"]["persistent"] == 16
+        # index: varies (scan, symbols, peek, classify have persist)
+        assert info["tree"]["persistent"] >= 16

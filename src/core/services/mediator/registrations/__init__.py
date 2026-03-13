@@ -25,14 +25,22 @@ def register_all(mediator: QueryMediator) -> None:
     """Register all domain nodes in the mediator tree.
 
     Called once during server startup, after ``mediator.init()``.
+
+    Registration order matters: index first (root of tree),
+    then detect, then devops (depends on detect), then posture,
+    then extra (gh-pulls, audit, project-status — depends on devops).
     """
+    from .index import register_index
     from .posture import register_posture
     from .detect import register_detect
     from .devops import register_devops
+    from .extra import register_extra
 
-    register_posture(mediator)
+    register_index(mediator)    # root of the tree — everything depends on this
     register_detect(mediator)
     register_devops(mediator)
+    register_posture(mediator)
+    register_extra(mediator)    # last — extra.project_status depends on devops.status
     logger.info(
         "mediator: registered %d nodes (%s)",
         len(mediator.tree.all_paths()),

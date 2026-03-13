@@ -31,6 +31,7 @@ _________
 
 
 YOU MUST RESPECT THE RULES OF THIS PROJECT
+.agent/rules/MANDATORY_READING--ANTI-ROGUE-CONSTRAINT.md
 .agent/rules/main--NO-silent-assumptions-NO-compression-NO-fast-over-right-NO-scope-drift.md
 .agent/rules/meanings--REDO-can-mean-EVOLVE-or-REVOLVE-read-context-ASK-if-unsure.md
 .agent/rules/meanings--dont-assume-scope-of-REDO-ASK-when-ambiguous.md
@@ -41,6 +42,7 @@ YOU MUST RESPECT THE RULES OF THIS PROJECT
 .agent/rules/scope--assistant--READ-content-principles-ENSURE-state-awareness-BEFORE-any-work.md
 .agent/rules/APPLY-rules-to-THIS-prompt-not-just-acknowledge-them.md
 .agent/rules/dont-reinvent--CHECK-existing-API-parameters-BEFORE-building-new-logic.md
+
 
 ## Workflow Routing — Read the RIGHT checklist for the task
 

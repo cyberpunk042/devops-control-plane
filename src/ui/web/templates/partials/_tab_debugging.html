@@ -191,6 +191,7 @@
                     <button class="btn btn-sm btn-ghost" onclick="_mediatorBust(300)" style="font-size:0.7rem" title="Invalidate entries >5min old">💥 Bust >5min</button>
                     <button class="btn btn-sm btn-ghost debug-view-toggle active" data-panel="mediator" data-mode="preview" onclick="debugToggleView('mediator','preview')" style="font-size:0.7rem">📊 Preview</button>
                     <button class="btn btn-sm btn-ghost debug-view-toggle" data-panel="mediator" data-mode="source" onclick="debugToggleView('mediator','source')" style="font-size:0.7rem">{ } Source</button>
+                    <button class="btn btn-sm btn-ghost debug-view-toggle" data-panel="mediator" data-mode="status" onclick="debugToggleView('mediator','status')" style="font-size:0.7rem">📈 Status</button>
                 </div>
             </div>
 
@@ -221,6 +222,9 @@
 
             <!-- Source view (raw JSON via Monaco) -->
             <div id="debug-mediator-editor" style="display:none;height:500px;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border)"></div>
+
+            <!-- Status view — full-width live index progress -->
+            <div id="debug-mediator-status" style="display:none;min-height:400px"></div>
 
             <!-- Live events (Phase 7E) — full-width below the two columns -->
             <div id="mediator-events" style="margin-top:16px"></div>

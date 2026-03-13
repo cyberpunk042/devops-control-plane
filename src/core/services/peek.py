@@ -66,6 +66,65 @@ _KNOWN_FILENAMES = {
 }
 
 
+# ── Mediator-direct index helpers ────────────────────────────────────
+# These fetch index data DIRECTLY from the mediator, bypassing the
+# get_index() bridge.  This breaks the circular dependency:
+#   peek resolver → get_index() → bridge → mediator → peek resolver
+# Instead:
+#   peek resolver → mediator.get("index.files") → done (no bridge)
+
+
+def _get_index_data() -> tuple[
+    dict[str, list[str]] | None,  # file_map
+    dict[str, list[str]] | None,  # dir_map
+    set[str] | None,              # all_paths
+]:
+    """Get file_map, dir_map, and all_paths directly from mediator.
+
+    Returns (None, None, None) if mediator is not available or data
+    is not computed yet.  Callers should fall back to on-demand I/O.
+
+    This is the safe way for peek.py to access index data without
+    going through the get_index() bridge (which would deadlock).
+    """
+    try:
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+
+        files_result = m.get("index.files")
+        file_map = files_result.get("data")
+        if file_map is None:
+            return None, None, None
+
+        dirs_result = m.get("index.dirs")
+        dir_map = dirs_result.get("data") or {}
+
+        paths_result = m.get("index.paths")
+        all_paths = paths_result.get("data") or set()
+
+        return file_map, dir_map, all_paths
+    except Exception:
+        return None, None, None
+
+
+def _get_index_symbols() -> dict[str, list] | None:
+    """Get symbol_map directly from mediator.
+
+    Returns None if mediator is not available or symbols not computed.
+    """
+    try:
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+
+        result = m.get("index.symbols")
+        data = result.get("data")
+        if data is None:
+            return None
+        return data
+    except Exception:
+        return None
+
+
 # ── Data classes ─────────────────────────────────────────────────────
 
 @dataclass
@@ -472,26 +531,22 @@ def resolve_peek_candidates(
     if doc_dir == ".":
         doc_dir = ""
 
-    # Use project index if available (zero I/O), else build on-demand.
+    # Use mediator-direct helpers (bypass get_index bridge to avoid deadlock)
     fn_index: dict[str, list[str]] | None = None
     all_paths: set[str] | None = None
-
     dir_paths: set[str] | None = None
 
-    try:
-        from src.core.services.project_index import get_index
-        idx = get_index()
-        if idx.ready:
-            # Merge file_map + dir_map so the resolver can find BOTH
-            # files and directories via the subdirectory search path.
-            fn_index = {**idx.file_map, **idx.dir_map}
-            all_paths = idx.all_paths
-            # Build set of full directory paths for is_directory detection
-            dir_paths = set()
-            for paths in idx.dir_map.values():
+    file_map, dir_map, idx_paths = _get_index_data()
+    if file_map is not None:
+        # Merge file_map + dir_map so the resolver can find BOTH
+        # files and directories via the subdirectory search path.
+        fn_index = {**file_map, **(dir_map or {})}
+        all_paths = idx_paths
+        # Build set of full directory paths for is_directory detection
+        dir_paths = set()
+        if dir_map:
+            for paths in dir_map.values():
                 dir_paths.update(paths)
-    except ImportError:
-        pass
 
     resolved: list[PeekReference] = []
     seen_keys: set[str] = set()  # deduplicate resolved references
@@ -788,28 +843,41 @@ def build_symbol_index(
     if use_cache and _symbol_index_cache is not None and _symbol_index_root == root_str:
         return _symbol_index_cache
 
-    # Check passive project index (background-built, zero I/O)
+    # Check mediator-direct symbols (bypass get_index bridge)
     if use_cache:
-        try:
-            from src.core.services.project_index import get_index, IndexSymbolEntry
-            idx = get_index()
-            if idx.symbols_ready and idx.symbol_map:
-                # Convert IndexSymbolEntry → SymbolEntry
-                converted: dict[str, list[SymbolEntry]] = {}
-                for name, entries in idx.symbol_map.items():
-                    converted[name] = [
-                        SymbolEntry(name=e.name, file=e.file, line=e.line, kind=e.kind)
-                        for e in entries
-                    ]
+        symbols = _get_index_symbols()
+        if symbols is not None:
+            # Convert to SymbolEntry if needed (mediator may store raw dicts)
+            converted: dict[str, list[SymbolEntry]] = {}
+            for name, entries in symbols.items():
+                converted_entries = []
+                for e in entries:
+                    if isinstance(e, SymbolEntry):
+                        converted_entries.append(e)
+                    elif hasattr(e, 'name'):
+                        # IndexSymbolEntry or similar
+                        converted_entries.append(
+                            SymbolEntry(name=e.name, file=e.file, line=e.line, kind=e.kind)
+                        )
+                    elif isinstance(e, dict):
+                        converted_entries.append(
+                            SymbolEntry(
+                                name=e.get("name", name),
+                                file=e.get("file", ""),
+                                line=e.get("line", 0),
+                                kind=e.get("kind", "unknown"),
+                            )
+                        )
+                if converted_entries:
+                    converted[name] = converted_entries
+            if converted:
                 _symbol_index_cache = converted
                 _symbol_index_root = root_str
                 log.debug(
-                    "[Peek] Symbol index from ProjectIndex: %d unique names",
+                    "[Peek] Symbol index from mediator: %d unique names",
                     len(converted),
                 )
                 return converted
-        except ImportError:
-            pass
 
     # Non-blocking mode: return empty rather than spending 23s parsing
     if not block:
@@ -885,12 +953,9 @@ def _index_driven_scan(
     Returns:
         Additional candidates not found by the regex scanner.
     """
-    try:
-        from src.core.services.project_index import get_index
-        idx = get_index()
-        if not idx.ready:
-            return []
-    except ImportError:
+    # Use mediator-direct data (bypass get_index bridge)
+    file_map, dir_map, _ = _get_index_data()
+    if file_map is None:
         return []
 
     doc_dir = str(Path(doc_path).parent)
@@ -903,7 +968,7 @@ def _index_driven_scan(
     # ── Directory references: search for "name/" ──
     # Only check directory names that actually exist as children
     # of the document's directory (or project root).
-    for dir_name, dir_paths in idx.dir_map.items():
+    for dir_name, dir_paths_list in (dir_map or {}).items():
         # dir_map stores with and without trailing /; only use the
         # trailing-/ variant to avoid double-processing.
         if not dir_name.endswith("/"):
@@ -917,7 +982,7 @@ def _index_driven_scan(
         # Match if this directory exists anywhere within the doc's subtree
         # (the resolver handles proximity-based disambiguation)
         has_local = False
-        for dp in dir_paths:
+        for dp in dir_paths_list:
             if doc_dir and dp.startswith(doc_dir + "/"):
                 has_local = True
                 break
@@ -941,7 +1006,7 @@ def _index_driven_scan(
 
     # ── File references: search for known filenames ──
     # Only check files in the same directory as the document.
-    for filename, file_paths in idx.file_map.items():
+    for filename, file_paths_list in (file_map or {}).items():
         if filename in seen:
             continue
 
@@ -951,7 +1016,7 @@ def _index_driven_scan(
 
         # Must exist in the same directory subtree
         has_local = False
-        for fp in file_paths:
+        for fp in file_paths_list:
             if doc_dir and fp.startswith(doc_dir):
                 has_local = True
                 break

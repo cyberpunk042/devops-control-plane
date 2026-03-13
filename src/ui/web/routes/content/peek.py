@@ -46,20 +46,25 @@ def peek_refs():  # type: ignore[no-untyped-def]
             "symbols_ready": False, "disabled": True,
         })
 
-    # Try the passive project index first (instant, zero I/O)
+    # Try the mediator's pre-computed peek cache (instant, zero I/O)
     try:
-        from src.core.services.project_index import get_index
-        idx = get_index()
-        if idx.peek_cached and doc_path in idx.peek_cache:
-            cached = idx.peek_cache[doc_path]
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        peek_result = m.get("index.peek")
+        peek_data = peek_result.get("data")
+        if peek_data and doc_path in peek_data:
+            cached = peek_data[doc_path]
+            # Check if symbols are available
+            symbols_result = m.get("index.symbols")
+            symbols_ready = bool(symbols_result.get("data"))
             return jsonify({
                 "references": cached.get("resolved", []),
                 "unresolved": cached.get("unresolved", []),
                 "pending": [],
-                "symbols_ready": idx.symbols_ready,
-                "_source": "index",
+                "symbols_ready": symbols_ready,
+                "_source": "mediator",
             })
-    except ImportError:
+    except Exception:
         pass
 
     # Fallback: on-demand resolution (reads file from disk)

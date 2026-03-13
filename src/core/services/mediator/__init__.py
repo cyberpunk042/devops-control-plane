@@ -76,8 +76,11 @@ def init(project_root: Path) -> QueryMediator:
     """
     global mediator
 
+    from concurrent.futures import ThreadPoolExecutor
+
     tree = DataTree()
-    mediator = QueryMediator(tree, project_root)
+    _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mediator")
+    mediator = QueryMediator(tree, project_root, executor=_executor)
 
     logger.info("mediator initialized (project_root=%s)", project_root)
     return mediator

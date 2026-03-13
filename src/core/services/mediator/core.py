@@ -356,11 +356,99 @@ class QueryMediator:
                 elapsed_s=elapsed,
             )
             self._set_cached(path, entry)
+            node.last_change_seq = seq
+
+            # Persist to disk — survives restarts
+            try:
+                from src.core.services.mediator.persistence import persist_node
+                persist_node(self._project_root, path, result)
+            except Exception:
+                pass  # persistence must never break computation
+
+            # Publish compute event so SSE clients see activity
+            self._publish_change(
+                path, seq, [path], [],
+            )
 
             return self._make_result(
                 result, path, "computed", 0.0,
                 seq, explanation,
             )
+
+    # ── PEEK ───────────────────────────────────────────────────
+
+    def peek(self, path: str) -> dict[str, Any] | None:
+        """Return cached data without computation.
+
+        Unlike ``get()``, this **NEVER** calls a resolver.  If the
+        cache is empty for this path, returns ``None``.
+
+        Intended for:
+        - Context processors that must not block page load
+        - Optimistic reads where stale/missing data is acceptable
+        - Pre-flight checks ("is this data available?")
+
+        Parameters
+        ----------
+        path : str
+            Dot-separated path (e.g. ``"index.scan"``, ``"devops.docker"``).
+
+        Returns
+        -------
+        dict | None
+            ``{"data": <value>, "meta": {...}}`` if cached data exists,
+            ``None`` if no data is available (cache miss).
+
+        Raises
+        ------
+        KeyError
+            If path is not registered in the tree.
+        """
+        node = self._tree.resolve(path)
+        if node is None:
+            raise KeyError(f"Path not found in tree: {path!r}")
+        if not node.is_registered:
+            raise KeyError(
+                f"Path exists but is not registered (branch only): {path!r}"
+            )
+
+        entry = self._get_cached(path)
+        if entry is None:
+            return None
+
+        age = time.time() - entry.computed_at
+        return self._make_result(
+            entry.data, path, "peek", age,
+            entry.seq, [],
+        )
+
+    def peek_many(self, *paths: str) -> dict[str, dict[str, Any]]:
+        """Peek at multiple paths at once.
+
+        Returns a dict of path → result for all paths that have
+        cached data.  Paths with no cached data are omitted.
+        Unregistered paths are silently skipped (no KeyError).
+
+        Parameters
+        ----------
+        *paths : str
+            Dot-separated paths to peek at.
+
+        Returns
+        -------
+        dict[str, dict]
+            Map of ``path → {"data": <value>, "meta": {...}}`` for
+            all paths that have cached data.
+        """
+        results: dict[str, dict[str, Any]] = {}
+        for path in paths:
+            try:
+                result = self.peek(path)
+                if result is not None:
+                    results[path] = result
+            except KeyError:
+                continue  # Unregistered path — skip silently
+        return results
 
     # ── PUT ────────────────────────────────────────────────────
 
@@ -1001,9 +1089,11 @@ class QueryMediator:
             }
 
         if self._executor is not None:
-            self._executor.submit(
-                self._dispatch_worker, task_id, valid_paths,
-            )
+            # Submit each path as its own task for true parallelism
+            for p in valid_paths:
+                self._executor.submit(
+                    self._dispatch_worker, task_id, [p],
+                )
         elif self._on_stale is not None:
             for p in valid_paths:
                 try:
@@ -1028,9 +1118,21 @@ class QueryMediator:
         task_id: str,
         paths: list[str],
     ) -> None:
-        """Background worker for dispatch().  Runs in the executor."""
+        """Background worker for dispatch().  Runs in the executor.
+
+        Skips nodes that are already cached (e.g. hydrated from disk).
+        Only force-recomputes nodes with no cached data.
+        """
         for p in paths:
             try:
+                # If already cached (e.g. from disk hydration), skip
+                entry = self._get_cached(p)
+                if entry is not None:
+                    logger.debug(
+                        "dispatch %s: %s already cached, skipping",
+                        task_id, p,
+                    )
+                    continue
                 self.get(p, force=True)
             except Exception:
                 logger.exception(
@@ -1038,3 +1140,4 @@ class QueryMediator:
                 )
             finally:
                 self.clear_refreshing(p)
+

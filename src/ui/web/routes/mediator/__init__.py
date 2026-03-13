@@ -13,6 +13,13 @@ Endpoints:
     POST /mediator/bust             → Temporal invalidation
     POST /mediator/dispatch         → Async background recompute
 
+Index-specific endpoints (Phase 8G):
+    GET  /mediator/index/status     → Index summary (stats + classify + watcher)
+    GET  /mediator/index/delta      → What changed since last scan
+    POST /mediator/index/rescan     → Force full rescan
+    POST /mediator/index/rebuild-symbols → Force symbol rebuild
+    POST /mediator/index/rebuild-peek    → Force peek cache rebuild
+
 All routes return JSON.  If the mediator singleton has not been
 initialized (server startup not complete), routes return 503.
 """
@@ -202,5 +209,180 @@ def mediator_dispatch():  # type: ignore[no-untyped-def]
         if not paths:
             return jsonify({"error": "paths is required"}), 400
         return jsonify(m.dispatch(*paths))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ── Index-specific endpoints (Phase 8G) ───────────────────────────
+
+
+@mediator_bp.route("/mediator/index/status")
+def mediator_index_status():  # type: ignore[no-untyped-def]
+    """Aggregated index status for the dashboard.
+
+    Returns a clean summary combining stats, classification, and
+    node health information.  Designed for the UI's index panel.
+
+    Response::
+
+        {
+            "files": 1298,
+            "dirs": 241,
+            "symbols": 4521,
+            "peek_pages": 223,
+            "primary_language": "python",
+            "frameworks": ["docker", "python-project"],
+            "languages": {"python": 512, "markdown": 223, ...},
+            "extensions": {"py": 512, "md": 223, ...},
+            "last_delta": {"added": 0, "removed": 0, "modified": 1, "empty": false},
+            "nodes": {
+                "index.scan": {"cached": true, "stale": false},
+                ...
+            }
+        }
+    """
+    m, err = _get_mediator()
+    if err:
+        return err
+    try:
+        result: dict = {}
+
+        # Stats
+        try:
+            stats = m.get("index.stats")["data" ]
+            if stats:
+                result["files"] = stats.get("file_count", 0)
+                result["dirs"] = stats.get("dir_count", 0)
+                result["symbols"] = stats.get("symbol_count", 0)
+                result["primary_language"] = stats.get("primary_language", "")
+                result["framework_count"] = stats.get("framework_count", 0)
+                result["extensions"] = stats.get("extensions", {})
+                result["last_delta"] = stats.get("last_delta", {})
+        except Exception:
+            result["files"] = 0
+            result["dirs"] = 0
+            result["symbols"] = 0
+
+        # Classification
+        try:
+            classify = m.get("index.classify")["data"]
+            if classify:
+                result["languages"] = classify.get("languages", {})
+                result["frameworks"] = classify.get("frameworks", [])
+        except Exception:
+            result["languages"] = {}
+            result["frameworks"] = []
+
+        # Peek page count
+        try:
+            peek = m.get("index.peek")["data"]
+            result["peek_pages"] = len(peek) if peek else 0
+        except Exception:
+            result["peek_pages"] = 0
+
+        # Node health
+        diag = m.diag()
+        entries = diag.get("entries", {})
+        result["nodes"] = {
+            path: {
+                "cached": info.get("cached", False),
+                "stale": info.get("stale", False),
+            }
+            for path, info in entries.items()
+            if path.startswith("index.")
+        }
+
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@mediator_bp.route("/mediator/index/delta")
+def mediator_index_delta():  # type: ignore[no-untyped-def]
+    """Current delta — what changed since the last scan.
+
+    Response::
+
+        {
+            "added": ["src/new.py"],
+            "removed": ["src/old.py"],
+            "modified": ["src/main.py"],
+            "empty": false,
+            "timestamp": 1741826001.5
+        }
+    """
+    m, err = _get_mediator()
+    if err:
+        return err
+    try:
+        delta_result = m.get("index.delta")
+        delta = delta_result["data"]
+        if delta is None:
+            return jsonify({"added": [], "removed": [], "modified": [], "empty": True})
+
+        # ScanDelta has frozenset attributes — convert for JSON
+        return jsonify({
+            "added": sorted(delta.added),
+            "removed": sorted(delta.removed),
+            "modified": sorted(delta.modified),
+            "empty": delta.empty,
+            "timestamp": delta.timestamp,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@mediator_bp.route("/mediator/index/rescan", methods=["POST"])
+def mediator_index_rescan():  # type: ignore[no-untyped-def]
+    """Force a full rescan — invalidates index.scan and cascades.
+
+    This triggers the full cascade::
+
+        index.scan (recomputed)
+          → index.delta  → index.symbols  → index.peek
+          → index.files  → index.dirs     → index.paths
+          → index.classify  → index.stats
+
+    Returns the refresh result.
+    """
+    m, err = _get_mediator()
+    if err:
+        return err
+    try:
+        result = m.refresh("index.scan")
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@mediator_bp.route("/mediator/index/rebuild-symbols", methods=["POST"])
+def mediator_index_rebuild_symbols():  # type: ignore[no-untyped-def]
+    """Force rebuild of the symbol index.
+
+    Invalidates index.symbols so it re-parses all files on next access.
+    Also cascades to index.peek (which depends on symbols).
+    """
+    m, err = _get_mediator()
+    if err:
+        return err
+    try:
+        result = m.refresh("index.symbols")
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@mediator_bp.route("/mediator/index/rebuild-peek", methods=["POST"])
+def mediator_index_rebuild_peek():  # type: ignore[no-untyped-def]
+    """Force rebuild of the peek cache.
+
+    Re-computes peek references for all markdown files.
+    """
+    m, err = _get_mediator()
+    if err:
+        return err
+    try:
+        result = m.refresh("index.peek")
+        return jsonify(result)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

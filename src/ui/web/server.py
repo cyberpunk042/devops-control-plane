@@ -157,6 +157,20 @@ def create_app(
 
     register_all(mediator_inst)
 
+    # Hydrate mediator cache from disk shards (warm start)
+    # Architecture §9 — on startup, load persisted index data so
+    # m.peek() returns data immediately without resolver computation.
+    from src.core.services.mediator.persistence import hydrate_cache as _hydrate_cache
+
+    _hydrated_count = _hydrate_cache(mediator_inst, Path(project_root))
+    if _hydrated_count:
+        logger.info(
+            "mediator warm start: hydrated %d entries from disk shards",
+            _hydrated_count,
+        )
+    else:
+        logger.info("mediator cold start: no disk shards found")
+
     # Vault activity tracking — resets auto-lock timer on user actions
     @app.before_request
     def _track_vault_activity():  # type: ignore[no-untyped-def]
@@ -221,10 +235,12 @@ def create_app(
     except Exception:
         _stacks_js = []
 
-    # ── Mtime-cached devops cache reader ──────────────────────────────
-    # The cache file is 1.3MB+.  Parsing it on every GET / costs ~100-200ms.
-    # We keep the parsed dict in memory and only re-read when mtime changes.
+    # ── Devops disk cache reader (instant — reads ONE file) ─────────
+    # This is the mtime-cached reader for .state/devops_cache.json.
+    # It provides the fallback data source for keys that are NOT
+    # mediator nodes (gh-pulls, audit:*, project-status, wiz:detect).
     from src.core.services.devops.cache import _cache_path
+
     _devops_cache_file = _cache_path(Path(project_root))
     _devops_cache_data: dict = {}
     _devops_cache_mtime: float = 0.0
@@ -240,24 +256,73 @@ def create_app(
                 )
                 _devops_cache_mtime = stat.st_mtime
         except (OSError, ValueError):
-            pass  # File missing or corrupt — use last good data
+            pass
         return _devops_cache_data
 
     # Pre-warm on startup
     _get_devops_cache()
 
+    # ── Map of inject keys → mediator paths ─────────────────────────
+    # 13 devops.* nodes + 10 extra.* nodes = all 23 _INJECT_KEYS
+    _KEY_TO_MEDIATOR: dict[str, str] = {
+        # devops domain (13 keys)
+        "docker": "devops.docker",
+        "k8s": "devops.k8s",
+        "git": "devops.git",
+        "github": "devops.github",
+        "ci": "devops.ci",
+        "terraform": "devops.terraform",
+        "env": "devops.env",
+        "security": "devops.security",
+        "packages": "devops.packages",
+        "quality": "devops.quality",
+        "testing": "devops.testing",
+        "docs": "devops.docs",
+        "dns": "devops.dns",
+        # extra domain (10 keys)
+        "gh-pulls": "extra.gh_pulls",
+        "gh-runs": "extra.gh_runs",
+        "gh-workflows": "extra.gh_workflows",
+        "project-status": "extra.project_status",
+        "wiz:detect": "extra.wiz_detect",
+        "audit:scores": "extra.audit_scores",
+        "audit:system": "extra.audit_system",
+        "audit:deps": "extra.audit_deps",
+        "audit:structure": "extra.audit_structure",
+        "audit:clients": "extra.audit_clients",
+    }
+
     @app.context_processor
     def _inject_data_catalogs():  # type: ignore[no-untyped-def]
-        # Build initial state from disk cache (mtime-guarded, no re-parse if unchanged)
         initial: dict[str, dict] = {}
+
+        # Strategy 1: peek at mediator for devops.* keys (NEVER blocks)
+        try:
+            from src.core.services.mediator import get_mediator
+            m = get_mediator()
+            for key, mediator_path in _KEY_TO_MEDIATOR.items():
+                try:
+                    result = m.peek(mediator_path)
+                    if result is not None:
+                        data = result.get("data")
+                        if data is not None:
+                            initial[key] = {"data": data}
+                except Exception:
+                    pass
+        except (RuntimeError, Exception):
+            pass  # Mediator not initialized — fall through to disk cache
+
+        # Strategy 2: fill remaining keys from devops cache file (instant)
         try:
             cache = _get_devops_cache()
             for key in _INJECT_KEYS:
+                if key in initial:
+                    continue  # Already got from mediator peek
                 entry = cache.get(key)
                 if entry and "data" in entry:
                     initial[key] = {"data": entry["data"]}
         except Exception:
-            pass  # Degrade gracefully — cards will fall back to API
+            pass  # Degrade gracefully
 
         # Merge static catalogs with pre-computed stacks
         dcp = _registry.to_js_dict()
@@ -272,10 +337,16 @@ def create_app(
     from src.core.services.staleness_watcher import start_watcher
     start_watcher(app.config["PROJECT_ROOT"])
 
-    # Start project index (background file/symbol/peek indexing)
-    # — gated by server setting: when disabled, no background thread
+    # Start index watcher (FS polling → mediator cascade)
+    # When peek/index is enabled, the FS watcher drives the mediator tree.
     from src.core.services.server_settings import is_peek_index_enabled
     if is_peek_index_enabled(app.config["PROJECT_ROOT"]):
+        from src.core.services.mediator.index_watcher import start_index_watcher
+        start_index_watcher(app.config["PROJECT_ROOT"], mediator_inst)
+
+        # Legacy project index — safety net until persistence is validated.
+        # Builds _index (the legacy singleton) which the bridge falls back
+        # to if mediator index nodes aren't computed yet.
         from src.core.services.project_index import start_project_index
         start_project_index(app.config["PROJECT_ROOT"])
     else:

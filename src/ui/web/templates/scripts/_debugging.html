@@ -90,10 +90,21 @@
 
         const previewEl = document.getElementById(`debug-${panel}-preview`);
         const editorEl = document.getElementById(`debug-${panel}-editor`);
+        const statusEl = document.getElementById(`debug-${panel}-status`);
+
+        // Hide all view containers first
+        if (previewEl) previewEl.style.display = 'none';
+        if (editorEl) editorEl.style.display = 'none';
+        if (statusEl) statusEl.style.display = 'none';
+
+        // Stop status listener when leaving mediator status mode
+        if (panel === 'mediator' && mode !== 'status' && typeof _statusStopListening === 'function') {
+            _statusStopListening();
+            _statusVisible = false;
+        }
 
         if (mode === 'source') {
-            previewEl.style.display = 'none';
-            editorEl.style.display = '';
+            if (editorEl) editorEl.style.display = '';
 
             // Create Monaco editor if not already
             if (!_debugEditors[panel] && _debugData[panel]) {
@@ -125,10 +136,16 @@
             } else if (!_debugData[panel]) {
                 editorEl.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:0.8rem">No data loaded yet. Switch to Preview first to load the data.</div>';
             }
+        } else if (mode === 'status' && statusEl) {
+            statusEl.style.display = '';
+            // Initialize the live status view
+            if (typeof _mediatorShowStatus === 'function') {
+                _statusVisible = true;
+                _mediatorShowStatus();
+            }
         } else {
-            // Restore the original display value (flex for mediator, block for others)
-            previewEl.style.display = previewEl.dataset.display || '';
-            editorEl.style.display = 'none';
+            // Preview mode — restore the original display value
+            if (previewEl) previewEl.style.display = previewEl.dataset.display || '';
         }
     }
 
