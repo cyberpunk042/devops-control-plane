@@ -42,10 +42,16 @@
         }
 
         // Show/hide panels
-        ['audit', 'state', 'health', 'config', 'commands', 'traces'].forEach(m => {
+        ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'].forEach(m => {
             const el = document.getElementById(`debug-${m}`);
             if (el) el.style.display = m === mode ? '' : 'none';
         });
+
+        // Cleanup mediator timers/listeners when switching away
+        if (mode !== 'mediator') {
+            if (typeof _mediatorStopAgeTimer === 'function') _mediatorStopAgeTimer();
+            if (typeof _mediatorStopListening === 'function') _mediatorStopListening();
+        }
 
         // Update URL hash to reflect sub-tab
         const newHash = `#debugging/${mode}`;
@@ -59,6 +65,7 @@
         if (mode === 'config') loadDebugConfig();
         if (mode === 'commands') { if (!capabilitiesLoaded) loadCapabilities(); }
         if (mode === 'traces') loadDebugTraces();
+        if (mode === 'mediator') { if (typeof loadMediatorDiag === 'function') loadMediatorDiag(); }
     }
 
     function debugAuditToggle(mode) {
@@ -119,19 +126,20 @@
                 editorEl.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:0.8rem">No data loaded yet. Switch to Preview first to load the data.</div>';
             }
         } else {
-            previewEl.style.display = '';
+            // Restore the original display value (flex for mediator, block for others)
+            previewEl.style.display = previewEl.dataset.display || '';
             editorEl.style.display = 'none';
         }
     }
 
     async function loadDebugTab(subMode) {
-        const validModes = ['audit', 'state', 'health', 'config', 'commands', 'traces'];
+        const validModes = ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'];
         const mode = (subMode && validModes.includes(subMode)) ? subMode : 'audit';
 
         // Activate the correct sub-tab button
         debugCurrentMode = mode;
         document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => b.classList.remove('active'));
-        const modeLabels = { audit: '📋 Audit Log', state: '📦 State', health: '❤️ Health', config: '⚙️ Config', commands: '⚡ Commands', traces: '📝 Traces' };
+        const modeLabels = { audit: '📋 Audit Log', state: '📦 State', health: '❤️ Health', config: '⚙️ Config', commands: '⚡ Commands', traces: '📝 Traces', mediator: '🌳 Mediator' };
         document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => {
             if (b.textContent.trim() === (modeLabels[mode] || '').trim()) b.classList.add('active');
         });
@@ -152,6 +160,7 @@
         else if (mode === 'config') loadDebugConfig();
         else if (mode === 'commands') { if (!capabilitiesLoaded) loadCapabilities(); }
         else if (mode === 'traces') loadDebugTraces();
+        else if (mode === 'mediator') { if (typeof loadMediatorDiag === 'function') loadMediatorDiag(); }
     }
 
     // ── Audit Scan Activity ───────────────────────────────────────────

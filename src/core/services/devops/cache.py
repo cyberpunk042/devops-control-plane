@@ -604,29 +604,30 @@ _INTEGRATION_KEYS = {"git", "github", "ci", "docker", "k8s", "terraform", "pages
 def invalidate_with_cascade(project_root: Path, card_key: str) -> list[str]:
     """Invalidate a card and all its dependents, plus aggregates.
 
+    Uses the mediator dependency graph when available (Phase 4+).
+    Falls back to the hardcoded ``_CASCADE`` dict when the mediator
+    is not initialized (CLI, tests, non-web contexts).
+
     Thread-safe: performs a single read-modify-write cycle under
     ``_file_lock`` to avoid N separate I/O operations.
 
     Returns the list of all keys that were busted.
     """
-    # Collect all keys to bust
-    keys_to_bust: list[str] = [card_key]
+    # Try mediator-driven cascade first, fall back to legacy
+    mediator_keys = _mediator_cascade(card_key)
+    if mediator_keys is not None:
+        keys_to_bust = mediator_keys
+    else:
+        keys_to_bust = _legacy_cascade(card_key)
 
-    # Health probe for this card
-    hp_key = f"hp:{card_key}"
-    if hp_key in _WATCH_PATHS:
-        keys_to_bust.append(hp_key)
-
-    # Direct cascade
-    for dep in _CASCADE.get(card_key, []):
-        keys_to_bust.append(dep)
-        dep_hp = f"hp:{dep}"
-        if dep_hp in _WATCH_PATHS:
-            keys_to_bust.append(dep_hp)
-
-    # Aggregate cascade: any integration card bust → also bust aggregates
-    if card_key in _INTEGRATION_KEYS:
-        keys_to_bust.extend(_AGGREGATE_KEYS)
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for k in keys_to_bust:
+        if k not in seen:
+            seen.add(k)
+            unique.append(k)
+    keys_to_bust = unique
 
     # Single read-modify-write
     with _file_lock:
@@ -640,6 +641,62 @@ def invalidate_with_cascade(project_root: Path, card_key: str) -> list[str]:
             _save_cache(project_root, cache)
 
     return keys_to_bust
+
+
+def _mediator_cascade(card_key: str) -> list[str] | None:
+    """Get cascade keys from the mediator dependency graph.
+
+    Returns None if the mediator is not available (fallback to legacy).
+    Returns a list of devops cache keys to bust (not mediator paths).
+    """
+    try:
+        from src.core.services.mediator import get_mediator
+
+        m = get_mediator()
+
+        # Map card_key to mediator path
+        mediator_path = f"devops.{card_key}"
+        node = m.tree.resolve(mediator_path)
+        if node is None or not node.is_registered:
+            return None  # unknown card, fall back to legacy
+
+        # Get all dependents (transitive)
+        dep_paths = m.tree.dependents(mediator_path)
+
+        # Convert mediator paths back to devops cache keys
+        keys: list[str] = [card_key]
+        for dep in dep_paths:
+            if dep.startswith("devops."):
+                suffix = dep[len("devops."):]
+                if suffix == "status":
+                    keys.append("project-status")
+                else:
+                    keys.append(suffix)
+
+        # Aggregate: any integration card → also bust project-status
+        if card_key in _INTEGRATION_KEYS and "project-status" not in keys:
+            keys.append("project-status")
+
+        return keys
+    except Exception:
+        return None  # mediator not available, fall back to legacy
+
+
+def _legacy_cascade(card_key: str) -> list[str]:
+    """Original hardcoded cascade logic (fallback).
+
+    Used when the mediator is not initialized (CLI, tests, startup).
+    """
+    keys: list[str] = [card_key]
+
+    for dep in _CASCADE.get(card_key, []):
+        keys.append(dep)
+
+    # Aggregate cascade: any integration card → bust aggregates
+    if card_key in _INTEGRATION_KEYS:
+        keys.extend(_AGGREGATE_KEYS)
+
+    return keys
 
 
 # ── Audit scan activity log (delegated) ─────────────────────────

@@ -81,6 +81,31 @@ def integration_prefs_put():
 # ── Cache bust ──────────────────────────────────────────────────
 
 
+def _mediator_bust(card: str) -> None:
+    """Invalidate mediator nodes when devops cache is busted (best-effort).
+
+    Invalidates ``detect.*`` nodes — the cascade engine automatically
+    propagates to ``devops.*`` nodes via ``depends_on``.
+    """
+    try:
+        from src.core.services.mediator import get_mediator
+
+        m = get_mediator()
+        if card in ("all", "devops", "integrations"):
+            # Invalidate all detect nodes — cascade handles devops.*
+            for path in list(m.tree.all_paths()):
+                if path.startswith("detect."):
+                    m.put(path, cascade=True)
+        else:
+            # Single card: invalidate the detect.* node (cascade → devops.*)
+            detect_path = f"detect.{card}"
+            node = m.tree.resolve(detect_path)
+            if node is not None:
+                m.put(detect_path, cascade=True)
+    except Exception:
+        pass  # mediator bust is best-effort, never break the bust flow
+
+
 @devops_bp.route("/devops/cache/bust", methods=["POST"])
 def devops_cache_bust():
     """Bust server-side cache.
@@ -114,10 +139,18 @@ def devops_cache_bust():
                 "audit": devops_cache.AUDIT_KEYS,
             }
             devops_cache.recompute_all(root, keys=scope_map[card])
+
+        # Cascade mediator invalidation (best-effort)
+        _mediator_bust(card)
+
         return jsonify({"ok": True, "busted": card})
     else:
         # Single card bust (with cascade)
         busted = devops_cache.invalidate_with_cascade(root, card)
+
+        # Cascade mediator invalidation (best-effort)
+        _mediator_bust(card)
+
         return jsonify({"ok": True, "busted": busted})
 
 

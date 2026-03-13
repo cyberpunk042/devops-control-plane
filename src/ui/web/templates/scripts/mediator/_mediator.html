@@ -1,0 +1,920 @@
+<!-- Mediator Debug Dashboard — Tree Explorer, Node Detail, Actions -->
+<!-- Phase 7C-E: full JS for the mediator debug view -->
+<script>
+    // ── Mediator state ────────────────────────────────────────────
+    let _mediatorDiagData = null;
+    let _mediatorSelectedPath = null;
+    let _mediatorSelectedBranch = null;  // which branch header is active
+    let _mediatorAgeTimer = null;
+    let _mediatorCollapsed = {};       // branch → bool (persisted in sessionStorage)
+    let _mediatorEventsListener = null;
+    let _mediatorEvents = [];
+    let _mediatorEventsPaused = false;
+
+    // Restore collapsed state from session
+    try {
+        const saved = sessionStorage.getItem('_mediatorCollapsed');
+        if (saved) _mediatorCollapsed = JSON.parse(saved);
+    } catch(e) {}
+
+    // ── Load & Render ─────────────────────────────────────────────
+
+    async function loadMediatorDiag() {
+        const summary = document.getElementById('mediator-summary');
+        const tree = document.getElementById('mediator-tree');
+        try {
+            summary.innerHTML = '<span class="spinner"></span>&nbsp; Loading mediator diagnostics…';
+            const data = await api('/mediator/diag');
+            _mediatorDiagData = data;
+            _debugData.mediator = data;
+            _mediatorRenderSummary(data);
+            _mediatorRenderTree(data);
+            _mediatorRenderGraph(data);
+            _mediatorRenderEventStream();
+            _mediatorStartAgeTimer();
+            _mediatorStartListening();
+            // Show root overview on first load (preserve selection on refresh)
+            if (!_mediatorSelectedPath && !_mediatorSelectedBranch) {
+                _mediatorSelectRoot();
+            }
+        } catch(e) {
+            summary.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(e.message)}</span>`;
+            if (tree) tree.innerHTML = '';
+        }
+    }
+
+    // ── Summary bar ───────────────────────────────────────────────
+
+    function _mediatorRenderSummary(data) {
+        const el = document.getElementById('mediator-summary');
+        if (!el || !data) return;
+
+        const tree = data.tree || {};
+        const refreshCount = (data.refreshing || []).length;
+
+        const parts = [];
+        parts.push(`<span style="font-weight:600">seq: ${data.seq || 0}</span>`);
+        parts.push(`<span>${tree.registered || 0} nodes</span>`);
+        parts.push(`<span style="color:var(--success)">${data.cached || 0} cached</span>`);
+
+        if (data.stale > 0) {
+            parts.push(`<span style="background:rgba(251,191,36,0.15);color:#d97706;padding:1px 8px;border-radius:10px;font-weight:500">${data.stale} stale</span>`);
+        } else {
+            parts.push(`<span style="color:var(--text-muted)">0 stale</span>`);
+        }
+
+        if (refreshCount > 0) {
+            parts.push(`<span style="background:rgba(99,102,241,0.12);color:#6366f1;padding:1px 8px;border-radius:10px;font-weight:500;animation:pulse 1.5s ease-in-out infinite">${refreshCount} refreshing</span>`);
+        }
+
+        parts.push(`<span style="color:var(--text-muted)">${data.subscriptions || 0} subs</span>`);
+
+        const execIcon = data.has_executor ? '✓' : '✗';
+        const execColor = data.has_executor ? 'var(--success)' : 'var(--text-muted)';
+        parts.push(`<span style="color:${execColor}">executor: ${execIcon}</span>`);
+
+        el.innerHTML = parts.join('<span style="color:var(--border-subtle);margin:0 4px">│</span>');
+    }
+
+    // ── Tree Explorer ─────────────────────────────────────────────
+
+    function _mediatorRenderTree(data) {
+        const container = document.getElementById('mediator-tree');
+        if (!container || !data || !data.entries) {
+            if (container) container.innerHTML = '<div style="color:var(--text-muted);font-size:0.74rem;padding:12px">No entries</div>';
+            return;
+        }
+
+        // Group entries by first path segment
+        const branches = {};
+        const paths = Object.keys(data.entries).sort();
+        for (const p of paths) {
+            const seg = p.split('.')[0];
+            if (!branches[seg]) branches[seg] = [];
+            branches[seg].push(p);
+        }
+
+        let html = `<div onclick="_mediatorSelectRoot()" style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--border-subtle);margin-bottom:4px;cursor:pointer;background:${!_mediatorSelectedPath && !_mediatorSelectedBranch ? 'rgba(99,102,241,0.08)' : 'transparent'};border-radius:var(--radius-sm) var(--radius-sm) 0 0" onmouseover="this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.background='${!_mediatorSelectedPath && !_mediatorSelectedBranch ? 'rgba(99,102,241,0.08)' : 'transparent'}'">
+            <span style="font-weight:600;font-size:0.76rem;color:var(--text-secondary)">🌳 root</span>
+            <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();loadMediatorDiag()" style="font-size:0.65rem;padding:2px 6px" title="Reload diagnostics">↻</button>
+        </div>`;
+
+        const branchNames = Object.keys(branches).sort();
+        for (const branch of branchNames) {
+            const nodes = branches[branch];
+            const collapsed = _mediatorCollapsed[branch] === true;
+            const arrow = collapsed ? '▶' : '▼';
+
+            // Count stats for this branch
+            let bCached = 0, bStale = 0, bCold = 0, bRefreshing = 0;
+            for (const p of nodes) {
+                const e = data.entries[p];
+                const isRefr = (data.refreshing || []).includes(p);
+                if (isRefr) bRefreshing++;
+                else if (e && e.stale) bStale++;
+                else if (e && e.cached !== false && e.age_s !== undefined) bCached++;
+                else bCold++;
+            }
+            const bSummary = [];
+            if (bCached > 0) bSummary.push(`<span style="color:var(--success)">${bCached}✓</span>`);
+            if (bStale > 0) bSummary.push(`<span style="color:#d97706">${bStale}⚠</span>`);
+            if (bCold > 0) bSummary.push(`<span style="color:var(--text-muted)">${bCold}∅</span>`);
+            if (bRefreshing > 0) bSummary.push(`<span style="color:#6366f1">${bRefreshing}🔄</span>`);
+
+            const isBranchSelected = _mediatorSelectedBranch === branch;
+            const branchBg = isBranchSelected ? 'rgba(99,102,241,0.08)' : 'transparent';
+
+            html += `<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:0.74rem;user-select:none;background:${branchBg};border-left:${isBranchSelected ? '2px solid var(--accent)' : '2px solid transparent'}">
+                <span onclick="_mediatorToggleBranch('${esc(branch)}')" style="cursor:pointer;font-size:0.65rem;width:10px">${arrow}</span>
+                <span onclick="_mediatorSelectBranch('${esc(branch)}')" style="cursor:pointer;font-weight:600;color:${isBranchSelected ? 'var(--accent)' : 'var(--text-secondary)'}">${esc(branch)}</span>
+                <span style="font-size:0.65rem;color:var(--text-muted);font-weight:400">(${nodes.length})</span>
+                <span style="font-size:0.62rem;display:flex;gap:4px;margin-left:auto">${bSummary.join(' ')}</span>
+            </div>`;
+
+            if (!collapsed) {
+                for (let i = 0; i < nodes.length; i++) {
+                    const isLast = (i === nodes.length - 1);
+                    html += _mediatorTreeRow(nodes[i], data.entries[nodes[i]], data.refreshing || [], isLast);
+                }
+            }
+        }
+
+        // Legend
+        html += `<div style="padding:8px 8px 4px;margin-top:8px;border-top:1px solid var(--border-subtle);font-size:0.62rem;color:var(--text-muted);line-height:1.6">
+            <span style="color:var(--success)">●</span> cached&nbsp;&nbsp;
+            <span style="color:var(--text-muted)">○</span> cold&nbsp;&nbsp;
+            <span style="color:var(--success)">✓</span> fresh&nbsp;&nbsp;
+            <span style="color:#d97706">⚠</span> stale&nbsp;&nbsp;
+            <span>💤</span> dormant&nbsp;&nbsp;
+            <span>🔄</span> refreshing&nbsp;&nbsp;
+            <span style="color:var(--text-muted)">∅</span> never&nbsp;&nbsp;
+            <span style="color:var(--text-muted)">∞</span> always
+        </div>`;
+
+        container.innerHTML = html;
+    }
+
+    function _mediatorTreeRow(path, entry, refreshingList, isLast) {
+        const isSelected = _mediatorSelectedPath === path;
+        const isRefreshing = refreshingList.includes(path);
+
+        // Tree connector
+        const connector = isLast ? '└─' : '├─';
+
+        // Cache indicator (● cached, ○ not cached)
+        let cacheIcon, cacheColor;
+        if (entry && entry.cached !== false && entry.age_s !== undefined) {
+            cacheIcon = '●'; cacheColor = 'var(--success)';
+        } else {
+            cacheIcon = '○'; cacheColor = 'var(--text-muted)';
+        }
+
+        // Status indicator (right side)
+        let statusIcon;
+        if (isRefreshing) {
+            statusIcon = '🔄';
+        } else if (entry && entry.stale) {
+            statusIcon = '<span style="color:#d97706">⚠</span>';
+        } else if (entry && entry.cached !== false && entry.age_s !== undefined) {
+            statusIcon = '<span style="color:var(--success)">✓</span>';
+        } else if (entry && entry.cached === false) {
+            statusIcon = '<span style="color:var(--text-muted)">∅</span>';
+        } else {
+            statusIcon = '<span style="color:var(--text-muted)">∅</span>';
+        }
+
+        // Short name (everything after first dot)
+        const shortName = path.split('.').slice(1).join('.') || path;
+
+        // Age display
+        let ageStr = '—';
+        if (entry && entry.age_s !== undefined) {
+            ageStr = _mediatorFormatAge(entry.age_s);
+        }
+
+        const bgColor = isSelected ? 'rgba(99,102,241,0.08)' : 'transparent';
+        const borderLeft = isSelected ? '2px solid var(--accent)' : '2px solid transparent';
+
+        return `<div onclick="_mediatorSelectNode('${esc(path)}')" data-mediator-path="${esc(path)}" data-computed-at="${entry && entry.age_s !== undefined ? (Date.now()/1000 - entry.age_s) : ''}" style="cursor:pointer;padding:2px 8px 2px 16px;font-size:0.72rem;font-family:var(--font-mono,'Consolas','Monaco',monospace);display:flex;align-items:center;gap:0;border-left:${borderLeft};background:${bgColor};transition:background 0.15s;line-height:1.5" onmouseover="this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.background='${bgColor}'">
+            <span style="color:var(--text-muted);white-space:pre">${connector} </span>
+            <span style="color:${cacheColor}">${cacheIcon}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary);padding:0 6px" title="${esc(path)}">${esc(shortName)}</span>
+            <span class="mediator-age" style="color:var(--text-muted);min-width:36px;text-align:right;padding-right:6px">${ageStr}</span>
+            <span style="min-width:16px;text-align:center">${statusIcon}</span>
+        </div>`;
+    }
+
+    function _mediatorFormatAge(seconds) {
+        if (seconds === undefined || seconds === null) return '—';
+        if (seconds < 1) return '<1s';
+        if (seconds < 60) return Math.round(seconds) + 's';
+        if (seconds < 3600) return Math.round(seconds / 60) + 'm';
+        return Math.round(seconds / 3600) + 'h';
+    }
+
+    // ── Branch collapse ───────────────────────────────────────────
+
+    function _mediatorToggleBranch(branch) {
+        _mediatorCollapsed[branch] = !_mediatorCollapsed[branch];
+        try { sessionStorage.setItem('_mediatorCollapsed', JSON.stringify(_mediatorCollapsed)); } catch(e) {}
+        if (_mediatorDiagData) _mediatorRenderTree(_mediatorDiagData);
+    }
+
+    // ── Root selection (global overview) ─────────────────────
+
+    function _mediatorSelectRoot() {
+        _mediatorSelectedPath = null;
+        _mediatorSelectedBranch = null;
+        if (_mediatorDiagData) _mediatorRenderTree(_mediatorDiagData);
+
+        const detail = document.getElementById('mediator-detail');
+        if (!detail || !_mediatorDiagData) return;
+
+        const data = _mediatorDiagData;
+        const entries = data.entries || {};
+        const allPaths = Object.keys(entries).sort();
+        const refreshing = data.refreshing || [];
+
+        // Count global stats
+        let cached = 0, stale = 0, cold = 0, refr = 0;
+        for (const p of allPaths) {
+            const e = entries[p];
+            if (refreshing.includes(p)) refr++;
+            else if (e && e.stale) stale++;
+            else if (e && e.cached !== false && e.age_s !== undefined) cached++;
+            else cold++;
+        }
+
+        // Group by branch for overview table
+        const branches = {};
+        for (const p of allPaths) {
+            const seg = p.split('.')[0];
+            if (!branches[seg]) branches[seg] = { total: 0, cached: 0, stale: 0, cold: 0 };
+            branches[seg].total++;
+            const e = entries[p];
+            if (refreshing.includes(p)) { /* skip */ }
+            else if (e && e.stale) branches[seg].stale++;
+            else if (e && e.cached !== false && e.age_s !== undefined) branches[seg].cached++;
+            else branches[seg].cold++;
+        }
+
+        let html = `<div style="padding:12px 16px">
+            <div style="font-weight:600;font-size:0.82rem;color:var(--text-primary);margin-bottom:12px">🌳 Mediator Overview</div>
+
+            <div style="display:flex;gap:16px;padding:8px 12px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.72rem;margin-bottom:12px;flex-wrap:wrap">
+                <span><strong>${allPaths.length}</strong> total nodes</span>
+                <span style="color:var(--success)"><strong>${cached}</strong> fresh</span>
+                <span style="color:#d97706"><strong>${stale}</strong> stale</span>
+                <span style="color:var(--text-muted)"><strong>${cold}</strong> cold</span>`;
+        if (refr > 0) html += `<span style="color:#6366f1"><strong>${refr}</strong> refreshing</span>`;
+        html += `<span>seq <strong>#${data.seq || 0}</strong></span>
+                <span>executor: ${data.has_executor ? '<span style="color:var(--success)">✓</span>' : '<span style="color:var(--text-muted)">✗</span>'}</span>
+            </div>
+
+            <table style="width:100%;font-size:0.72rem;border-collapse:collapse">
+                <tr style="color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+                    <td style="padding:4px 8px 4px 0;font-weight:600">Branch</td>
+                    <td style="padding:4px 8px;text-align:center">Nodes</td>
+                    <td style="padding:4px 8px;text-align:center">✓</td>
+                    <td style="padding:4px 8px;text-align:center">⚠</td>
+                    <td style="padding:4px 8px;text-align:center">∅</td>
+                </tr>`;
+
+        for (const [name, b] of Object.entries(branches).sort()) {
+            html += `<tr onclick="_mediatorSelectBranch('${esc(name)}')" style="cursor:pointer;border-bottom:1px solid var(--border-subtle)" onmouseover="this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.background=''">
+                <td style="padding:3px 8px 3px 0"><a href="javascript:void(0)" style="color:var(--accent);text-decoration:none">${esc(name)}</a></td>
+                <td style="padding:3px 8px;text-align:center">${b.total}</td>
+                <td style="padding:3px 8px;text-align:center;color:var(--success)">${b.cached}</td>
+                <td style="padding:3px 8px;text-align:center;color:#d97706">${b.stale}</td>
+                <td style="padding:3px 8px;text-align:center;color:var(--text-muted)">${b.cold}</td>
+            </tr>`;
+        }
+        html += `</table></div>`;
+        detail.innerHTML = html;
+    }
+
+    // ── Branch selection (overview) ──────────────────────────────
+
+    function _mediatorSelectBranch(branch) {
+        _mediatorSelectedPath = null;
+        _mediatorSelectedBranch = branch;
+        if (_mediatorDiagData) _mediatorRenderTree(_mediatorDiagData);
+
+        const detail = document.getElementById('mediator-detail');
+        if (!detail || !_mediatorDiagData) return;
+
+        const entries = _mediatorDiagData.entries || {};
+        const refreshing = _mediatorDiagData.refreshing || [];
+        const paths = Object.keys(entries).filter(p => p.split('.')[0] === branch).sort();
+
+        // Count stats
+        let cached = 0, stale = 0, cold = 0, refr = 0;
+        let totalAge = 0, agedCount = 0;
+        for (const p of paths) {
+            const e = entries[p];
+            if (refreshing.includes(p)) { refr++; }
+            else if (e && e.stale) { stale++; }
+            else if (e && e.cached !== false && e.age_s !== undefined) { cached++; }
+            else { cold++; }
+            if (e && e.age_s !== undefined) {
+                totalAge += e.age_s;
+                agedCount++;
+            }
+        }
+        const avgAge = agedCount > 0 ? (totalAge / agedCount) : 0;
+
+        let html = `<div style="padding:12px 16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:6px">
+                <span style="font-weight:600;font-size:0.82rem;color:var(--text-primary)">${esc(branch)} branch</span>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-sm btn-ghost" onclick="_mediatorRefreshBranch('${esc(branch)}')" style="font-size:0.65rem">🔄 Refresh Branch</button>
+                    <button class="btn btn-sm btn-ghost" onclick="_mediatorBustBranch('${esc(branch)}')" style="font-size:0.65rem">💥 Bust Branch</button>
+                </div>
+            </div>`;
+
+        // Stats bar
+        html += `<div style="display:flex;gap:16px;padding:8px 12px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.72rem;margin-bottom:12px;flex-wrap:wrap">
+            <span>${paths.length} nodes</span>
+            <span style="color:var(--success)">${cached} fresh</span>
+            <span style="color:#d97706">${stale} stale</span>
+            <span style="color:var(--text-muted)">${cold} cold</span>`;
+        if (refr > 0) html += `<span style="color:#6366f1">${refr} refreshing</span>`;
+        if (agedCount > 0) html += `<span style="color:var(--text-muted)">avg age: ${_mediatorFormatAge(avgAge)}</span>`;
+        html += `</div>`;
+
+        // Node list
+        html += `<table style="width:100%;font-size:0.72rem;border-collapse:collapse;font-family:var(--font-mono,'Consolas','Monaco',monospace)">
+            <tr style="color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+                <td style="padding:4px 8px 4px 0">Node</td>
+                <td style="padding:4px 8px;text-align:center">Status</td>
+                <td style="padding:4px 8px;text-align:right">Age</td>
+                <td style="padding:4px 8px;text-align:right">TTL</td>
+            </tr>`;
+
+        for (const p of paths) {
+            const e = entries[p];
+            const isRefr = refreshing.includes(p);
+            const shortName = p.split('.').slice(1).join('.') || p;
+
+            let statusIcon;
+            if (isRefr) statusIcon = '🔄';
+            else if (e && e.stale) statusIcon = '<span style="color:#d97706">⚠</span>';
+            else if (e && e.cached !== false && e.age_s !== undefined) statusIcon = '<span style="color:var(--success)">✓</span>';
+            else statusIcon = '<span style="color:var(--text-muted)">∅</span>';
+
+            const age = (e && e.age_s !== undefined) ? _mediatorFormatAge(e.age_s) : '—';
+            const ttl = e ? (e.ttl === null ? '∞' : (e.ttl === 0 ? '∞' : e.ttl + 's')) : '—';
+
+            html += `<tr onclick="_mediatorSelectNode('${esc(p)}')" style="cursor:pointer;border-bottom:1px solid var(--border-subtle)" onmouseover="this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.background=''">
+                <td style="padding:3px 8px 3px 0"><a href="javascript:void(0)" style="color:var(--accent);text-decoration:none">${esc(shortName)}</a></td>
+                <td style="padding:3px 8px;text-align:center">${statusIcon}</td>
+                <td style="padding:3px 8px;text-align:right;color:var(--text-muted)">${age}</td>
+                <td style="padding:3px 8px;text-align:right;color:var(--text-muted)">${ttl}</td>
+            </tr>`;
+        }
+
+        html += `</table></div>`;
+        detail.innerHTML = html;
+    }
+
+    async function _mediatorRefreshBranch(branch) {
+        try {
+            const result = await apiPost('/mediator/refresh-branch', { prefix: branch });
+            const count = Object.keys(result.refreshed || {}).length;
+            toast(`Refreshed ${count} node${count !== 1 ? 's' : ''} in ${esc(branch)} branch`);
+            await loadMediatorDiag();
+        } catch(e) {
+            toast('Branch refresh failed: ' + e.message, 'error');
+        }
+    }
+
+    async function _mediatorBustBranch(branch) {
+        try {
+            const result = await apiPost('/mediator/bust', { max_age: 0, prefix: branch });
+            toast(`Busted ${result.count || 0} entr${(result.count || 0) !== 1 ? 'ies' : 'y'} in ${esc(branch)} branch`);
+            await loadMediatorDiag();
+        } catch(e) {
+            toast('Branch bust failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── Node selection & detail ───────────────────────────────────
+
+    async function _mediatorSelectNode(path) {
+        _mediatorSelectedPath = path;
+        _mediatorSelectedBranch = null;
+        if (_mediatorDiagData) _mediatorRenderTree(_mediatorDiagData);
+
+        const detail = document.getElementById('mediator-detail');
+        if (!detail) return;
+
+        detail.innerHTML = '<div style="padding:20px;color:var(--text-muted);font-size:0.74rem"><span class="spinner"></span>&nbsp; Loading detail…</div>';
+
+        try {
+            const data = await api('/mediator/diag/' + encodeURIComponent(path).replace(/%2E/g, '.'));
+            _mediatorRenderDetail(data);
+        } catch(e) {
+            detail.innerHTML = `<div style="padding:20px;color:var(--danger);font-size:0.74rem">⚠ ${esc(e.message)}</div>`;
+        }
+    }
+
+    function _mediatorRenderDetail(data) {
+        const detail = document.getElementById('mediator-detail');
+        if (!detail || !data) return;
+
+        const path = data.path || '?';
+
+        // Status badge
+        let statusBadge;
+        if (data.refreshing) {
+            statusBadge = '<span style="background:rgba(99,102,241,0.12);color:#6366f1;padding:2px 10px;border-radius:10px;font-weight:500;font-size:0.72rem">🔄 REFRESHING</span>';
+        } else if (data.stale) {
+            statusBadge = '<span style="background:rgba(251,191,36,0.15);color:#d97706;padding:2px 10px;border-radius:10px;font-weight:500;font-size:0.72rem">⚠ STALE</span>';
+        } else if (data.cached) {
+            statusBadge = '<span style="background:rgba(52,211,153,0.12);color:#059669;padding:2px 10px;border-radius:10px;font-weight:500;font-size:0.72rem">● FRESH</span>';
+        } else {
+            statusBadge = '<span style="background:rgba(148,163,184,0.12);color:#64748b;padding:2px 10px;border-radius:10px;font-weight:500;font-size:0.72rem">○ COLD</span>';
+        }
+
+        // Header with title + action buttons
+        let html = `<div style="padding:12px 16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:6px">
+                <span style="font-weight:600;font-size:0.82rem;color:var(--text-primary)">${esc(path)}</span>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-sm btn-ghost" onclick="_mediatorRefreshPath('${esc(path)}')" style="font-size:0.65rem">🔄 Refresh</button>
+                    <button class="btn btn-sm btn-ghost" onclick="_mediatorBustPath('${esc(path)}')" style="font-size:0.65rem">💥 Bust</button>
+                </div>
+            </div>`;
+
+        // Properties table
+        html += `<table style="width:100%;font-size:0.73rem;border-collapse:collapse;font-family:var(--font-mono,'Consolas','Monaco',monospace)">`;
+        html += _detailRow('Status', statusBadge);
+        html += _detailRow('Source', data.cached ? esc(data.source || '—') : '—');
+        html += _detailRow('Cached', data.cached ? '<span style="color:var(--success)">✓ yes</span>' : '<span style="color:var(--text-muted)">✗ no</span>');
+
+        if (data.cached) {
+            html += _detailRow('Age', data.age_s !== undefined ? `${data.age_s}s` : '—');
+
+            const ttlStr = data.ttl === null ? '∞ (no expiry)' : data.ttl === 0 ? '0 (always recompute)' : `${data.ttl}s`;
+            html += _detailRow('TTL', ttlStr);
+
+            if (data.ttl_remaining_s !== undefined) {
+                const isExpired = data.stale;
+                const remainColor = isExpired ? 'var(--danger)' : 'var(--success)';
+                const remainText = isExpired
+                    ? `-${Math.abs(data.ttl_remaining_s)}s (expired)`
+                    : `${data.ttl_remaining_s}s`;
+                html += _detailRow('Remaining', `<span style="color:${remainColor}">${remainText}</span>`);
+            }
+
+            html += _detailRow('Seq', `#${data.seq}`);
+            html += _detailRow('Last Δ', data.last_change_seq !== undefined ? `seq #${data.last_change_seq}` : '—');
+            html += _detailRow('Compute', data.elapsed_s !== undefined ? `${data.elapsed_s}s` : '—');
+        } else {
+            html += _detailRow('Last Δ', data.last_change_seq !== undefined ? `seq #${data.last_change_seq}` : '—');
+        }
+
+        html += _detailRow('Persist', data.persist ? '<span style="color:var(--success)">✓ file-backed</span>' : '<span style="color:var(--text-muted)">✗ memory only</span>');
+        html += _detailRow('Refreshing', data.refreshing ? '<span style="color:#6366f1">🔄 yes</span>' : '<span style="color:var(--text-muted)">✗</span>');
+        html += `</table>`;
+
+        // Dependencies section
+        if ((data.depends_on && data.depends_on.length > 0) || (data.dependents && data.dependents.length > 0)) {
+            html += `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-subtle)">
+                <div style="font-weight:600;font-size:0.72rem;color:var(--text-muted);margin-bottom:6px">── Dependencies ──</div>`;
+
+            if (data.depends_on && data.depends_on.length > 0) {
+                html += `<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:2px">Depends on:</div>`;
+                for (const d of data.depends_on) {
+                    html += `<div style="padding:1px 0 1px 12px"><a href="javascript:void(0)" onclick="_mediatorSelectNode('${esc(d)}')" style="color:var(--accent);text-decoration:none;font-size:0.72rem">${esc(d)}</a></div>`;
+                }
+            }
+
+            if (data.dependents && data.dependents.length > 0) {
+                html += `<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:6px;margin-bottom:2px">Depended on by:</div>`;
+                for (const d of data.dependents) {
+                    html += `<div style="padding:1px 0 1px 12px"><a href="javascript:void(0)" onclick="_mediatorSelectNode('${esc(d)}')" style="color:var(--accent);text-decoration:none;font-size:0.72rem">${esc(d)}</a></div>`;
+                }
+            }
+            html += `</div>`;
+        }
+
+        // Children
+        if (data.children && data.children.length > 0) {
+            html += `<div style="margin-top:8px">
+                <div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:2px">Children:</div>`;
+            for (const c of data.children) {
+                html += `<div style="padding:1px 0 1px 12px"><a href="javascript:void(0)" onclick="_mediatorSelectNode('${esc(c)}')" style="color:var(--accent);text-decoration:none;font-size:0.72rem">${esc(c)}</a></div>`;
+            }
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+        detail.innerHTML = html;
+    }
+
+    function _detailRow(label, value) {
+        return `<tr>
+            <td style="padding:3px 12px 3px 0;color:var(--text-muted);white-space:nowrap;vertical-align:top;width:90px">${label}</td>
+            <td style="padding:3px 0;color:var(--text-primary)">${value}</td>
+        </tr>`;
+    }
+
+    // ── Actions ───────────────────────────────────────────────────
+
+    async function _mediatorRefreshPath(path) {
+        try {
+            const result = await apiPost('/mediator/refresh', { paths: [path] });
+            const count = Object.keys(result.refreshed || {}).length;
+            const errors = Object.keys(result.errors || {}).length;
+            toast(`Refreshed ${count} node${count !== 1 ? 's' : ''}${errors ? ` (${errors} error${errors !== 1 ? 's' : ''})` : ''} in ${(result.elapsed_s || 0).toFixed(2)}s`);
+            await loadMediatorDiag();
+            if (_mediatorSelectedPath === path) _mediatorSelectNode(path);
+        } catch(e) {
+            toast('Refresh failed: ' + e.message, 'error');
+        }
+    }
+
+    async function _mediatorRefreshStale() {
+        try {
+            const result = await apiPost('/mediator/refresh-stale', {});
+            const count = Object.keys(result.refreshed || {}).length;
+            toast(`Refreshed ${count} stale node${count !== 1 ? 's' : ''} in ${(result.elapsed_s || 0).toFixed(2)}s`);
+            await loadMediatorDiag();
+        } catch(e) {
+            toast('Refresh stale failed: ' + e.message, 'error');
+        }
+    }
+
+    async function _mediatorBust(maxAge) {
+        try {
+            const result = await apiPost('/mediator/bust', { max_age: maxAge });
+            toast(`Busted ${result.count || 0} entr${(result.count || 0) !== 1 ? 'ies' : 'y'} older than ${maxAge}s`);
+            await loadMediatorDiag();
+        } catch(e) {
+            toast('Bust failed: ' + e.message, 'error');
+        }
+    }
+
+    async function _mediatorBustPath(path) {
+        try {
+            const result = await apiPost('/mediator/bust', { max_age: 0, prefix: path });
+            toast(`Busted ${result.count || 0} entr${(result.count || 0) !== 1 ? 'ies' : 'y'} for ${path}`);
+            await loadMediatorDiag();
+            if (_mediatorSelectedPath === path) _mediatorSelectNode(path);
+        } catch(e) {
+            toast('Bust failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── Age timer ─────────────────────────────────────────────────
+
+    function _mediatorStartAgeTimer() {
+        _mediatorStopAgeTimer();
+        _mediatorAgeTimer = setInterval(() => {
+            const rows = document.querySelectorAll('[data-mediator-path]');
+            const now = Date.now() / 1000;
+            rows.forEach(row => {
+                const computedAt = parseFloat(row.dataset.computedAt);
+                if (!computedAt) return;
+                const ageEl = row.querySelector('.mediator-age');
+                if (ageEl) {
+                    ageEl.textContent = _mediatorFormatAge(now - computedAt);
+                }
+            });
+        }, 5000);
+    }
+
+    function _mediatorStopAgeTimer() {
+        if (_mediatorAgeTimer) {
+            clearInterval(_mediatorAgeTimer);
+            _mediatorAgeTimer = null;
+        }
+    }
+
+    // ── Dependency Graph (Phase 7D) ──────────────────────────────
+
+    function _mediatorRenderGraph(data) {
+        const container = document.getElementById('mediator-graph');
+        if (!container || !data || !data.entries) { if (container) container.innerHTML = ''; return; }
+
+        const entries = data.entries;
+        const allPaths = Object.keys(entries);
+        const refreshing = data.refreshing || [];
+
+        // Find all nodes that are targets of dependencies (have depends_on)
+        const targetNodes = [];
+        const sourceMap = {};  // target → [sources]
+        for (const p of allPaths) {
+            const e = entries[p];
+            if (e.depends_on && e.depends_on.length > 0) {
+                targetNodes.push(p);
+                sourceMap[p] = e.depends_on;
+            }
+        }
+
+        if (targetNodes.length === 0) {
+            container.innerHTML = `<div style="padding:12px 0;font-size:0.72rem;color:var(--text-muted)">No dependency edges registered.</div>`;
+            return;
+        }
+
+        // Group by branch
+        const branchTargets = {};
+        for (const t of targetNodes) {
+            const branch = t.split('.')[0];
+            if (!branchTargets[branch]) branchTargets[branch] = [];
+            branchTargets[branch].push(t);
+        }
+        const branches = Object.keys(branchTargets).sort();
+
+        // Filter dropdown
+        let html = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span style="font-weight:600;font-size:0.76rem;color:var(--text-secondary)">📊 Dependency Graph</span>
+            <select id="mediator-graph-filter" onchange="_mediatorFilterGraph()" style="font-size:0.7rem;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-secondary);color:var(--text-primary)">
+                <option value="">all branches</option>
+                ${branches.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}
+            </select>
+        </div>`;
+
+        // Render graph in monospace pre block
+        html += `<div style="border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:12px 16px;background:var(--bg-secondary);overflow-x:auto">`;
+
+        for (let bi = 0; bi < branches.length; bi++) {
+            const branch = branches[bi];
+            const targets = branchTargets[branch].sort();
+
+            if (bi > 0) {
+                html += `<div style="font-size:0.68rem;color:var(--text-muted);margin:12px 0 8px;border-top:1px dashed var(--border-subtle);padding-top:8px">─── ${esc(branch)} branch ───</div>`;
+            } else {
+                html += `<div class="mediator-graph-branch-section" data-graph-branch="${esc(branch)}">`;
+            }
+
+            for (const target of targets) {
+                const sources = sourceMap[target] || [];
+                const e = entries[target] || {};
+                const downstreams = (e.dependents || []);
+
+                html += _mediatorGraphChain(sources, target, downstreams, entries, refreshing);
+            }
+
+            if (bi === 0) html += `</div>`;
+            // Wrap remaining branches
+            if (bi > 0) {
+                // Close any previous branch section
+            }
+        }
+
+        html += `</div>`;
+        container.innerHTML = html;
+
+        // Re-wrap branch sections for filtering
+        _mediatorTagGraphBranches(branches);
+    }
+
+    function _mediatorGraphChain(sources, target, downstreams, entries, refreshing) {
+        // Build ASCII-style chain using monospace font
+        let html = `<div style="font-family:var(--font-mono,'Consolas','Monaco',monospace);font-size:0.68rem;line-height:1.7;margin-bottom:2px">`;
+
+        if (sources.length === 0) {
+            // Just target → downstreams
+            html += `<div style="display:flex;align-items:center;gap:0;flex-wrap:wrap">`;
+            html += _graphNodeSpan(target, entries[target], refreshing);
+            if (downstreams.length > 0) {
+                html += `<span style="color:var(--text-muted)"> ──▶ </span>`;
+                html += downstreams.map(d => _graphNodeSpan(d, entries[d], refreshing)).join(`<span style="color:var(--text-muted)">, </span>`);
+            }
+            html += `</div>`;
+        } else if (sources.length === 1) {
+            // Single source ──▶ target ──▶ downstreams
+            html += `<div style="display:flex;align-items:center;gap:0;flex-wrap:wrap">`;
+            html += _graphNodeSpan(sources[0], entries[sources[0]], refreshing);
+            html += `<span style="color:var(--text-muted)"> ────▶ </span>`;
+            html += _graphNodeSpan(target, entries[target], refreshing);
+            if (downstreams.length > 0) {
+                html += `<span style="color:var(--text-muted)"> ──▶ </span>`;
+                html += downstreams.map(d => _graphNodeSpan(d, entries[d], refreshing)).join(`<span style="color:var(--text-muted)">, </span>`);
+            }
+            html += `</div>`;
+        } else {
+            // Multiple sources with box-drawing connectors
+            for (let i = 0; i < sources.length; i++) {
+                const isFirst = (i === 0);
+                const isLast = (i === sources.length - 1);
+                const isMid = !isFirst && !isLast;
+
+                let connector;
+                if (sources.length === 2) {
+                    connector = isFirst ? ' ─┐' : ' ─┘';
+                } else {
+                    connector = isFirst ? ' ─┐' : (isLast ? ' ─┘' : ' ─┤');
+                }
+
+                html += `<div style="display:flex;align-items:center;gap:0">`;
+                html += _graphNodeSpan(sources[i], entries[sources[i]], refreshing);
+                html += `<span style="color:var(--text-muted)">${connector}</span>`;
+
+                // On the middle (or last for 2) line, show ──▶ target ──▶ downstreams
+                const midIndex = Math.floor(sources.length / 2);
+                if (i === midIndex) {
+                    html += `<span style="color:var(--text-muted)">──▶ </span>`;
+                    html += _graphNodeSpan(target, entries[target], refreshing);
+                    if (downstreams.length > 0) {
+                        html += `<span style="color:var(--text-muted)"> ──▶ </span>`;
+                        html += downstreams.map(d => _graphNodeSpan(d, entries[d], refreshing)).join(`<span style="color:var(--text-muted)">, </span>`);
+                    }
+                } else {
+                    // Add vertical connector line padding
+                    if (i < midIndex) {
+                        html += `<span style="color:var(--text-muted);visibility:hidden">──▶ </span>`;
+                    }
+                }
+
+                html += `</div>`;
+            }
+        }
+
+        html += `</div>`;
+        return html;
+    }
+
+    function _graphNodeSpan(path, entry, refreshingList) {
+        const isRefreshing = refreshingList.includes(path);
+        let color;
+        if (isRefreshing) {
+            color = '#6366f1';
+        } else if (entry && entry.stale) {
+            color = '#d97706';
+        } else if (entry && entry.cached === false) {
+            color = '#94a3b8';
+        } else if (entry && entry.age_s !== undefined) {
+            color = '#34d399';
+        } else {
+            color = '#94a3b8';
+        }
+
+        const shortName = path.split('.').length > 2
+            ? path.split('.').slice(-2).join('.')
+            : path;
+
+        return `<span onclick="_mediatorSelectNode('${esc(path)}')" title="${esc(path)}" style="cursor:pointer;color:${color};font-weight:500;white-space:nowrap" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${esc(shortName)}</span>`;
+    }
+
+    function _mediatorFilterGraph() {
+        const filter = document.getElementById('mediator-graph-filter');
+        if (!filter) return;
+        const branch = filter.value;
+        document.querySelectorAll('.mediator-graph-branch-section').forEach(el => {
+            if (!branch || el.dataset.graphBranch === branch) {
+                el.style.display = '';
+            } else {
+                el.style.display = 'none';
+            }
+        });
+    }
+
+    function _mediatorTagGraphBranches(branches) {
+        // Tag sections for filtering after render
+        const container = document.getElementById('mediator-graph');
+        if (!container) return;
+        const sections = container.querySelectorAll('.mediator-graph-branch-section');
+        // Already tagged by data-graph-branch in the render
+    }
+
+    // ── Live Event Stream (Phase 7E) ────────────────────────────
+
+    function _mediatorRenderEventStream() {
+        const container = document.getElementById('mediator-events');
+        if (!container) return;
+
+        const pauseLabel = _mediatorEventsPaused ? 'Resume' : 'Pause';
+        const connDot = (typeof _sse !== 'undefined') && _sse && _sse.connected
+            ? '<span style="color:#34d399">●</span> Connected'
+            : '<span style="color:#94a3b8">○</span> Disconnected';
+
+        container.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-weight:600;font-size:0.76rem;color:var(--text-secondary)">⚡ Live Events</span>
+                    <span style="font-size:0.68rem;color:var(--text-muted)">${connDot}</span>
+                    <span style="font-size:0.65rem;color:var(--text-muted)">${_mediatorEvents.length} event${_mediatorEvents.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-sm btn-ghost" onclick="_mediatorClearEvents()" style="font-size:0.65rem">Clear</button>
+                    <button class="btn btn-sm btn-ghost" id="mediator-pause-btn" onclick="_mediatorTogglePause()" style="font-size:0.65rem">${pauseLabel}</button>
+                </div>
+            </div>
+            <div id="mediator-event-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--bg-secondary);font-family:var(--font-mono,'Consolas','Monaco',monospace);font-size:0.66rem"></div>`;
+
+        // Re-render existing events
+        const list = document.getElementById('mediator-event-list');
+        if (list && _mediatorEvents.length > 0) {
+            let html = '';
+            for (const evt of _mediatorEvents) {
+                html += _mediatorEventRow(evt, false);
+            }
+            list.innerHTML = html;
+        }
+    }
+
+    function _mediatorStartListening() {
+        _mediatorStopListening();
+        _mediatorEventsListener = function(e) {
+            const evt = e.detail;
+            if (!evt) return;
+
+            _mediatorEvents.unshift(evt);
+            if (_mediatorEvents.length > 100) _mediatorEvents.pop();
+
+            _mediatorAppendEvent(evt);
+        };
+        document.addEventListener('mediator:event', _mediatorEventsListener);
+    }
+
+    function _mediatorStopListening() {
+        if (_mediatorEventsListener) {
+            document.removeEventListener('mediator:event', _mediatorEventsListener);
+            _mediatorEventsListener = null;
+        }
+    }
+
+    function _mediatorAppendEvent(evt) {
+        const list = document.getElementById('mediator-event-list');
+        if (!list) return;
+
+        const row = document.createElement('div');
+        row.innerHTML = _mediatorEventRow(evt, true);
+        const rowEl = row.firstElementChild;
+        if (!rowEl) return;
+
+        if (list.firstChild) {
+            list.insertBefore(rowEl, list.firstChild);
+        } else {
+            list.appendChild(rowEl);
+        }
+
+        while (list.children.length > 100) {
+            list.removeChild(list.lastChild);
+        }
+
+        if (!_mediatorEventsPaused) {
+            list.scrollTop = 0;
+        }
+    }
+
+    function _mediatorEventRow(evt, animate) {
+        const ts = new Date(evt.ts);
+        const timeStr = ts.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        const icons = {
+            write: '✏️', invalidated: '💥', cascade: '💥',
+            refresh: '🔄', bust: '💥', dispatch: '📡',
+            stale: '📡', get: '📥'
+        };
+        const icon = icons[evt.type] || '•';
+
+        const typeLabel = (evt.type || '').toUpperCase();
+        const typeColors = {
+            write: '#6366f1', invalidated: '#d97706', cascade: '#d97706',
+            refresh: '#059669', bust: '#d97706', dispatch: '#6366f1',
+            stale: '#d97706', get: 'var(--text-muted)'
+        };
+        const typeColor = typeColors[evt.type] || 'var(--text-muted)';
+
+        const paths = (evt.paths || []);
+        const pathStr = paths.length > 2
+            ? paths.slice(0, 2).join(', ') + ` +${paths.length - 2}`
+            : paths.join(', ');
+
+        const firstPath = paths[0] || '';
+        const clickAttr = firstPath ? `onclick="_mediatorSelectNode('${esc(firstPath)}')"` : '';
+
+        // Extra info column
+        let extra = '';
+        if (evt.seq) extra = `seq #${evt.seq}`;
+        if (evt.elapsed_s) extra += `  ${evt.elapsed_s}s`;
+        if (evt.task_id) extra += `  ${evt.task_id}`;
+        if (evt.trigger) extra += `  (${evt.trigger})`;
+
+        const fadeIn = animate ? 'animation:mediatorFadeIn 0.3s ease-out' : '';
+
+        return `<div ${clickAttr} style="display:flex;align-items:center;gap:8px;padding:3px 10px;border-bottom:1px solid var(--border-subtle);${fadeIn};cursor:${firstPath ? 'pointer' : 'default'}" title="${esc(paths.join(', '))}">
+            <span style="color:var(--text-muted);min-width:56px">${timeStr}</span>
+            <span style="min-width:16px;text-align:center">${icon}</span>
+            <span style="color:${typeColor};font-weight:600;min-width:68px">${typeLabel}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary)">${esc(pathStr)}</span>
+            <span style="color:var(--text-muted);font-size:0.6rem;text-align:right;min-width:80px">${esc(extra)}</span>
+        </div>`;
+    }
+
+    function _mediatorClearEvents() {
+        _mediatorEvents = [];
+        const list = document.getElementById('mediator-event-list');
+        if (list) list.innerHTML = '';
+    }
+
+    function _mediatorTogglePause() {
+        _mediatorEventsPaused = !_mediatorEventsPaused;
+        const btn = document.getElementById('mediator-pause-btn');
+        if (btn) btn.textContent = _mediatorEventsPaused ? 'Resume' : 'Pause';
+    }
+</script>

@@ -36,14 +36,26 @@ def posture_full():  # type: ignore[no-untyped-def]
         - each pillar: {rank, items[], warnings[], recommendations[]}
         - each item may include: actions[]
     """
-    from src.core.services.system_posture import scan_posture
-
     force = request.args.get("bust", "") == "1"
-    root = current_app.config.get("PROJECT_ROOT")
+    via = request.args.get("via", "")
 
     try:
-        posture = scan_posture(force=force, project_root=root)
-        result = posture.to_dict()
+        if via == "mediator":
+            from src.core.services.mediator import get_mediator
+
+            m = get_mediator()
+            if force:
+                m.put("posture.full", cascade=True)
+            r = m.get("posture.full", force=force)
+            posture = r["data"]
+            result = posture.to_dict()
+        else:
+            from src.core.services.system_posture import scan_posture
+
+            root = current_app.config.get("PROJECT_ROOT")
+            posture = scan_posture(force=force, project_root=root)
+            result = posture.to_dict()
+
         _enrich_posture_actions(result)
         return jsonify(result)
     except Exception as exc:
@@ -219,13 +231,23 @@ def posture_summary():  # type: ignore[no-untyped-def]
         - pillar_ranks: {platform, toolchain, project, runtime}
         - timestamp
     """
-    from src.core.services.system_posture import get_summary
-
     force = request.args.get("bust", "") == "1"
+    via = request.args.get("via", "")
 
     try:
-        summary = get_summary(force=force)
-        return jsonify(summary)
+        if via == "mediator":
+            from src.core.services.mediator import get_mediator
+
+            m = get_mediator()
+            if force:
+                m.put("posture.summary", cascade=False)
+            r = m.get("posture.summary", force=force)
+            return jsonify(r["data"])
+        else:
+            from src.core.services.system_posture import get_summary
+
+            summary = get_summary(force=force)
+            return jsonify(summary)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -237,16 +259,32 @@ def posture_rescan():  # type: ignore[no-untyped-def]
     Invalidates all caches and runs a fresh scan.
     Returns the new full posture.
     """
-    from src.core.services.system_posture import invalidate_cache, scan_posture
-
-    root = current_app.config.get("PROJECT_ROOT")
+    via = request.args.get("via", "")
 
     try:
-        invalidated = invalidate_cache()
-        posture = scan_posture(force=True, project_root=root)
-        result = posture.to_dict()
-        _enrich_posture_actions(result)
-        result["cache_invalidated"] = invalidated
+        if via == "mediator":
+            from src.core.services.mediator import get_mediator
+
+            m = get_mediator()
+            inv = m.put("posture.full", cascade=True)
+            r = m.get("posture.full", force=True)
+            posture = r["data"]
+            result = posture.to_dict()
+            _enrich_posture_actions(result)
+            result["cache_invalidated"] = inv["invalidated"]
+        else:
+            from src.core.services.system_posture import (
+                invalidate_cache,
+                scan_posture,
+            )
+
+            root = current_app.config.get("PROJECT_ROOT")
+            invalidated = invalidate_cache()
+            posture = scan_posture(force=True, project_root=root)
+            result = posture.to_dict()
+            _enrich_posture_actions(result)
+            result["cache_invalidated"] = invalidated
+
         return jsonify(result)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -266,16 +304,28 @@ def posture_rescan_tool():  # type: ignore[no-untyped-def]
     Returns:
         Fresh posture summary (same shape as ``/posture/summary``).
     """
-    from src.core.services.system_posture import get_summary, invalidate_cache
-
     body = request.get_json(silent=True) or {}
     tool = body.get("tool", "")
+    via = request.args.get("via", "")
 
     try:
-        # Invalidate toolchain pillar + downstream (full, summary)
-        invalidate_cache("toolchain")
-        summary = get_summary(force=True)
-        return jsonify(summary)
+        if via == "mediator":
+            from src.core.services.mediator import get_mediator
+
+            m = get_mediator()
+            m.put("posture.toolchain", cascade=True)
+            r = m.get("posture.summary", force=True)
+            return jsonify(r["data"])
+        else:
+            from src.core.services.system_posture import (
+                get_summary,
+                invalidate_cache,
+            )
+
+            # Invalidate toolchain pillar + downstream (full, summary)
+            invalidate_cache("toolchain")
+            summary = get_summary(force=True)
+            return jsonify(summary)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

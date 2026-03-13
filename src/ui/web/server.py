@@ -93,6 +93,7 @@ def create_app(
     from src.ui.web.routes.plans import plans_bp
     from src.ui.web.routes.api.batch import batch_bp
     from src.ui.web.routes.posture import posture_bp
+    from src.ui.web.routes.mediator import mediator_bp
 
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
@@ -134,6 +135,7 @@ def create_app(
     app.register_blueprint(plans_bp, url_prefix="/api")
     app.register_blueprint(batch_bp, url_prefix="/api")
     app.register_blueprint(posture_bp, url_prefix="/api")
+    app.register_blueprint(mediator_bp, url_prefix="/api")
 
     # Initialize vault with project root (for auto-lock)
     from src.core.services import vault as vault_module
@@ -144,6 +146,16 @@ def create_app(
     from src.core.services.system_posture.cache import init as posture_cache_init
 
     posture_cache_init(app.config["PROJECT_ROOT"])
+
+    # Initialize QueryMediator (trilateral data hub)
+    from src.core.services.mediator import init as mediator_init
+
+    mediator_inst = mediator_init(app.config["PROJECT_ROOT"])
+
+    # Register domain nodes in the mediator tree
+    from src.core.services.mediator.registrations import register_all
+
+    register_all(mediator_inst)
 
     # Vault activity tracking — resets auto-lock timer on user actions
     @app.before_request

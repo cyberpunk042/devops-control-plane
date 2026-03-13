@@ -90,6 +90,7 @@
             'index:ready',
             'notification:new', 'notification:dismissed', 'notification:deleted',
             'error:new',
+            'mediator:write', 'mediator:invalidated',
         ],
 
         /** Open the SSE connection. Safe to call multiple times. */
@@ -166,6 +167,26 @@
                 case 'error:new':
                     document.dispatchEvent(new CustomEvent('sse:' + type, { detail: payload }));
                     break;
+
+                // Mediator events → DOM CustomEvents
+                // Listened to by scripts/mediator/_mediator.html
+                case 'mediator:write':
+                case 'mediator:invalidated': {
+                    const mData = payload.data || {};
+                    const mType = type === 'mediator:write' ? 'write' : 'invalidated';
+                    const mPaths = mType === 'write' ? (mData.writes || []) : (mData.invalidated || []);
+                    console.debug('[SSE] %s %s (seq %d, %d paths)', type, mData.trigger, mData.mediator_seq, mPaths.length);
+                    document.dispatchEvent(new CustomEvent('mediator:event', {
+                        detail: {
+                            type: mType,
+                            trigger: mData.trigger,
+                            seq: mData.mediator_seq,
+                            paths: mPaths,
+                            ts: Date.now(),
+                        }
+                    }));
+                    break;
+                }
 
                 // sys:warming, sys:warm, sys:heartbeat — silently ignored for now
             }
