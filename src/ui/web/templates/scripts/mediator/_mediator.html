@@ -291,6 +291,8 @@
         }
         html += `</table></div>`;
         detail.innerHTML = html;
+        // Adaptive graph: show all on root
+        if (_mediatorDiagData) _mediatorRenderGraph(_mediatorDiagData);
     }
 
     // ── Branch selection (overview) ──────────────────────────────
@@ -375,6 +377,8 @@
 
         html += `</table></div>`;
         detail.innerHTML = html;
+        // Adaptive graph: filter to this branch
+        if (_mediatorDiagData) _mediatorRenderGraph(_mediatorDiagData);
     }
 
     async function _mediatorRefreshBranch(branch) {
@@ -413,6 +417,8 @@
         try {
             const data = await api('/mediator/diag/' + encodeURIComponent(path).replace(/%2E/g, '.'));
             _mediatorRenderDetail(data);
+            // Adaptive graph: show ego graph for this node
+            if (_mediatorDiagData) _mediatorRenderGraph(_mediatorDiagData);
         } catch(e) {
             detail.innerHTML = `<div style="padding:20px;color:var(--danger);font-size:0.74rem">⚠ ${esc(e.message)}</div>`;
         }
@@ -602,73 +608,85 @@
         const allPaths = Object.keys(entries);
         const refreshing = data.refreshing || [];
 
-        // Find all nodes that are targets of dependencies (have depends_on)
-        const targetNodes = [];
-        const sourceMap = {};  // target → [sources]
+        // Build all edges: { target: path, sources: [...], downstreams: [...] }
+        const allEdges = [];
+        const sourceMap = {};
         for (const p of allPaths) {
             const e = entries[p];
             if (e.depends_on && e.depends_on.length > 0) {
-                targetNodes.push(p);
+                allEdges.push({ target: p, sources: e.depends_on, downstreams: e.dependents || [] });
                 sourceMap[p] = e.depends_on;
             }
         }
 
-        if (targetNodes.length === 0) {
+        if (allEdges.length === 0) {
             container.innerHTML = `<div style="padding:12px 0;font-size:0.72rem;color:var(--text-muted)">No dependency edges registered.</div>`;
             return;
         }
 
-        // Group by branch
-        const branchTargets = {};
-        for (const t of targetNodes) {
-            const branch = t.split('.')[0];
-            if (!branchTargets[branch]) branchTargets[branch] = [];
-            branchTargets[branch].push(t);
-        }
-        const branches = Object.keys(branchTargets).sort();
+        // Filter edges based on current selection
+        let filteredEdges = allEdges;
+        let filterLabel = 'all nodes';
 
-        // Filter dropdown
+        if (_mediatorSelectedPath) {
+            // Node ego graph: show edges where this node is source, target, or downstream
+            const node = _mediatorSelectedPath;
+            filteredEdges = allEdges.filter(edge =>
+                edge.target === node ||
+                edge.sources.includes(node) ||
+                edge.downstreams.includes(node)
+            );
+            filterLabel = node;
+        } else if (_mediatorSelectedBranch) {
+            // Branch filter: show edges where any participant belongs to this branch
+            const branch = _mediatorSelectedBranch;
+            filteredEdges = allEdges.filter(edge => {
+                if (edge.target.split('.')[0] === branch) return true;
+                if (edge.sources.some(s => s.split('.')[0] === branch)) return true;
+                if (edge.downstreams.some(d => d.split('.')[0] === branch)) return true;
+                return false;
+            });
+            filterLabel = branch + ' branch';
+        }
+
+        // Header
         let html = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
             <span style="font-weight:600;font-size:0.76rem;color:var(--text-secondary)">📊 Dependency Graph</span>
-            <select id="mediator-graph-filter" onchange="_mediatorFilterGraph()" style="font-size:0.7rem;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-secondary);color:var(--text-primary)">
-                <option value="">all branches</option>
-                ${branches.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}
-            </select>
+            <span style="font-size:0.65rem;color:var(--text-muted);background:var(--bg-secondary);padding:1px 8px;border-radius:10px">${esc(filterLabel)}</span>
         </div>`;
 
-        // Render graph in monospace pre block
+        if (filteredEdges.length === 0) {
+            html += `<div style="padding:12px 16px;font-size:0.72rem;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--bg-secondary)">No dependency edges for this selection.</div>`;
+            container.innerHTML = html;
+            return;
+        }
+
+        // Group filtered edges by target branch for visual separation
+        const branchEdges = {};
+        for (const edge of filteredEdges) {
+            const branch = edge.target.split('.')[0];
+            if (!branchEdges[branch]) branchEdges[branch] = [];
+            branchEdges[branch].push(edge);
+        }
+        const branches = Object.keys(branchEdges).sort();
+
         html += `<div style="border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:12px 16px;background:var(--bg-secondary);overflow-x:auto">`;
 
         for (let bi = 0; bi < branches.length; bi++) {
             const branch = branches[bi];
-            const targets = branchTargets[branch].sort();
+            const edges = branchEdges[branch];
 
             if (bi > 0) {
-                html += `<div style="font-size:0.68rem;color:var(--text-muted);margin:12px 0 8px;border-top:1px dashed var(--border-subtle);padding-top:8px">─── ${esc(branch)} branch ───</div>`;
-            } else {
-                html += `<div class="mediator-graph-branch-section" data-graph-branch="${esc(branch)}">`;
+                html += `<div style="font-size:0.68rem;color:var(--text-muted);margin:12px 0 8px;border-top:1px dashed var(--border-subtle);padding-top:8px">─── ${esc(branch)} ───</div>`;
             }
 
-            for (const target of targets) {
-                const sources = sourceMap[target] || [];
-                const e = entries[target] || {};
-                const downstreams = (e.dependents || []);
-
-                html += _mediatorGraphChain(sources, target, downstreams, entries, refreshing);
-            }
-
-            if (bi === 0) html += `</div>`;
-            // Wrap remaining branches
-            if (bi > 0) {
-                // Close any previous branch section
+            for (const edge of edges) {
+                html += _mediatorGraphChain(edge.sources, edge.target, edge.downstreams, entries, refreshing);
             }
         }
 
         html += `</div>`;
         container.innerHTML = html;
-
-        // Re-wrap branch sections for filtering
-        _mediatorTagGraphBranches(branches);
     }
 
     function _mediatorGraphChain(sources, target, downstreams, entries, refreshing) {
@@ -759,26 +777,7 @@
         return `<span onclick="_mediatorSelectNode('${esc(path)}')" title="${esc(path)}" style="cursor:pointer;color:${color};font-weight:500;white-space:nowrap" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${esc(shortName)}</span>`;
     }
 
-    function _mediatorFilterGraph() {
-        const filter = document.getElementById('mediator-graph-filter');
-        if (!filter) return;
-        const branch = filter.value;
-        document.querySelectorAll('.mediator-graph-branch-section').forEach(el => {
-            if (!branch || el.dataset.graphBranch === branch) {
-                el.style.display = '';
-            } else {
-                el.style.display = 'none';
-            }
-        });
-    }
-
-    function _mediatorTagGraphBranches(branches) {
-        // Tag sections for filtering after render
-        const container = document.getElementById('mediator-graph');
-        if (!container) return;
-        const sections = container.querySelectorAll('.mediator-graph-branch-section');
-        // Already tagged by data-graph-branch in the render
-    }
+    // (dropdown filter and tag functions removed — graph is now driven by tree selection)
 
     // ── Live Event Stream (Phase 7E) ────────────────────────────
 
