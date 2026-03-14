@@ -35,7 +35,8 @@ const _tlState = {
   // Navigator
   navMode:     'chains',  // chains | domains | calendar
   navChains:   [],        // raw chains from /api/timeline/chains
-  navDomains:  {},        // raw domains from /api/timeline/domains
+  navDomains:  {},        // by_source facet for source filter menu
+  navAdapters: {},        // by_adapter facet for domains tree (adapter → source → subtype)
   navCalendar: [],        // per-day counts from /api/timeline/calendar
   navFilter:   '',        // chain search filter text
 };
@@ -310,6 +311,7 @@ function _tlOnData(data) {
   _tlState.allEntries  = data.entries  || [];
   _tlState.navChains   = data.chains   || [];
   _tlState.navDomains  = (data.facets || {}).by_source || {};
+  _tlState.navAdapters = (data.facets || {}).by_adapter || {};
   _tlState.navCalendar = data.calendar || [];
 
   // Build filter menus from facets (always consistent — same population)
@@ -531,11 +533,15 @@ function _tlUpdateActivePills() {
     _tlState.chainFilter = null; _tlNavActiveChain = null;
     _tlUpdateActivePills(); _tlRenderFiltered(); _tlNavRender();
   }});
-  container.innerHTML = pills.map((p, i) =>
+  const pillsHtml = pills.map((p, i) =>
     `<span class="tl-filter-pill">${p.html || _tlEsc(p.label)}
        <button onclick="_tlClearPill(${i})" style="border:none;background:none;cursor:pointer;font-size:0.7rem;padding:0 2px">✕</button>
      </span>`
   ).join('');
+  const resetBtn = pills.length > 1
+    ? `<button onclick="_tlResetAllFilters()" class="btn btn-sm btn-ghost" style="font-size:0.62rem;padding:1px 6px;margin-left:4px" title="Clear all filters">✕ Clear all</button>`
+    : '';
+  container.innerHTML = pillsHtml + resetBtn;
   container._pills = pills; // store for onclick
 
   // Reflect active selections on filter button labels
@@ -559,6 +565,23 @@ window._tlClearPill = function(i) {
   const container = document.getElementById('timeline-active-filters');
   if (container && container._pills && container._pills[i]) container._pills[i].clear();
 };
+
+function _tlResetAllFilters() {
+  _tlState.sources     = [];
+  _tlState.statuses    = [];
+  _tlState.severities  = [];
+  _tlState.locality    = null;
+  _tlState.chainFilter = null;
+  _tlState.dateFrom    = null;
+  _tlState.dateTo      = null;
+  _tlState.q           = '';
+  _tlState.sortBy      = 'ts';
+  _tlState.sortDir     = 'desc';
+  _tlNavActiveChain    = null;
+  _tlSyncControlsFromState();
+  _tlRenderFiltered();
+  _tlNavRender();
+}
 
 // ── Dropdown menus ───────────────────────────────────────────────────
 
@@ -730,65 +753,277 @@ function _tlNavToggleChain(chainId) {
   _tlNavRender();
 }
 
+// Tracks which nodes are expanded in domains tree
+const _tlDomainExpanded = new Set();
+
 function _tlNavRenderDomains() {
-  const domains = _tlState.navDomains;
-  const entries = Object.entries(domains).sort((a, b) => b[1] - a[1]);
-  if (!entries.length) return `<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No domains</div>`;
+  const adapters = _tlState.navAdapters; // {adapter: {subtype: count}}
+  const adapterNames = Object.keys(adapters).sort();
+  if (!adapterNames.length) return `<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No domains</div>`;
 
-  return entries.map(([src, count]) =>
-    `<div class="tl-nav-chain" onclick="_tlFilterBySource('${_tlEsc(src)}')">
-       <div class="tl-nav-chain-header">
-         <span class="tl-source-badge tl-source-${_tlEsc(src.toLowerCase())}" style="font-size:0.58rem">${_tlEsc(src.toUpperCase())}</span>
-         <span class="tl-nav-chain-label">${_tlEsc(src)}</span>
-         <span class="tl-nav-chain-count">${count}</span>
-       </div>
-     </div>`
-  ).join('');
-}
+  return adapterNames.map(adapter => {
+    const subtypes = adapters[adapter]; // {subtype: count}
+    const adapterCount = Object.values(subtypes).reduce((s, c) => s + c, 0);
+    const adapterExp = _tlDomainExpanded.has(adapter);
 
-function _tlNavRenderCalendar() {
-  const days = _tlState.navCalendar;
-  if (!days.length) return `<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No data</div>`;
+    let subtypesHtml = '';
+    if (adapterExp) {
+      const subKeys = Object.keys(subtypes).sort();
+      subtypesHtml = subKeys.map(sub => {
+        const subLabel = sub || '(default)';
+        const subCount = subtypes[sub];
+        const subKey = `${adapter}:${sub}`;
+        const subExp = _tlDomainExpanded.has(subKey);
 
-  // Group by month
-  const byMonth = {};
-  for (const d of days) {
-    const [year, month] = d.date.split('-');
-    const key = `${year}-${month}`;
-    if (!byMonth[key]) byMonth[key] = [];
-    byMonth[key].push(d);
-  }
+        // Leaf entries: find matching entries from allEntries
+        let entriesHtml = '';
+        if (subExp) {
+          const matching = _tlState.allEntries.filter(e =>
+            e.adapter === adapter && (e.subtype || '') === sub
+          );
+          entriesHtml = `<div style="padding-left:20px">` +
+            matching.slice(0, 50).map(e => {
+              const statusIcon = { ok:'●', warning:'◑', attention:'⚠', failed:'✕' }[e.status] ?? '●';
+              const statusColor = { ok:'var(--success)', warning:'var(--warning)',
+                attention:'var(--warning)', failed:'var(--error)' }[e.status] ?? 'var(--text-muted)';
+              return `<div class="tl-nav-chain" style="padding:1px 0;cursor:pointer"
+                           onclick="_tlScrollToEntry('${_tlEsc(e.id)}')"
+                           title="${_tlEsc(e.id)}">
+                <div class="tl-nav-chain-header" style="padding:2px 8px">
+                  <span style="color:${statusColor};font-size:0.58rem">${statusIcon}</span>
+                  <span class="tl-nav-chain-label" style="font-size:0.6rem;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_tlEsc(e.summary)}</span>
+                  <span style="font-size:0.56rem;color:var(--text-muted);flex-shrink:0">${_tlFormatTime(e.ts)}</span>
+                </div>
+              </div>`;
+            }).join('') +
+            (matching.length > 50 ? `<div style="font-size:0.58rem;color:var(--text-muted);padding:2px 8px">+${matching.length - 50} more</div>` : '') +
+            `</div>`;
+        }
 
-  const months = Object.keys(byMonth).sort().reverse();
-  return months.map(mk => {
-    const [year, month] = mk.split('-');
-    const label = new Date(Number(year), Number(month) - 1, 1)
-      .toLocaleDateString([], { month: 'long', year: 'numeric' });
-    const rows = byMonth[mk].map(d => {
-      const dayNum = d.date.split('-')[2];
-      const dotColor = d.has_failure ? 'var(--error)' : 'var(--success)';
-      return `<div class="tl-cal-row" onclick="_tlJumpToDate('${_tlEsc(d.date)}')"
-                   title="${_tlEsc(d.date)} — ${d.count} entries">
-        <span class="tl-cal-dot" style="background:${dotColor}"></span>
-        <span class="tl-cal-day">${dayNum}</span>
-        <span class="tl-cal-count">${d.count}</span>
-      </div>`;
-    }).join('');
-    return `<div class="tl-cal-month">
-      <div class="tl-cal-month-label">${_tlEsc(label)}</div>
-      ${rows}
+        return `<div style="padding-left:12px">
+          <div class="tl-nav-chain">
+            <div class="tl-nav-chain-header" style="user-select:none">
+              <span style="font-size:0.6rem;color:var(--text-muted);width:10px;cursor:pointer"
+                    onclick="event.stopPropagation();_tlDomainToggle('${_tlEsc(subKey)}')">${subExp ? '▾' : '▸'}</span>
+              <span class="tl-nav-chain-label" style="flex:1;font-size:0.64rem;cursor:pointer"
+                    onclick="_tlDomainToggle('${_tlEsc(subKey)}')">${_tlEsc(subLabel)}</span>
+              <span class="tl-nav-chain-count">${subCount}</span>
+            </div>
+          </div>
+          ${entriesHtml}
+        </div>`;
+      }).join('');
+    }
+
+    return `<div class="tl-nav-chain">
+      <div class="tl-nav-chain-header" style="user-select:none;cursor:pointer"
+           onclick="_tlDomainToggle('${_tlEsc(adapter)}')">
+        <span style="font-size:0.6rem;color:var(--text-muted);width:10px">${adapterExp ? '▾' : '▸'}</span>
+        <span style="font-weight:600;font-size:0.66rem;flex:1">${_tlEsc(adapter)}</span>
+        <span class="tl-nav-chain-count">${adapterCount}</span>
+      </div>
+      ${subtypesHtml}
     </div>`;
   }).join('');
 }
 
+function _tlDomainToggle(key) {
+  if (_tlDomainExpanded.has(key)) _tlDomainExpanded.delete(key);
+  else _tlDomainExpanded.add(key);
+  _tlNavRender();
+}
+
+function _tlScrollToEntry(entryId) {
+  const filtered = _tlState._filteredEntries || [];
+
+  // Find the entry's index in the filtered list
+  const idx = filtered.findIndex(e => e.id === entryId);
+  if (idx < 0) {
+    // Entry not in current filter — clear filters and retry
+    _tlResetAllFilters();
+    const retryIdx = (_tlState._filteredEntries || []).findIndex(e => e.id === entryId);
+    if (retryIdx < 0) return; // truly not in data
+    _tlScrollToEntryAtIndex(retryIdx, entryId);
+    return;
+  }
+  _tlScrollToEntryAtIndex(idx, entryId);
+}
+
+function _tlScrollToEntryAtIndex(idx, entryId) {
+  // Render batches until this index is visible
+  while ((_tlState._renderedCount || 0) <= idx && _tlState.hasMore) {
+    _tlRenderNextBatch();
+  }
+
+  // Find the DOM element by its id attribute (tl-entry-{idx})
+  const el = document.getElementById(`tl-entry-${idx}`);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('tl-chain-hover');
+    setTimeout(() => el.classList.remove('tl-chain-hover'), 2000);
+  }
+}
+
+// Tracks which year/month nodes are expanded in calendar tree
+const _tlCalExpanded = new Set();
+let _tlCalInitDone = false;
+
+function _tlNavRenderCalendar() {
+  // Auto-expand current year and month on first render
+  if (!_tlCalInitDone && _tlState.navCalendar.length) {
+    _tlCalInitDone = true;
+    const now = new Date();
+    const curYear  = String(now.getFullYear());
+    const curMonth = String(now.getMonth() + 1).padStart(2, '0');
+    _tlCalExpanded.add(curYear);
+    _tlCalExpanded.add(`${curYear}-${curMonth}`);
+  }
+  const days = _tlState.navCalendar;
+  if (!days.length) return `<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No data</div>`;
+
+  // Group by year → month → days
+  const byYear = {};
+  for (const d of days) {
+    const [year, month] = d.date.split('-');
+    if (!byYear[year]) byYear[year] = {};
+    if (!byYear[year][month]) byYear[year][month] = [];
+    byYear[year][month].push(d);
+  }
+
+  const years = Object.keys(byYear).sort().reverse();
+  return years.map(year => {
+    const monthKeys = Object.keys(byYear[year]).sort().reverse();
+    const yearCount = monthKeys.reduce((sum, mk) =>
+      sum + byYear[year][mk].reduce((s, d) => s + d.count, 0), 0);
+    const yearHasFailure = monthKeys.some(mk =>
+      byYear[year][mk].some(d => d.has_failure));
+    const yearExp = _tlCalExpanded.has(year);
+    const yearActive = _tlState.dateFrom != null &&
+      _tlState.dateFrom === new Date(`${year}-01-01T00:00:00Z`).getTime() / 1000;
+
+    let monthsHtml = '';
+    if (yearExp) {
+      monthsHtml = monthKeys.map(month => {
+        const monthDays = byYear[year][month];
+        const monthCount = monthDays.reduce((s, d) => s + d.count, 0);
+        const monthHasFailure = monthDays.some(d => d.has_failure);
+        const mk = `${year}-${month}`;
+        const monthExp = _tlCalExpanded.has(mk);
+        const monthLabel = new Date(Number(year), Number(month) - 1, 1)
+          .toLocaleDateString([], { month: 'long' });
+        const monthActive = _tlState.dateFrom != null &&
+          _tlState.dateFrom === new Date(`${year}-${month}-01T00:00:00Z`).getTime() / 1000;
+
+        let daysHtml = '';
+        if (monthExp) {
+          daysHtml = `<div style="padding-left:16px">` + monthDays.map(d => {
+            const dayNum = d.date.split('-')[2];
+            const dotColor = d.has_failure ? 'var(--error)' : 'var(--success)';
+            const dayActive = _tlState.dateFrom != null &&
+              _tlState.dateFrom === new Date(d.date + 'T00:00:00Z').getTime() / 1000 &&
+              (_tlState.dateTo - _tlState.dateFrom) < 86401;
+            return `<div class="tl-cal-row ${dayActive ? 'tl-nav-chain--active' : ''}"
+                         onclick="_tlJumpToDate('${_tlEsc(d.date)}')"
+                         title="${_tlEsc(d.date)} — ${d.count} entries">
+              <span class="tl-cal-dot" style="background:${dotColor}"></span>
+              <span class="tl-cal-day">${dayNum}</span>
+              <span class="tl-cal-count">${d.count}</span>
+            </div>`;
+          }).join('') + `</div>`;
+        }
+
+        const monthDot = monthHasFailure ? 'var(--error)' : 'var(--success)';
+        return `<div style="padding-left:12px">
+          <div class="tl-nav-chain ${monthActive ? 'tl-nav-chain--active' : ''}" style="user-select:none">
+            <div class="tl-nav-chain-header">
+              <span style="font-size:0.6rem;color:var(--text-muted);width:10px;cursor:pointer"
+                    onclick="event.stopPropagation();_tlCalToggle('${_tlEsc(mk)}')">${monthExp ? '▾' : '▸'}</span>
+              <span class="tl-cal-dot" style="background:${monthDot};flex-shrink:0"></span>
+              <span class="tl-nav-chain-label" style="flex:1;cursor:pointer"
+                    onclick="_tlJumpToMonth('${_tlEsc(year)}','${_tlEsc(month)}')">${_tlEsc(monthLabel)}</span>
+              <span class="tl-nav-chain-count">${monthCount}</span>
+            </div>
+          </div>
+          ${daysHtml}
+        </div>`;
+      }).join('');
+    }
+
+    const yearDot = yearHasFailure ? 'var(--error)' : 'var(--success)';
+    return `<div class="tl-nav-chain ${yearActive ? 'tl-nav-chain--active' : ''}">
+      <div class="tl-nav-chain-header" style="user-select:none">
+        <span style="font-size:0.6rem;color:var(--text-muted);width:10px;cursor:pointer"
+              onclick="event.stopPropagation();_tlCalToggle('${_tlEsc(year)}')">${yearExp ? '▾' : '▸'}</span>
+        <span class="tl-cal-dot" style="background:${yearDot};flex-shrink:0"></span>
+        <span style="font-weight:600;font-size:0.68rem;flex:1;cursor:pointer"
+              onclick="_tlJumpToYear('${_tlEsc(year)}')">${_tlEsc(year)}</span>
+        <span class="tl-nav-chain-count">${yearCount}</span>
+      </div>
+      ${monthsHtml}
+    </div>`;
+  }).join('');
+}
+
+function _tlCalToggle(key) {
+  if (_tlCalExpanded.has(key)) _tlCalExpanded.delete(key);
+  else _tlCalExpanded.add(key);
+  _tlNavRender();
+}
+
 function _tlJumpToDate(dateStr) {
-  // Set date range filter to show only this day's entries
   const d = new Date(dateStr + 'T00:00:00Z');
-  _tlState.dateFrom    = d.getTime() / 1000;
-  _tlState.dateTo      = _tlState.dateFrom + 86400;
-  _tlState.chainFilter = null;  // clear chain filter — date and chain are separate views
+  const from = d.getTime() / 1000;
+  // Toggle: if same date already active, clear
+  if (_tlState.dateFrom === from && (_tlState.dateTo - _tlState.dateFrom) < 86401) {
+    _tlState.dateFrom = null;
+    _tlState.dateTo   = null;
+  } else {
+    _tlState.dateFrom = from;
+    _tlState.dateTo   = from + 86400;
+  }
+  _tlState.chainFilter = null;
   _tlNavActiveChain    = null;
   _tlRenderFiltered();
+  _tlNavRender();
+}
+
+function _tlJumpToMonth(year, month) {
+  const from = new Date(`${year}-${month}-01T00:00:00Z`).getTime() / 1000;
+  const nextMonth = Number(month) === 12
+    ? new Date(`${Number(year)+1}-01-01T00:00:00Z`).getTime() / 1000
+    : new Date(`${year}-${String(Number(month)+1).padStart(2,'0')}-01T00:00:00Z`).getTime() / 1000;
+  // Toggle
+  if (_tlState.dateFrom === from && _tlState.dateTo === nextMonth) {
+    _tlState.dateFrom = null;
+    _tlState.dateTo   = null;
+  } else {
+    _tlState.dateFrom = from;
+    _tlState.dateTo   = nextMonth;
+    _tlCalExpanded.add(year);
+    _tlCalExpanded.add(`${year}-${month}`);
+  }
+  _tlState.chainFilter = null;
+  _tlNavActiveChain    = null;
+  _tlRenderFiltered();
+  _tlNavRender();
+}
+
+function _tlJumpToYear(year) {
+  const from = new Date(`${year}-01-01T00:00:00Z`).getTime() / 1000;
+  const to   = new Date(`${Number(year)+1}-01-01T00:00:00Z`).getTime() / 1000;
+  // Toggle
+  if (_tlState.dateFrom === from && _tlState.dateTo === to) {
+    _tlState.dateFrom = null;
+    _tlState.dateTo   = null;
+  } else {
+    _tlState.dateFrom = from;
+    _tlState.dateTo   = to;
+    _tlCalExpanded.add(year);
+  }
+  _tlState.chainFilter = null;
+  _tlNavActiveChain    = null;
+  _tlRenderFiltered();
+  _tlNavRender();
 }
 
 function _tlNavHoverChain(chainId) {
@@ -808,11 +1043,15 @@ function _tlNavSelectChain(chainId) {
 }
 
 function _tlFilterBySource(src) {
-  if (!_tlState.sources.includes(src)) {
-    _tlState.sources.push(src);
-    _tlUpdateActivePills();
-    _tlRenderFiltered();
+  const idx = _tlState.sources.indexOf(src);
+  if (idx >= 0) {
+    _tlState.sources.splice(idx, 1);  // toggle off
+  } else {
+    _tlState.sources.push(src);       // toggle on
   }
+  _tlUpdateActivePills();
+  _tlRenderFiltered();
+  _tlNavRender();
 }
 
 function _tlNavScrollTo(chainId) {

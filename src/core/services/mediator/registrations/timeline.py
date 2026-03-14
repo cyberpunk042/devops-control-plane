@@ -99,20 +99,62 @@ def _get_entries(mediator: QueryMediator, paths: list[str]) -> list[TimelineEntr
     return merged
 
 
-def _build_facets(entries: list[TimelineEntry]) -> dict[str, dict[str, int]]:
-    """Compute facet counts from an entry list."""
+def _get_entries_by_adapter(
+    mediator: QueryMediator,
+) -> list[tuple[str, TimelineEntry]]:
+    """Fetch entries from all sources, tagged with their adapter name.
+
+    Returns a list of (adapter_name, entry) tuples.
+    Adapter name is the short name from the source path:
+      timeline.source.scan_activity → scan_activity
+    """
+    result: list[tuple[str, TimelineEntry]] = []
+    for path in _ALL_SOURCES:
+        adapter_name = path.split(".")[-1]  # e.g. "scan_activity"
+        try:
+            data = mediator.get(path)["data"]
+            if isinstance(data, list):
+                for entry in data:
+                    result.append((adapter_name, entry))
+        except Exception as exc:
+            logger.warning("timeline: failed to get %s: %s", path, exc)
+    return result
+
+
+def _build_facets(
+    tagged_entries: list[tuple[str, TimelineEntry]],
+) -> dict[str, Any]:
+    """Compute facet counts from adapter-tagged entries.
+
+    Returns:
+        by_source:   {source_value: count}
+        by_status:   {status_value: count}
+        by_severity: {severity_value: count}
+        by_adapter:  {adapter_name: {subtype_value: count}}
+    """
     by_source: dict[str, int] = {}
     by_status: dict[str, int] = {}
     by_severity: dict[str, int] = {}
-    for e in entries:
-        by_source[e.source.value] = by_source.get(e.source.value, 0) + 1
+    by_adapter: dict[str, dict[str, int]] = {}
+
+    for adapter, e in tagged_entries:
+        src = e.source.value
+        sub = e.subtype or ""
+        by_source[src] = by_source.get(src, 0) + 1
         by_status[e.status.value] = by_status.get(e.status.value, 0) + 1
         sev_key = e.severity.value if e.severity else "none"
         by_severity[sev_key] = by_severity.get(sev_key, 0) + 1
+
+        # Nested: adapter → subtype
+        if adapter not in by_adapter:
+            by_adapter[adapter] = {}
+        by_adapter[adapter][sub] = by_adapter[adapter].get(sub, 0) + 1
+
     return {
         "by_source": by_source,
         "by_status": by_status,
         "by_severity": by_severity,
+        "by_adapter": by_adapter,
     }
 
 
@@ -284,12 +326,19 @@ def register_timeline(mediator: QueryMediator) -> None:
         Filtering (time, source, status, etc.) happens client-side or in
         TimelineService.query() for the paginated API.
         """
-        entries = _get_entries(mediator, _ALL_SOURCES)
-        entries.sort(key=lambda e: e.ts, reverse=True)
+        tagged = _get_entries_by_adapter(mediator)
+        tagged.sort(key=lambda t: t[1].ts, reverse=True)
+
+        entries = [e for _, e in tagged]
+        entry_dicts = []
+        for adapter, e in tagged:
+            d = e.to_dict()
+            d["adapter"] = adapter
+            entry_dicts.append(d)
 
         return {
-            "entries": [e.to_dict() for e in entries],
-            "facets": _build_facets(entries),
+            "entries": entry_dicts,
+            "facets": _build_facets(tagged),
             "chains": _build_chains(entries),
             "calendar": _build_calendar(entries),
         }
