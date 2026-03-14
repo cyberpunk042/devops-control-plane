@@ -102,9 +102,15 @@ _WSL_TRANSPORT_RECIPES: dict[str, dict] = {
             "_default": [
                 "powershell.exe", "-NoProfile", "-Command",
                 "Start-Process powershell -Verb RunAs -Wait "
-                "-ArgumentList '-NoProfile -Command "
-                "\"Add-WindowsCapability -Online "
-                "-Name OpenSSH.Server~~~~0.0.1.0\"'",
+                "-ArgumentList '-NoProfile -Command \""
+                "Write-Host \"[OpenSSH] Installing OpenSSH Server feature...\"; "
+                "try { "
+                "  $r = Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; "
+                "  if ($r.RestartNeeded) { Write-Host \"[OpenSSH] NOTE: Restart may be needed\" } "
+                "  else { Write-Host \"[OpenSSH] Feature installed successfully\" } "
+                "} catch { "
+                "  Write-Host \"[OpenSSH] ERROR: $($_.Exception.Message)\"; exit 1 "
+                "}\"'",
             ],
         },
         "needs_sudo": {"_default": False},  # UAC handled by -Verb RunAs
@@ -114,8 +120,14 @@ _WSL_TRANSPORT_RECIPES: dict[str, dict] = {
                 "command": [
                     "powershell.exe", "-NoProfile", "-Command",
                     "Start-Process powershell -Verb RunAs -Wait "
-                    "-ArgumentList '-NoProfile -Command "
-                    "\"Start-Service sshd\"'",
+                    "-ArgumentList '-NoProfile -Command \""
+                    "Write-Host \"[OpenSSH] Starting sshd service...\"; "
+                    "try { "
+                    "  Start-Service sshd; "
+                    "  Write-Host \"[OpenSSH] sshd service started\" "
+                    "} catch { "
+                    "  Write-Host \"[OpenSSH] ERROR: $($_.Exception.Message)\"; exit 1 "
+                    "}\"'",
                 ],
                 "needs_sudo": False,
             },
@@ -124,25 +136,44 @@ _WSL_TRANSPORT_RECIPES: dict[str, dict] = {
                 "command": [
                     "powershell.exe", "-NoProfile", "-Command",
                     "Start-Process powershell -Verb RunAs -Wait "
-                    "-ArgumentList '-NoProfile -Command "
-                    "\"Set-Service -Name sshd -StartupType Automatic\"'",
+                    "-ArgumentList '-NoProfile -Command \""
+                    "Write-Host \"[OpenSSH] Setting sshd to auto-start...\"; "
+                    "try { "
+                    "  Set-Service -Name sshd -StartupType Automatic; "
+                    "  Write-Host \"[OpenSSH] sshd set to Automatic startup\" "
+                    "} catch { "
+                    "  Write-Host \"[OpenSSH] ERROR: $($_.Exception.Message)\"; exit 1 "
+                    "}\"'",
                 ],
                 "needs_sudo": False,
             },
         ],
         "verify": [
             "powershell.exe", "-NoProfile", "-Command",
-            "if ((Get-Service sshd -ErrorAction SilentlyContinue).Status "
-            "-eq 'Running') { exit 0 } else { exit 1 }",
+            "$svc = Get-Service sshd -ErrorAction SilentlyContinue; "
+            "if (-not $svc) { Write-Host '[OpenSSH] sshd service not found'; exit 1 } "
+            "elseif ($svc.Status -eq 'Running') { "
+            "  Write-Host \"[OpenSSH] OK: sshd is running (StartType=$($svc.StartType))\"; exit 0 "
+            "} else { "
+            "  Write-Host \"[OpenSSH] sshd exists but status=$($svc.Status)\"; exit 1 "
+            "}",
         ],
         "rollback": {
             "_default": [
                 "powershell.exe", "-NoProfile", "-Command",
                 "Start-Process powershell -Verb RunAs -Wait "
                 "-ArgumentList '-NoProfile -Command \""
-                "Stop-Service sshd -ErrorAction SilentlyContinue; "
-                "Remove-WindowsCapability -Online "
-                "-Name OpenSSH.Server~~~~0.0.1.0\"'",
+                "Write-Host \"[OpenSSH] Rolling back OpenSSH Server...\"; "
+                "try { "
+                "  $svc = Get-Service sshd -ErrorAction SilentlyContinue; "
+                "  if ($svc) { Stop-Service sshd -ErrorAction SilentlyContinue; "
+                "    Write-Host \"[OpenSSH] sshd service stopped\" "
+                "  } else { Write-Host \"[OpenSSH] sshd service not found (OK)\" }; "
+                "  Remove-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; "
+                "  Write-Host \"[OpenSSH] Feature removed\" "
+                "} catch { "
+                "  Write-Host \"[OpenSSH] ERROR: $($_.Exception.Message)\"; exit 1 "
+                "}\"'",
             ],
         },
         "risk": "medium",
@@ -188,41 +219,63 @@ _WSL_TRANSPORT_RECIPES: dict[str, dict] = {
             # Add [wsl2] networkingMode=mirrored to .wslconfig
             "_default": [
                 "powershell.exe", "-NoProfile", "-Command",
+                "Write-Host '[WSL Mirrored] Checking .wslconfig...'; "
                 "$wslconfig = \"$env:USERPROFILE\\.wslconfig\"; "
                 "$content = if (Test-Path $wslconfig) "
                 "{ Get-Content $wslconfig -Raw } else { '' }; "
                 "if ($content -notmatch 'networkingMode') { "
                 "  if ($content -notmatch '\\[wsl2\\]') { "
                 "    $content += \"`n[wsl2]`n\"; "
+                "    Write-Host '[WSL Mirrored] Added [wsl2] section'; "
                 "  }; "
                 "  $content = $content -replace "
                 "'(\\[wsl2\\])', \"`$1`nnetworkingMode=mirrored\"; "
                 "  Set-Content $wslconfig $content; "
-                "  Write-Host 'Added networkingMode=mirrored'; "
+                "  Write-Host '[WSL Mirrored] Added networkingMode=mirrored'; "
                 "} else { "
+                "  $oldMode = [regex]::Match($content, 'networkingMode=(\\w+)').Groups[1].Value; "
+                "  Write-Host \"[WSL Mirrored] Changing networkingMode from $oldMode to mirrored\"; "
                 "  $content = $content -replace "
                 "'networkingMode=\\w+', 'networkingMode=mirrored'; "
                 "  Set-Content $wslconfig $content; "
-                "  Write-Host 'Updated networkingMode to mirrored'; "
-                "}",
+                "  Write-Host '[WSL Mirrored] Updated to mirrored'; "
+                "}; "
+                "Write-Host '[WSL Mirrored] NOTE: Run wsl --shutdown to activate'",
             ],
         },
         "needs_sudo": {"_default": False},
         "verify": [
             "powershell.exe", "-NoProfile", "-Command",
-            "if ((Get-Content \"$env:USERPROFILE\\.wslconfig\" -Raw) "
-            "-match 'networkingMode=mirrored') { exit 0 } else { exit 1 }",
+            "$wslconfig = \"$env:USERPROFILE\\.wslconfig\"; "
+            "if (-not (Test-Path $wslconfig)) { "
+            "  Write-Host '[WSL Mirrored] .wslconfig does not exist'; exit 1 "
+            "}; "
+            "$content = Get-Content $wslconfig -Raw; "
+            "if ($content -match 'networkingMode=mirrored') { "
+            "  Write-Host '[WSL Mirrored] OK: networkingMode=mirrored found'; exit 0 "
+            "} else { "
+            "  $mode = [regex]::Match($content, 'networkingMode=(\\w+)').Groups[1].Value; "
+            "  if ($mode) { Write-Host \"[WSL Mirrored] FAIL: networkingMode=$mode (not mirrored)\" } "
+            "  else { Write-Host '[WSL Mirrored] FAIL: networkingMode not set' }; "
+            "  exit 1 "
+            "}",
         ],
         "rollback": {
             "_default": [
                 "powershell.exe", "-NoProfile", "-Command",
                 "$wslconfig = \"$env:USERPROFILE\\.wslconfig\"; "
-                "if (Test-Path $wslconfig) { "
-                "  $content = Get-Content $wslconfig -Raw; "
+                "if (-not (Test-Path $wslconfig)) { "
+                "  Write-Host '[WSL Mirrored] .wslconfig does not exist, nothing to revert'; exit 0 "
+                "}; "
+                "$content = Get-Content $wslconfig -Raw; "
+                "if ($content -match 'networkingMode=mirrored') { "
                 "  $content = $content -replace "
                 "'networkingMode=mirrored', 'networkingMode=nat'; "
                 "  Set-Content $wslconfig $content; "
-                "  Write-Host 'Reverted to NAT mode'; "
+                "  Write-Host '[WSL Mirrored] Reverted to NAT mode'; "
+                "  Write-Host '[WSL Mirrored] NOTE: Run wsl --shutdown to activate' "
+                "} else { "
+                "  Write-Host '[WSL Mirrored] networkingMode is not mirrored, nothing to revert' "
                 "}",
             ],
         },

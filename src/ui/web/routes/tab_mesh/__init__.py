@@ -1669,6 +1669,77 @@ def wsl_remove_firewall():
         }), 500
 
 
+def _count_portproxy() -> int:
+    """Non-elevated count of active portproxy rules in the CDP range."""
+    from src.core.services.wsl_transport.tunnel_backends import count_portproxy_rules
+    return count_portproxy_rules()
+
+
+@tab_mesh_bp.route("/tab-mesh/wsl-remove-portproxy", methods=["POST"])
+def wsl_remove_portproxy():
+    """Remove all netsh portproxy rules for CDP ports 9222–9232.
+
+    Uses elevated PowerShell (UAC prompt).  Downgrading from a direct
+    channel (Level 2) to curl-only mode (Level 1).
+
+    Also stops any active tunnel (it can't function without portproxy)
+    and evicts the router channel cache so the next status check
+    re-probes and reflects the correct level.
+    """
+    from src.core.services.wsl_transport.tunnel_backends import remove_all_portproxy_rules
+    from src.core.services.chrome.wsl_tunnel import stop_tunnel
+    from src.core.services.wsl_transport.router import get_router
+
+    try:
+        ok = remove_all_portproxy_rules()
+
+        # Portproxy gone → active tunnel is broken regardless of method.
+        # Stop it and evict the router cache so level re-evaluates correctly.
+        stop_tunnel()
+        get_router().evict(9222)
+
+        # Clear the channel state file so _warm_channel_lifecycle won't
+        # auto-revive the tunnel on next app restart.
+        try:
+            from flask import current_app
+            state_file = Path(current_app.config["PROJECT_ROOT"]) / ".state" / "wsl_channel.json"
+            state_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        remaining = _count_portproxy()
+        if ok:
+            return jsonify({
+                "ok": True,
+                "action": "removed",
+                "remaining": remaining,
+                "message": "All CDP portproxy rules removed.",
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "action": "failed",
+                "remaining": remaining,
+                "message": (
+                    "Failed to remove portproxy rules. "
+                    "The UAC prompt may have been cancelled."
+                ),
+            }), 500
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            "ok": False,
+            "action": "timeout",
+            "message": "Timed out waiting for UAC or PowerShell.",
+        }), 504
+    except Exception as exc:
+        return jsonify({
+            "ok": False,
+            "action": "error",
+            "message": str(exc)[:200],
+        }), 500
+
+
 def check_tunnel_prerequisites(
     target_host: str | None = None,
     port: int = 9222,
@@ -1949,6 +2020,9 @@ def wsl_channel_status():
         # Chrome
         "cdp_port": 9222,
 
+        # Portproxy rules
+        "portproxy_rules_count": _count_portproxy(),
+
         # Choices
         "choices": choices,
     })
@@ -1981,10 +2055,11 @@ def wsl_tunnel_state():
                 tunnel_method = method_id
                 break
 
-    # Quick channel level: check if we have a fast channel
+    # Quick channel level — mirrors _detect_wsl_interop logic
     router = get_router()
     has_fast = router.has_fast_channel(9222)
-    channel_level = 2 if has_fast else (1 if tunnel_active else 0)
+    curl_available = shutil.which("curl.exe") is not None
+    channel_level = 2 if has_fast else (1 if curl_available else 0)
 
     return jsonify({
         "tunnel_active": tunnel_active,
@@ -1992,6 +2067,16 @@ def wsl_tunnel_state():
         "tunnel_stats": tunnel_stats,
         "channel_level": channel_level,
     })
+
+
+@tab_mesh_bp.route("/tab-mesh/wsl-portproxy-state")
+def wsl_portproxy_state():
+    """Lightweight scan of ONLY portproxy rule count.
+
+    Called after tunnel start/stop to update the portproxy card
+    without re-scanning everything else.
+    """
+    return jsonify({"portproxy_rules_count": _count_portproxy()})
 
 
 @tab_mesh_bp.route("/tab-mesh/wsl-firewall-state")
@@ -2147,6 +2232,17 @@ def wsl_start_tunnel():
             }, indent=2))
         except Exception:
             pass  # State save must never break tunnel start
+
+        # Re-probe so the router cache reflects the new tunnel immediately.
+        # Without this, the next has_fast_channel call triggers a cold probe
+        # via the 150ms _probe_http timeout which often misses on first try.
+        try:
+            from src.core.services.wsl_transport.router import get_router
+            _r = get_router()
+            _r.evict(port)
+            _r.probe(port)
+        except Exception:
+            pass
 
         return jsonify({
             "ok": True,

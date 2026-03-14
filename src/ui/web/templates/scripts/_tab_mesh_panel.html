@@ -1050,7 +1050,16 @@
             (status.tunnel_active
                 ? '✅ Tunnel active (' + (status.tunnel_method || 'unknown') + ')'
                 : '❌ No tunnel running') + '</div>';
+        var ppCount = status.portproxy_rules_count || 0;
+        html += '<div id="wsl-det-portproxy" style="font-size:0.66rem;padding:2px 0;color:' +
+            (ppCount > 0 ? 'var(--text-primary)' : 'var(--text-muted)') + '">' +
+            (ppCount > 0
+                ? '✅ Portproxy rules active (' + ppCount + ')'
+                : '⚠️ No portproxy rules (curl-only)') + '</div>';
         html += '</div>';
+
+        // ── Section 2b: Portproxy Card ──
+        html += '<div id="wsl-portproxy-card">' + _wslRenderPortproxyCard(ppCount) + '</div>';
 
         // ── Section 3: Active Tunnel Controls ──
         html += '<div id="wsl-tunnel-controls">';
@@ -1212,8 +1221,9 @@
                     btn.style.background = 'var(--success)';
                     btn.style.color = 'white';
                 }
-                // Targeted: scan only tunnel state after start
+                // Targeted: scan tunnel + portproxy state after start
                 setTimeout(_wslRefreshTunnelState, 300);
+                setTimeout(_wslRefreshPortproxyState, 400);
             } else {
                 if (btn) {
                     btn.textContent = '❌ Failed';
@@ -1238,6 +1248,7 @@
         try {
             await fetch('/api/tab-mesh/wsl-stop-tunnel', { method: 'POST' });
             _wslRefreshTunnelState();
+            _wslRefreshPortproxyState();
         } catch (err) {
             console.error('[WSL Channel] Stop failed:', err);
         }
@@ -1427,6 +1438,79 @@
         }
         h += '</div>';
         return h;
+    }
+
+    /**
+     * Render the portproxy rules card HTML.
+     */
+    function _wslRenderPortproxyCard(count) {
+        if (!count || count === 0) return '';
+        return '<div style="padding:10px 12px;border-radius:var(--radius-sm);' +
+            'background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.15);margin-bottom:14px">' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+            '<span style="font-size:0.72rem;font-weight:600;color:#fbbf24">🔀 Portproxy Rules Active</span>' +
+            '<button class="btn btn-sm btn-ghost" style="font-size:0.58rem;margin-left:auto;' +
+            'color:var(--danger);border-color:var(--danger)" ' +
+            'onclick="_wslRemovePortproxy()">Remove All</button></div>' +
+            '<div style="font-size:0.6rem;color:var(--text-muted);font-family:var(--font-mono)">' +
+            count + ' rule' + (count !== 1 ? 's' : '') + ' · ports 9222–9232 · used by all channel methods' +
+            '</div></div>';
+    }
+
+    /**
+     * Remove all CDP portproxy rules (UAC elevated).
+     */
+    async function _wslRemovePortproxy() {
+        var btn = event && event.target;
+        if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
+        var statusEl = document.getElementById('wsl-portproxy-status');
+        try {
+            var resp = await fetch('/api/tab-mesh/wsl-remove-portproxy', { method: 'POST' });
+            var data = await resp.json();
+            if (data.ok) {
+                // Update card and detection row immediately
+                var card = document.getElementById('wsl-portproxy-card');
+                if (card) card.innerHTML = '';
+                var det = document.getElementById('wsl-det-portproxy');
+                if (det) {
+                    det.style.color = 'var(--text-muted)';
+                    det.innerHTML = '⚠️ No portproxy rules (curl-only)';
+                }
+                // Tunnel was also stopped server-side — refresh both
+                _wslRefreshTunnelState();
+                _wslRefreshPortproxyState();
+            } else {
+                if (btn) { btn.disabled = false; btn.textContent = 'Remove All'; }
+                alert('Failed: ' + (data.message || 'unknown error'));
+            }
+        } catch (err) {
+            if (btn) { btn.disabled = false; btn.textContent = 'Remove All'; }
+            alert('Error: ' + err.message);
+        }
+    }
+
+    /**
+     * Targeted refresh: scan ONLY portproxy state, update card + detection row.
+     */
+    async function _wslRefreshPortproxyState() {
+        try {
+            var resp = await fetch('/api/tab-mesh/wsl-portproxy-state');
+            var data = await resp.json();
+            var count = data.portproxy_rules_count || 0;
+
+            var card = document.getElementById('wsl-portproxy-card');
+            if (card) card.innerHTML = _wslRenderPortproxyCard(count);
+
+            var det = document.getElementById('wsl-det-portproxy');
+            if (det) {
+                det.style.color = count > 0 ? 'var(--text-primary)' : 'var(--text-muted)';
+                det.innerHTML = count > 0
+                    ? '✅ Portproxy rules active (' + count + ')'
+                    : '⚠️ No portproxy rules (curl-only)';
+            }
+        } catch (err) {
+            console.error('[WSL Channel] Portproxy state refresh failed:', err);
+        }
     }
 
     /**

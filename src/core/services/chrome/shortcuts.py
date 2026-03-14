@@ -109,6 +109,12 @@ def read_shortcut(wsl_path: str) -> dict | None:
     except Exception as exc:
         logger.warning("Failed to read shortcut %s: %s", win_path, exc)
         return None
+    if r.returncode != 0:
+        logger.warning(
+            "PowerShell shortcut read failed (rc=%d): %s",
+            r.returncode, r.stderr.strip()[:200],
+        )
+        return None
 
 
 def modify_shortcut(
@@ -188,7 +194,11 @@ def modify_shortcut(
             capture_output=True, text=True, timeout=10,
         )
         if r.returncode == 0:
-            logger.info("Updated shortcut: %s → args: %s", win_path, new_args)
+            logger.info(
+                "Updated shortcut: %s → args: %s%s",
+                win_path, new_args,
+                " (icon updated)" if icon_needs_update else "",
+            )
             return True
 
         # Check if it's a permissions issue — retry with UAC elevation
@@ -274,7 +284,9 @@ def modify_shortcut_elevated(
         )
         return False
     except Exception as exc:
-        logger.warning("Elevated shortcut update failed: %s", exc)
+        logger.warning(
+            "Elevated shortcut update failed for %s: %s", win_path, exc,
+        )
         return False
 
 
@@ -339,5 +351,8 @@ def clone_shortcut(
         )
         return False
     except Exception as exc:
-        logger.warning("Failed to clone shortcut to %s: %s", dest_win, exc)
+        logger.warning(
+            "Failed to clone shortcut %s → %s: %s",
+            source_wsl_path, dest_win, exc,
+        )
         return False
