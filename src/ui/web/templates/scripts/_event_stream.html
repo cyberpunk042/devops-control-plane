@@ -96,6 +96,7 @@
             'index:watcher:change',
             'index:tier:start', 'index:tier:done', 'index:tiers:done',
             'wq:worker:start', 'wq:worker:done', 'wq:worker:failed',
+            'timeline:entry',
         ],
 
         /** Open the SSE connection. Safe to call multiple times. */
@@ -246,6 +247,13 @@
                             ts: Date.now(),
                         }
                     }));
+                    break;
+                }
+
+                // Timeline live entries → forwarded to _tlOnLiveEntry if present
+                case 'timeline:entry': {
+                    const entry = (payload.data || {});
+                    if (typeof _tlOnLiveEntry === 'function') _tlOnLiveEntry(entry);
                     break;
                 }
 

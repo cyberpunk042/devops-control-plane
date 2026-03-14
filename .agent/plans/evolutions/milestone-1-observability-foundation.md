@@ -1,5 +1,5 @@
 # Milestone 1 — Observability Foundation
-> Status: INVESTIGATED — infrastructure mapped, ready for deep design discussion
+> Status: DESIGNED (E6) / PENDING (E7) — E6 foundation requirements complete; E7 design deferred
 
 ---
 
@@ -14,7 +14,7 @@ Everything downstream depends on these surfaces.
 
 ### E6 — Project Timeline & Activity Intelligence
 A unified chronological view of all events across all domains.
-This is the **evolution of the existing Audit Log view** (Debugging tab) — not a replacement, an upgrade.
+The Timeline is a **new dedicated tab** — not a replacement of the existing Audit Log. The Audit Log tab continues to exist. The Timeline aggregates audit log data alongside 16 other sources into one unified, filterable, chain-aware surface.
 
 **What already exists (investigated):**
 
@@ -39,7 +39,7 @@ This is the **evolution of the existing Audit Log view** (Debugging tab) — not
 - Date-range query beyond the 200-entry cap (requires reading ledger branch)
 - The local/shared (⬡/⇡) flag per entry — derivable from git state, but not currently computed
 
-**Integration point:** The Timeline replaces/supersedes the Audit Log inside the Debugging tab as a first step, then optionally gets promoted to its own tab once mature.
+**Integration point:** The Timeline lives in its own dedicated tab. The existing Audit Log tab is untouched. Timeline consumes audit data as one of its 17 sources.
 
 ### E7 — Security Posture as a First-Class Citizen
 Consolidate fragmented security signals into one view.
@@ -71,40 +71,53 @@ Consolidate fragmented security signals into one view.
 ## Timeline — Target UI Design
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  TIMELINE — my-project                        [All] [Local] [Shared]        │
-│  All domains ▾   All environments ▾   Last 7 days ▾                         │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Legend:  ⬡ local only    ⇡ in git (shared)                                 │
-│           ● ok   ◑ warning   ⚠ needs attention   ✕ failed                  │
-│                                                                              │
-├── TODAY — March 14, 2026 ────────────────────────────────────────────────────┤
-│                                                                              │
-│  10:33  ● ⇡  [GIT]      fix: bugs — 5 insertions, 1 deletion               │
-│  10:24  ● ⬡  [PKG]      cryptography → 42.0.5, flask → 3.1.0               │
-│  09:12  ● ⇡  [GIT]      mediator — work_queue patched                       │
-│  08:51  ◑ ⬡  [AUDIT]    Security scan — 3 findings (not yet committed)      │
-│  08:30  ● ⇡  [CHAT]     Thread: "wsl transport approach" — 4 msgs           │
-│                                                                              │
-├── YESTERDAY — March 13, 2026 ────────────────────────────────────────────────┤
-│                                                                              │
-│  17:44  ● ⇡  [CI]       Build passed — main ✓  (2m 14s)                    │
-│  17:40  ◑ ⬡  [PKG]      npm audit — 2 moderate CVEs                        │
-│  16:10  ● ⇡  [TESTS]    Test suite — 94/94 passed                          │
-│  14:22  ● ⬡  [BACKUP]   Snapshot #47 created — dev                         │
-│  13:45  ● ⇡  [PLAN]     Execution plan committed — wsl-refactor             │
-│  11:05  ⚠ ⬡  [POSTURE]  Node 18 → OUTDATED (EOL 11mo ago)                 │
-│  09:30  ● ⬡  [PLATFORM] Detection — 6 modules, all healthy                 │
-│                                                                              │
-├── March 12, 2026 ────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  15:20  ✕ ⇡  [CI]       Build failed — lint error                          │
-│  14:55  ● ⇡  [GIT]      feat: posture scan and observability                │
-│  12:00  ● ⬡  [TOOLS]    Node 18.20.0 installed                             │
-│  10:30  ● ⇡  [AUDIT]    L2 audit committed — 7 findings, 2 open            │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────┬──────────────────────────────────────────────────────────────┐
+│ NAVIGATOR           │ TIMELINE — my-project                            ⟳ Live      │
+│ ─────────────────── │ ─────────────────────────────────────────────────────────── │
+│ 📎 Chains           │ [GIT▾][AUDIT▾][+3▾]  [⚠▾]  [desc▾]   🔍 search...          │
+│ 🌐 Domains          │ [⬡ Local]  [⇡ Shared]  [● All]                              │
+│ 📅 Calendar         ├── TODAY — March 14, 2026 ──────────────────────────────────┤
+│ ─────────────────── │                                                              │
+│ 🔍 filter...        │  ● ⇡  [GIT]   fix: bugs — 5 ins, 1 del          10:33      │
+│                     │                                                              │
+│ ── Active chains ── │  ● ⬡  [PKG]   cryptography → 42.0.5             10:24      │
+│                     │                                                              │
+│ 📎 Audit L2 (2)     │  ◑ ⬡  [AUDIT] L2 scan — 3 findings  🔗         08:51 ─┐   │
+│  ○ ⬡ L2 ran  08:51  │                                                        │   │
+│→ ● ⇡ committed 10:30│  ● ⇡  [CHAT]  "wsl transport" — 4 msgs          08:30  │   │
+│                     ├── YESTERDAY — March 13, 2026 ──────────────────────────┤   │
+│ 📎 feat:posture (2) │                                                        │   │
+│  ○ ⇡ commit  14:55  │  ● ⇡  [CI]    Build passed — main ✓ (2m 14s)   17:44  │   │
+│→ ● ✕ CI fail 15:20  │                                                        │   │
+│                     │  ◑ ⬡  [PKG]   npm audit — 2 moderate CVEs       17:40  │   │
+│ 📎 wsl thread (5)   │                                                        │   │
+│  ○ ⇡ created 08:30  │  ● ⇡  [TESTS] Test suite — 94/94 passed         16:10  │   │
+│  · ⇡ msg     09:15  │                                                        │   │
+│  · ⇡ msg     10:45  │  ● ⬡  [BACKUP] Snapshot #47 created — dev       14:22  │   │
+│  · ⇡ msg     11:30  │                                                        │   │
+│→ ● ⇡ msg     12:10  │  ● ⇡  [PLAN]  Exec plan committed — wsl-refactor 13:45 │   │
+│                     │                                                        │   │
+│ ── Domains ──────── │  ⚠ ⬡  [POSTURE] Node 18 → OUTDATED (EOL 11mo)  11:05  │   │
+│ ⚡ GIT    (3)       │                                                        │   │
+│ ⚡ AUDIT  (2)       │  ● ⇡  [AUDIT] L2 committed — 7 findings  🔗     10:30 ─┘   │
+│ ⚡ PKG    (2) ▸     │       ↳ chain: Audit L2 Lifecycle   [view chain]            │
+│ ⚡ CI     (2)       │                                                              │
+│ ⚡ CHAT   (5)       ├── March 12, 2026 ─────────────────────────────────────────┤
+│ ⚡ BACKUP (1)       │                                                              │
+│ ⚡ PLAN   (1)       │  ✕ ⇡  [CI]    Build failed — lint error  🔗      15:20 ─┐  │
+│ ⚡ POSTURE(1)       │       ↳ chain: feat: posture scan   [view chain]       │  │
+│ ⚡ TESTS  (1)       │                                                        │  │
+│                     │  ● ⇡  [GIT]   feat: posture scan and observability 14:55─┘  │
+│                     │                                                              │
+│                     │  ● ⬡  [TOOLS] Node 18.20.0 installed             12:00      │
+│                     │                                                              │
+│                     │  ↓  Loading older entries...                                │
+└─────────────────────┴──────────────────────────────────────────────────────────────┘
+
+Legend:  ⬡ local only   ⇡ in git (shared)
+         ○ chain origin   · chain step   ● chain terminal
+         ● ok   ◑ warning   ⚠ attention   ✕ failed
+         🔗 belongs to a chain — click to navigate in left panel
 ```
 
 **Key design decisions:**
@@ -117,15 +130,20 @@ Consolidate fragmented security signals into one view.
 ---
 
 ## Open questions
-- [ ] Where does the timeline live in the UI? (tab? side panel? dedicated page?)
+
+**E6 — resolved:**
+- [x] Where does the timeline live in the UI? → **own dedicated tab**
+- [x] What events from the ledger are timeline-worthy vs. too noisy? → **noise contract defined in `m1-foundation-requirements.md` §3**
+
+**E7 — pending design (E7 not yet designed):**
 - [ ] What is the security score formula? Which signals have which weight?
 - [ ] Does the security view replace existing security domain pages or sit alongside them?
-- [ ] What events from the ledger are timeline-worthy vs. too noisy?
 
 ---
 
 ## Rough scope estimate
 - E6:
-  - Backend: `TimelineAggregator` service — merges scan_activity + audit_ops + ledger runs/audits + git log into unified sorted feed; computes local/shared flag per entry; supports date-range + domain + environment filters; single `/api/timeline` endpoint
-  - Frontend: Replace/evolve the Debugging tab Audit Log with the new timeline view — same tab, promoted UI
-- E7: Frontend + light aggregation layer — reads existing signals (audit cards, vault, security scanning), computes score
+  - Backend: `TimelineService` — 17 source adapters, 23 mediator nodes (6 source + 10 view + 7 feed), work queue tiers T1-T7, bus transformer subscriber, single `/api/timeline` endpoint with cursor pagination, `/api/timeline/chains` and `/api/timeline/domains` endpoints
+  - Frontend: new dedicated Timeline tab — split-panel layout (left navigator: Chains/Domains/Calendar modes; right: chronological lazy-loading list with chain threading), SSE live integration, IntersectionObserver scroll loading
+  - Full design contract: `m1-foundation-requirements.md`
+- E7: Not yet designed — pending foundation requirements discussion

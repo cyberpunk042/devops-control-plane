@@ -13,6 +13,7 @@
         <button class="content-mode" onclick="debugSwitchMode('commands')">⚡ Commands</button>
         <button class="content-mode" onclick="debugSwitchMode('traces')">📝 Traces</button>
         <button class="content-mode" onclick="debugSwitchMode('mediator')">🌳 Mediator</button>
+        <button class="content-mode" onclick="debugSwitchMode('timeline')">📋 History</button>
     </div>
 
     <div class="grid">
@@ -149,6 +150,11 @@
                 </div>
                 <div class="results-panel" id="results-panel" translate="no"></div>
             </div>
+        </div>
+
+        <!-- History (Timeline) -->
+        <div class="card full-width" id="debug-timeline" style="display:none;padding:0;overflow:hidden">
+            {% include 'partials/_tab_timeline.html' %}
         </div>
 
         <!-- Session Traces -->

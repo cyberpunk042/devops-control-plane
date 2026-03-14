@@ -94,6 +94,7 @@ def create_app(
     from src.ui.web.routes.api.batch import batch_bp
     from src.ui.web.routes.posture import posture_bp
     from src.ui.web.routes.mediator import mediator_bp
+    from src.ui.web.routes.timeline import timeline_bp
 
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
@@ -136,6 +137,7 @@ def create_app(
     app.register_blueprint(batch_bp, url_prefix="/api")
     app.register_blueprint(posture_bp, url_prefix="/api")
     app.register_blueprint(mediator_bp, url_prefix="/api")
+    app.register_blueprint(timeline_bp)
 
     # Initialize vault with project root (for auto-lock)
     from src.core.services import vault as vault_module

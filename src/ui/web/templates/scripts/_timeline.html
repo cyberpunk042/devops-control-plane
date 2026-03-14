@@ -1,0 +1,694 @@
+<script>
+// ── Timeline tab — JS engine ────────────────────────────────────────
+//
+// State model, REST fetch + cursor pagination, SSE live entries,
+// filter pipeline, rendering pipeline, left navigator.
+//
+// No global namespace pollution — all identifiers prefixed with _tl.
+
+// ── State ────────────────────────────────────────────────────────────
+
+const _tlState = {
+  // Pagination
+  nextCursor:  null,    // before_ts for next page
+  prevCursor:  null,    // after_ts for live refresh
+  hasMore:     true,
+  loading:     false,
+
+  // Filters
+  sources:     [],      // string[] — empty = all
+  statuses:    [],
+  severities:  [],
+  locality:    null,    // null | "local" | "shared"
+  envs:        [],
+  modules:     [],
+  chainFilter: null,    // chain_id filter (when user selects a chain)
+  sortBy:      'ts',
+  sortDir:     'desc',
+  q:           '',
+
+  // Live
+  liveEntries: [],
+  liveTimer:   null,
+
+  // Rendered state
+  lastDate:    null,
+
+  // Navigator
+  navMode:     'chains',  // chains | domains | calendar
+  navChains:   [],        // raw chains from /api/timeline/chains
+  navDomains:  {},        // raw domains from /api/timeline/domains
+  navCalendar: [],        // per-day counts from /api/timeline/calendar
+  navFilter:   '',        // chain search filter text
+};
+
+let _tlNavActiveChain = null;
+let _tlSearchTimer    = null;
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function _tlEsc(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function _tlFormatTime(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function _tlDateLabel(d) {
+  const today     = new Date(); today.setHours(0,0,0,0);
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const target    = new Date(d); target.setHours(0,0,0,0);
+  const dateStr   = d.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' });
+  if (target.getTime() === today.getTime())     return `TODAY \u2014 ${dateStr}`;
+  if (target.getTime() === yesterday.getTime()) return `YESTERDAY \u2014 ${dateStr}`;
+  return dateStr;
+}
+
+function _tlChainLabel(chainId) {
+  if (!chainId) return '';
+  const c = _tlState.navChains.find(x => x.chain_id === chainId);
+  if (c && c.summary) return c.summary.substring(0, 60);
+  return chainId.substring(0, 16) + '…';
+}
+
+// ── Rendering ────────────────────────────────────────────────────────
+
+function _tlMaybeDateHeader(entry) {
+  const d   = new Date(entry.ts * 1000);
+  const key = d.toDateString();
+  if (key === _tlState.lastDate) return '';
+  _tlState.lastDate = key;
+  return `<div class="timeline-date-header">${_tlDateLabel(d)}</div>`;
+}
+
+function _tlRenderDetail(entry) {
+  if (!entry.detail || typeof entry.detail !== 'object') return '<em>No detail</em>';
+  const rows = Object.entries(entry.detail).map(([k, v]) =>
+    `<div><span style="color:var(--text-muted);min-width:80px;display:inline-block">${_tlEsc(k)}</span>
+          <span style="color:var(--text-secondary)">${_tlEsc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</span></div>`
+  ).join('');
+  const meta = [];
+  if (entry.hostname) meta.push(`host: ${_tlEsc(entry.hostname)}`);
+  if (entry.os)       meta.push(`os: ${_tlEsc(entry.os)}`);
+  if (entry.ref)      meta.push(`ref: ${_tlEsc(entry.ref)}`);
+  const metaHtml = meta.length ? `<div style="margin-top:4px;color:var(--text-muted);font-size:0.65rem">${meta.join(' · ')}</div>` : '';
+  return rows + metaHtml;
+}
+
+function _tlRenderEntry(entry, idx) {
+  const statusIcon  = { ok:'●', warning:'◑', attention:'⚠', failed:'✕' }[entry.status] ?? '●';
+  const statusColor = {
+    ok:'var(--success)', warning:'var(--warning)',
+    attention:'var(--warning)', failed:'var(--error)',
+  }[entry.status] ?? 'var(--text-muted)';
+  const localityIcon  = entry.locality === 'shared' ? '⇡' : '⬡';
+  const localityColor = entry.locality === 'shared' ? 'var(--accent)' : 'var(--text-muted)';
+
+  const chainBadge = entry.chain_id
+    ? `<span class="tl-chain-badge" title="Part of a chain"
+             onclick="event.stopPropagation();_tlNavSelectChain('${_tlEsc(entry.chain_id)}')">🔗</span>`
+    : '';
+
+  const chainFooter = entry.chain_role === 'terminal' && entry.chain_id ? `
+    <div class="tl-chain-footer">
+      ↳ chain: <em>${_tlEsc(_tlChainLabel(entry.chain_id))}</em>
+      <button onclick="event.stopPropagation();_tlNavSelectChain('${_tlEsc(entry.chain_id)}')"
+              class="tl-chain-view-btn">view chain</button>
+    </div>` : '';
+
+  const isChainMember  = !!entry.chain_id;
+  const chainRoleClass = entry.chain_role ? `tl-chain-${entry.chain_role}` : '';
+  const srcClass       = `tl-source-${(entry.source || '').toLowerCase()}`;
+  const sevBadge       = entry.severity
+    ? `<span class="tl-severity tl-sev-${entry.severity}">${entry.severity}</span>` : '';
+  const subtype        = entry.subtype
+    ? `<span class="tl-subtype">${_tlEsc(entry.subtype)}</span>` : '';
+  const envStr         = (entry.env || []).join(' → ');
+  const envBadge       = envStr ? `<span class="tl-env">${_tlEsc(envStr)}</span>` : '';
+
+  return `
+<div class="timeline-entry ${chainRoleClass} ${isChainMember ? 'tl-in-chain' : ''}"
+     id="tl-entry-${idx}"
+     data-chain="${_tlEsc(entry.chain_id ?? '')}"
+     data-chain-role="${_tlEsc(entry.chain_role ?? '')}"
+     style="border-left:3px solid ${statusColor}">
+
+  <div class="timeline-entry-header" onclick="_tlToggleDetail(${JSON.stringify(idx)})">
+    <span class="tl-status" style="color:${statusColor}">${statusIcon}</span>
+    <span class="tl-locality" style="color:${localityColor}">${localityIcon}</span>
+    <span class="tl-source-badge ${srcClass}">${_tlEsc(entry.source)}</span>
+    ${subtype}
+    <span class="tl-summary">${_tlEsc(entry.summary)}</span>
+    ${sevBadge}
+    ${chainBadge}
+    <span class="tl-time" title="${_tlEsc(String(entry.ts))}">${_tlFormatTime(entry.ts)}</span>
+    ${envBadge}
+    <button class="tl-raw-btn" onclick="event.stopPropagation();_tlToggleRaw(${JSON.stringify(idx)})"
+            title="Raw JSON">{ }</button>
+  </div>
+
+  <div id="tl-detail-${idx}" class="timeline-entry-detail" style="display:none">
+    ${_tlRenderDetail(entry)}
+  </div>
+
+  <div id="tl-raw-${idx}" class="timeline-entry-raw" style="display:none">
+    <pre>${_tlEsc(JSON.stringify(entry, null, 2))}</pre>
+  </div>
+
+  ${chainFooter}
+</div>`;
+}
+
+function _tlToggleDetail(idx) {
+  const el = document.getElementById(`tl-detail-${idx}`);
+  const raw = document.getElementById(`tl-raw-${idx}`);
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.style.display = '';
+    if (raw) raw.style.display = 'none';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function _tlToggleRaw(idx) {
+  const el = document.getElementById(`tl-raw-${idx}`);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+// ── Data loading ─────────────────────────────────────────────────────
+
+async function _tlLoadPage(append = false) {
+  if (_tlState.loading) return;
+  if (!append) {
+    _tlState.nextCursor = null;
+    _tlState.prevCursor = null;
+    _tlState.hasMore    = true;
+    _tlState.lastDate   = null;
+    document.getElementById('timeline-list').innerHTML = '';
+    document.getElementById('timeline-empty').style.display = 'none';
+  }
+
+  _tlState.loading = true;
+  document.getElementById('timeline-loading').style.display = '';
+
+  try {
+    const params = new URLSearchParams({ limit: 50 });
+    if (_tlState.nextCursor)        params.set('before_ts', _tlState.nextCursor);
+    if (_tlState.sources.length)    _tlState.sources.forEach(s   => params.append('source[]', s));
+    if (_tlState.statuses.length)   _tlState.statuses.forEach(s  => params.append('status[]', s));
+    if (_tlState.severities.length) _tlState.severities.forEach(s => params.append('severity[]', s));
+    if (_tlState.locality)          params.set('locality', _tlState.locality);
+    if (_tlState.envs.length)       _tlState.envs.forEach(e => params.append('env[]', e));
+    if (_tlState.chainFilter)       params.set('chain_id', _tlState.chainFilter);
+    if (_tlState.q)                 params.set('q', _tlState.q);
+    params.set('sort_by',  _tlState.sortBy);
+    params.set('sort_dir', _tlState.sortDir);
+
+    const data = await api('/timeline?' + params.toString());
+    const list = document.getElementById('timeline-list');
+    const html = data.entries.map((e, i) =>
+      _tlMaybeDateHeader(e) + _tlRenderEntry(e, (append ? 'p' : '') + i)
+    ).join('');
+
+    list.insertAdjacentHTML('beforeend', html);
+
+    _tlState.hasMore    = data.has_more;
+    _tlState.nextCursor = data.next_cursor;
+    if (!append) _tlState.prevCursor = data.prev_cursor;
+
+    if (!append && !data.entries.length) {
+      document.getElementById('timeline-empty').style.display = '';
+    }
+  } catch (err) {
+    console.error('[TL] load error', err);
+  } finally {
+    _tlState.loading = false;
+    document.getElementById('timeline-loading').style.display = 'none';
+  }
+}
+
+// ── Scroll observer ──────────────────────────────────────────────────
+
+function _tlInitScrollObserver() {
+  const sentinel = document.getElementById('timeline-sentinel');
+  if (!sentinel) return;
+  const observer = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && _tlState.hasMore && !_tlState.loading) {
+      _tlLoadPage(true);
+    }
+  }, { rootMargin: '200px' });
+  observer.observe(sentinel);
+}
+
+// ── Live SSE entries ─────────────────────────────────────────────────
+
+function _tlOnLiveEntry(entry) {
+  _tlState.liveEntries.push(entry);
+  clearTimeout(_tlState.liveTimer);
+  _tlState.liveTimer = setTimeout(_tlFlushLiveEntries, 800);
+}
+
+function _tlFlushLiveEntries() {
+  if (!_tlState.liveEntries.length) return;
+  const entries = [..._tlState.liveEntries];
+  _tlState.liveEntries = [];
+
+  const filtered = entries.filter(_tlPassesFilter);
+  if (!filtered.length) return;
+
+  const savedLastDate = _tlState.lastDate;
+  _tlState.lastDate = null; // reset so date headers render for live entries
+  const html = filtered.map((e, i) =>
+    _tlMaybeDateHeader(e) + _tlRenderEntry(e, 'live-' + Date.now() + i)
+  ).join('');
+  _tlState.lastDate = savedLastDate; // restore
+
+  const list = document.getElementById('timeline-list');
+  list.insertAdjacentHTML('afterbegin', html);
+
+  // Mark as new for highlight animation
+  list.querySelectorAll('.timeline-entry:not(.tl-new-done)').forEach(el => {
+    el.classList.add('tl-new');
+    setTimeout(() => { el.classList.remove('tl-new'); el.classList.add('tl-new-done'); }, 1600);
+  });
+
+  if (_tlState.prevCursor === null || filtered.length) {
+    _tlState.prevCursor = Math.max(...filtered.map(e => e.ts));
+  }
+}
+
+// ── Filter pipeline ──────────────────────────────────────────────────
+
+function _tlPassesFilter(entry) {
+  if (_tlState.sources.length && !_tlState.sources.includes(entry.source)) return false;
+  if (_tlState.statuses.length && !_tlState.statuses.includes(entry.status)) return false;
+  if (_tlState.severities.length && !_tlState.severities.includes(entry.severity)) return false;
+  if (_tlState.locality && entry.locality !== _tlState.locality) return false;
+  if (_tlState.chainFilter && entry.chain_id !== _tlState.chainFilter) return false;
+  if (_tlState.q) {
+    const needle = _tlState.q.toLowerCase();
+    const hay = [entry.summary, entry.subtype, entry.ref, entry.source].join(' ').toLowerCase();
+    if (!hay.includes(needle)) return false;
+  }
+  return true;
+}
+
+function _tlApplyCheckFilter(axis, value, checked) {
+  const arr = _tlState[axis + 's'] || _tlState[axis + 'es'] || _tlState[axis.replace(/y$/, 'ies')] || _tlState[axis];
+  if (!Array.isArray(arr)) return;
+  if (checked) { if (!arr.includes(value)) arr.push(value); }
+  else          { const i = arr.indexOf(value); if (i >= 0) arr.splice(i, 1); }
+  _tlUpdateActivePills();
+  _tlLoadPage(false);
+}
+
+function _tlSetLocality(val) {
+  _tlState.locality = val;
+  document.querySelectorAll('#timeline-locality-toggle button').forEach(b => {
+    b.classList.toggle('active', b.id === ('tl-loc-' + (val || 'all')));
+  });
+  _tlUpdateActivePills();
+  _tlLoadPage(false);
+}
+
+function _tlApplySort() {
+  const v = document.getElementById('timeline-sort').value;
+  const [by, dir] = v.split(':');
+  _tlState.sortBy  = by;
+  _tlState.sortDir = dir;
+  _tlLoadPage(false);
+}
+
+function _tlSearchDebounce() {
+  clearTimeout(_tlSearchTimer);
+  _tlSearchTimer = setTimeout(() => {
+    _tlState.q = document.getElementById('timeline-search').value;
+    _tlLoadPage(false);
+  }, 400);
+}
+
+function _tlUpdateActivePills() {
+  const container = document.getElementById('timeline-active-filters');
+  if (!container) return;
+  const pills = [];
+  _tlState.sources.forEach(s => pills.push({label: `src:${s}`, clear: () => {
+    _tlState.sources = _tlState.sources.filter(x => x !== s);
+    _tlUpdateActivePills(); _tlLoadPage(false);
+  }}));
+  _tlState.statuses.forEach(s => pills.push({label: `status:${s}`, clear: () => {
+    _tlState.statuses = _tlState.statuses.filter(x => x !== s);
+    _tlUpdateActivePills(); _tlLoadPage(false);
+  }}));
+  _tlState.severities.forEach(s => pills.push({html: `<span class="tl-severity tl-sev-${s}">${s}</span>`, clear: () => {
+    _tlState.severities = _tlState.severities.filter(x => x !== s);
+    _tlUpdateActivePills(); _tlLoadPage(false);
+  }}));
+  if (_tlState.chainFilter) pills.push({label: `chain:…${_tlState.chainFilter.slice(-8)}`, clear: () => {
+    _tlState.chainFilter = null; _tlNavActiveChain = null;
+    _tlUpdateActivePills(); _tlLoadPage(false); _tlNavRender();
+  }});
+  container.innerHTML = pills.map((p, i) =>
+    `<span class="tl-filter-pill">${p.html || _tlEsc(p.label)}
+       <button onclick="_tlClearPill(${i})" style="border:none;background:none;cursor:pointer;font-size:0.7rem;padding:0 2px">✕</button>
+     </span>`
+  ).join('');
+  container._pills = pills; // store for onclick
+
+  // Reflect active selections on filter button labels
+  function _tlFilterLabel(base, arr) {
+    if (!arr.length) return base + ' ▾';
+    if (arr.length <= 2) return arr.join(', ') + ' ▾';
+    return base + ' (' + arr.length + ') ▾';
+  }
+  const srcBtn = document.getElementById('timeline-source-btn');
+  if (srcBtn) { srcBtn.textContent = _tlFilterLabel('Sources', _tlState.sources);
+                srcBtn.classList.toggle('active', _tlState.sources.length > 0); }
+  const stBtn  = document.getElementById('timeline-status-btn');
+  if (stBtn)  { stBtn.textContent  = _tlFilterLabel('Status',   _tlState.statuses);
+                stBtn.classList.toggle('active', _tlState.statuses.length > 0); }
+  const sevBtn = document.getElementById('timeline-severity-btn');
+  if (sevBtn) { sevBtn.textContent = _tlFilterLabel('Severity', _tlState.severities);
+                sevBtn.classList.toggle('active', _tlState.severities.length > 0); }
+}
+
+window._tlClearPill = function(i) {
+  const container = document.getElementById('timeline-active-filters');
+  if (container && container._pills && container._pills[i]) container._pills[i].clear();
+};
+
+// ── Dropdown menus ───────────────────────────────────────────────────
+
+function _tlToggleMenu(name) {
+  ['source','status','severity'].forEach(n => {
+    const el = document.getElementById(`timeline-${n}-menu`);
+    if (el) el.style.display = (n === name && el.style.display === 'none') ? '' : 'none';
+  });
+}
+
+function _tlBuildSourceMenu(domains) {
+  const menu = document.getElementById('timeline-source-menu');
+  if (!menu) return;
+  const sources = Object.keys(domains).sort();
+  menu.innerHTML = sources.map(s => {
+    const count = domains[s] || '';
+    return `<label><input type="checkbox" value="${_tlEsc(s)}"
+      onchange="_tlApplyCheckFilter('source','${_tlEsc(s)}',this.checked)">
+      ${_tlEsc(s.toUpperCase())} <span style="color:var(--text-muted);font-size:0.64rem">(${count})</span>
+    </label>`;
+  }).join('');
+}
+
+// Close menus on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('[id$="-btn"]') && !e.target.closest('.timeline-dropdown')) {
+    document.querySelectorAll('.timeline-dropdown').forEach(el => el.style.display = 'none');
+  }
+});
+
+// ── Navigator ────────────────────────────────────────────────────────
+
+async function _tlNavLoad() {
+  try {
+    const [chainsData, domainsData, calData] = await Promise.all([
+      api('/timeline/chains'),
+      api('/timeline/domains'),
+      api('/timeline/calendar'),
+    ]);
+    _tlState.navChains   = chainsData.chains   || [];
+    _tlState.navDomains  = domainsData.domains || {};
+    _tlState.navCalendar = calData.days        || [];
+    _tlBuildSourceMenu(_tlState.navDomains);
+    _tlNavRender();
+  } catch (err) {
+    console.warn('[TL] nav load error', err);
+  }
+}
+
+function _tlNavMode(mode) {
+  _tlState.navMode = mode;
+  document.querySelectorAll('.timeline-nav-modes button').forEach(b => {
+    b.classList.toggle('active', b.id === `tl-nav-mode-${mode}`);
+  });
+  const searchWrap = document.getElementById('tl-nav-chain-search-wrap');
+  if (searchWrap) searchWrap.style.display = mode === 'chains' ? '' : 'none';
+  _tlNavRender();
+}
+
+function _tlNavFilterChains(val) {
+  _tlState.navFilter = val.toLowerCase();
+  _tlNavRender();
+}
+
+function _tlNavRender() {
+  const tree = document.getElementById('tl-nav-tree');
+  if (!tree) return;
+  switch (_tlState.navMode) {
+    case 'chains':   tree.innerHTML = _tlNavRenderChains();   break;
+    case 'domains':  tree.innerHTML = _tlNavRenderDomains();  break;
+    case 'calendar': tree.innerHTML = _tlNavRenderCalendar(); break;
+  }
+}
+
+// Tracks which chain nodes are expanded in the navigator
+const _tlNavExpanded = new Set();
+
+function _tlNavRenderChains() {
+  const chains = _tlState.navChains.filter(c =>
+    !_tlState.navFilter || (c.summary || c.chain_id).toLowerCase().includes(_tlState.navFilter)
+  );
+  if (!chains.length) return `<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No chains found</div>`;
+
+  return chains.map(c => {
+    const isActive   = c.chain_id === _tlNavActiveChain;
+    const isExpanded = _tlNavExpanded.has(c.chain_id);
+    const label      = (c.summary || c.chain_id || '').substring(0, 50);
+    const srcs       = (c.sources || []).join(' · ');
+    const chevron    = c.members && c.members.length ? (isExpanded ? '▾' : '▸') : '';
+
+    const membersHtml = (isExpanded && c.members && c.members.length)
+      ? `<div class="tl-nav-chain-members">
+          ${c.members.map(m => {
+            const sIcon = { ok:'●', warning:'◑', attention:'⚠', failed:'✕' }[m.status] ?? '●';
+            const sCol  = { ok:'var(--success)', warning:'var(--warning)',
+                            attention:'var(--warning)', failed:'var(--error)' }[m.status] ?? 'var(--text-muted)';
+            const lIcon = m.locality === 'shared' ? '⇡' : '⬡';
+            const lCol  = m.locality === 'shared' ? 'var(--accent)' : 'var(--text-muted)';
+            const role  = m.chain_role ? `<span style="font-size:0.58rem;color:var(--text-muted)">${_tlEsc(m.chain_role)}</span>` : '';
+            return `<div class="tl-nav-member ${m.chain_id === _tlNavActiveChain ? 'active' : ''}"
+                         onclick="_tlNavSelectChain('${_tlEsc(c.chain_id)}')">
+              <span style="color:${sCol}">${sIcon}</span>
+              <span style="color:${lCol}">${lIcon}</span>
+              <span class="tl-source-badge tl-source-${_tlEsc((m.source||'').toLowerCase())}"
+                    style="font-size:0.55rem">${_tlEsc((m.source||'').toUpperCase())}</span>
+              ${role}
+              <span class="tl-nav-member-summary">${_tlEsc(m.summary)}</span>
+              <span class="tl-nav-member-time">${_tlFormatTime(m.ts)}</span>
+            </div>`;
+          }).join('')}
+        </div>`
+      : '';
+
+    return `
+<div class="tl-nav-chain ${isActive ? 'tl-nav-chain--active' : ''}"
+     onmouseenter="_tlNavHoverChain('${_tlEsc(c.chain_id)}')"
+     onmouseleave="_tlNavHoverChain(null)">
+  <div class="tl-nav-chain-header" style="user-select:none">
+    <span style="font-size:0.6rem;color:var(--text-muted);width:10px">${chevron}</span>
+    <span onclick="_tlNavToggleChain('${_tlEsc(c.chain_id)}')" style="flex:1;display:flex;align-items:center;gap:4px;overflow:hidden">
+      <span>📎</span>
+      <span class="tl-nav-chain-label" title="${_tlEsc(c.chain_id)}">${_tlEsc(label)}</span>
+    </span>
+    <span class="tl-nav-chain-count"
+          onclick="_tlNavSelectChain('${_tlEsc(c.chain_id)}')"
+          title="Filter to this chain">${c.entry_count}</span>
+  </div>
+  <div style="padding:0 8px 2px 24px;font-size:0.6rem;color:var(--text-muted)">${_tlEsc(srcs)}</div>
+  ${membersHtml}
+</div>`;
+  }).join('');
+}
+
+function _tlNavToggleChain(chainId) {
+  if (_tlNavExpanded.has(chainId)) _tlNavExpanded.delete(chainId);
+  else _tlNavExpanded.add(chainId);
+  _tlNavRender();
+}
+
+function _tlNavRenderDomains() {
+  const domains = _tlState.navDomains;
+  const entries = Object.entries(domains).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return `<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No domains</div>`;
+
+  return entries.map(([src, count]) =>
+    `<div class="tl-nav-chain" onclick="_tlFilterBySource('${_tlEsc(src)}')">
+       <div class="tl-nav-chain-header">
+         <span class="tl-source-badge tl-source-${_tlEsc(src.toLowerCase())}" style="font-size:0.58rem">${_tlEsc(src.toUpperCase())}</span>
+         <span class="tl-nav-chain-label">${_tlEsc(src)}</span>
+         <span class="tl-nav-chain-count">${count}</span>
+       </div>
+     </div>`
+  ).join('');
+}
+
+function _tlNavRenderCalendar() {
+  const days = _tlState.navCalendar;
+  if (!days.length) return `<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No data</div>`;
+
+  // Group by month
+  const byMonth = {};
+  for (const d of days) {
+    const [year, month] = d.date.split('-');
+    const key = `${year}-${month}`;
+    if (!byMonth[key]) byMonth[key] = [];
+    byMonth[key].push(d);
+  }
+
+  const months = Object.keys(byMonth).sort().reverse();
+  return months.map(mk => {
+    const [year, month] = mk.split('-');
+    const label = new Date(Number(year), Number(month) - 1, 1)
+      .toLocaleDateString([], { month: 'long', year: 'numeric' });
+    const rows = byMonth[mk].map(d => {
+      const dayNum = d.date.split('-')[2];
+      const dotColor = d.has_failure ? 'var(--error)' : 'var(--success)';
+      return `<div class="tl-cal-row" onclick="_tlJumpToDate('${_tlEsc(d.date)}')"
+                   title="${_tlEsc(d.date)} — ${d.count} entries">
+        <span class="tl-cal-dot" style="background:${dotColor}"></span>
+        <span class="tl-cal-day">${dayNum}</span>
+        <span class="tl-cal-count">${d.count}</span>
+      </div>`;
+    }).join('');
+    return `<div class="tl-cal-month">
+      <div class="tl-cal-month-label">${_tlEsc(label)}</div>
+      ${rows}
+    </div>`;
+  }).join('');
+}
+
+function _tlJumpToDate(dateStr) {
+  // Set date_from to start of this day, date_to to end of this day
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const dateFrom = d.getTime() / 1000;
+  const dateTo   = dateFrom + 86400;
+  // Apply as a one-shot filter via before_ts/after_ts
+  _tlState.nextCursor = dateTo;
+  _tlState.lastDate   = null;
+  document.getElementById('timeline-list').innerHTML = '';
+  _tlLoadPage(false);
+}
+
+function _tlNavHoverChain(chainId) {
+  document.querySelectorAll('.timeline-entry').forEach(el => {
+    el.classList.toggle('tl-chain-hover', chainId !== null && el.dataset.chain === chainId);
+  });
+}
+
+function _tlNavSelectChain(chainId) {
+  _tlNavActiveChain    = chainId;
+  _tlState.chainFilter = chainId;
+  _tlUpdateActivePills();
+  _tlLoadPage(false);
+  _tlNavRender();
+}
+
+function _tlFilterBySource(src) {
+  if (!_tlState.sources.includes(src)) {
+    _tlState.sources.push(src);
+    _tlUpdateActivePills();
+    _tlLoadPage(false);
+  }
+}
+
+function _tlNavScrollTo(chainId) {
+  // Highlight chain in nav matching entry in view
+  document.querySelectorAll('.tl-nav-chain').forEach(el => {
+    el.classList.toggle('tl-nav-chain--active',
+      el.querySelector(`[onclick*="${chainId}"]`) !== null);
+  });
+}
+
+// ── Resize handle ────────────────────────────────────────────────────
+
+let _tlResizeStartX = 0, _tlResizeStartW = 0;
+
+function _tlNavResizeStart(e) {
+  const panel = document.getElementById('timeline-nav-panel');
+  _tlResizeStartX = e.clientX;
+  _tlResizeStartW = panel.offsetWidth;
+  document.addEventListener('mousemove', _tlNavResizeMove);
+  document.addEventListener('mouseup',   _tlNavResizeEnd);
+  e.preventDefault();
+}
+
+function _tlNavResizeMove(e) {
+  const panel = document.getElementById('timeline-nav-panel');
+  const dx    = e.clientX - _tlResizeStartX;
+  const nw    = Math.max(140, Math.min(400, _tlResizeStartW + dx));
+  panel.style.width = nw + 'px';
+}
+
+function _tlNavResizeEnd() {
+  document.removeEventListener('mousemove', _tlNavResizeMove);
+  document.removeEventListener('mouseup',   _tlNavResizeEnd);
+  const panel = document.getElementById('timeline-nav-panel');
+  try { localStorage.setItem('tl-nav-width', panel.style.width); } catch (_) {}
+}
+
+// ── Scroll sync ──────────────────────────────────────────────────────
+
+function _tlSyncNavFromScroll() {
+  if (_tlState.navMode !== 'chains') return;
+  const entries = document.querySelectorAll('.timeline-entry[data-chain]');
+  const mid = window.scrollY + window.innerHeight / 2;
+  let closest = null, closestDist = Infinity;
+  entries.forEach(el => {
+    const dist = Math.abs(el.getBoundingClientRect().top - mid);
+    if (dist < closestDist) { closest = el; closestDist = dist; }
+  });
+  if (closest) _tlNavScrollTo(closest.dataset.chain);
+}
+
+// ── Init ─────────────────────────────────────────────────────────────
+
+function _tlInit() {
+  // Restore nav width
+  try {
+    const w = localStorage.getItem('tl-nav-width');
+    if (w) {
+      const panel = document.getElementById('timeline-nav-panel');
+      if (panel) panel.style.width = w;
+    }
+  } catch (_) {}
+
+  _tlInitScrollObserver();
+  _tlNavLoad();
+  _tlLoadPage(false);
+
+  // Scroll sync (throttled)
+  let _tlScrollTimer = null;
+  const main = document.getElementById('timeline-main');
+  if (main) {
+    main.addEventListener('scroll', () => {
+      clearTimeout(_tlScrollTimer);
+      _tlScrollTimer = setTimeout(_tlSyncNavFromScroll, 150);
+    });
+  }
+}
+
+// _tlInit is called by debugSwitchMode('timeline') in _debugging.html.
+// Guard against double-init (e.g., user switches to History mode twice).
+let _tlInitDone = false;
+const _tlInitOrig = _tlInit;
+_tlInit = function() {
+  if (_tlInitDone) return;
+  _tlInitDone = true;
+  _tlInitOrig();
+};
+</script>

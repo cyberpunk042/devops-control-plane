@@ -43,7 +43,7 @@
     }
 
     // Show/hide panels
-    ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'].forEach(m => {
+    ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator', 'timeline'].forEach(m => {
         const el = document.getElementById(`debug-${m}`);
         if (el) el.style.display = m === mode ? '' : 'none';
     });
@@ -73,6 +73,7 @@
     if (mode === 'commands') { if (!capabilitiesLoaded) loadCapabilities(); }
     if (mode === 'traces') loadDebugTraces();
     if (mode === 'mediator') { if (typeof loadMediatorDiag === 'function') loadMediatorDiag(); }
+    if (mode === 'timeline') { if (typeof _tlInit === 'function') _tlInit(); }
 }
 
     function debugAuditToggle(mode) {

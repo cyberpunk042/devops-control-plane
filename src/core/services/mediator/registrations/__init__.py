@@ -39,6 +39,7 @@ def register_all(mediator: QueryMediator) -> None:
     from .catalog import register_catalog
 
     from .tabmesh import register_tabmesh
+    from .timeline import register_timeline
 
     register_index(mediator)    # root of the tree — everything depends on this
     register_detect(mediator)   # detect.* depends on index.classify
@@ -48,6 +49,7 @@ def register_all(mediator: QueryMediator) -> None:
     register_audit(mediator)    # audit.* — leaf, no cascade deps
     register_catalog(mediator)  # catalog.* — leaf, no cascade deps
     register_tabmesh(mediator)  # tabmesh.* — CDP status, leaf, no cascade deps
+    register_timeline(mediator) # timeline.* — 23 nodes, own source adapters
 
     # ── Subscribers (after all domains) ────────────────────────
     from src.core.services.mediator.subscribers.activity import (
@@ -56,8 +58,12 @@ def register_all(mediator: QueryMediator) -> None:
     from src.core.services.mediator.subscribers.eventbus_bridge import (
         register_eventbus_bridge,
     )
+    from src.core.services.mediator.subscribers.timeline import (
+        register_timeline_subscriber,
+    )
     register_activity_subscriber(mediator)
     register_eventbus_bridge(mediator)
+    register_timeline_subscriber(mediator)
 
     logger.info(
         "mediator: registered %d nodes (%s)",

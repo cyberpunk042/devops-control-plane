@@ -1,0 +1,128 @@
+<!-- Timeline / History panel — embedded in Debugging tab as 'History' mode -->
+<div id="timeline-layout">
+
+  <!-- LEFT: Navigator panel -->
+  <div class="timeline-nav-panel" id="timeline-nav-panel" style="position:relative">
+    <!-- Mode selector -->
+    <div class="timeline-nav-modes">
+      <button id="tl-nav-mode-chains"  class="active" onclick="_tlNavMode('chains')">📎 Chains</button>
+      <button id="tl-nav-mode-domains"           onclick="_tlNavMode('domains')">🌐 Domains</button>
+      <button id="tl-nav-mode-calendar"          onclick="_tlNavMode('calendar')">📅 Calendar</button>
+    </div>
+
+    <!-- Chain search -->
+    <div style="padding:0 var(--space-sm) var(--space-xs)" id="tl-nav-chain-search-wrap">
+      <input id="tl-nav-chain-search" type="text" placeholder="filter chains…"
+             style="width:100%;font-size:0.68rem;padding:3px 6px;background:var(--bg-inset);
+                    border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+                    color:var(--text-primary)"
+             oninput="_tlNavFilterChains(this.value)">
+    </div>
+
+    <!-- Navigator tree -->
+    <div class="tl-nav-tree" id="tl-nav-tree">
+      <span style="font-size:0.66rem;color:var(--text-muted);padding:8px 12px;display:block">Loading…</span>
+    </div>
+
+    <!-- Resize handle -->
+    <div class="tl-nav-resize-handle" id="tl-nav-resize"
+         onmousedown="_tlNavResizeStart(event)" title="Drag to resize"></div>
+  </div>
+
+  <!-- RIGHT: Main panel -->
+  <div id="timeline-main">
+
+    <!-- Toolbar -->
+    <div id="timeline-toolbar">
+
+      <!-- Row 1: fixed 3-zone bar — filters | view mode | sort -->
+      <div class="tl-toolbar-row">
+
+        <!-- LEFT: filter dropdowns -->
+        <div class="tl-toolbar-filters">
+          <div style="position:relative">
+            <button class="btn btn-sm btn-ghost" id="timeline-source-btn"
+                    onclick="_tlToggleMenu('source')">Sources ▾</button>
+            <div id="timeline-source-menu" class="timeline-dropdown" style="display:none">
+              <!-- populated by _tlBuildSourceMenu() -->
+            </div>
+          </div>
+          <div style="position:relative">
+            <button class="btn btn-sm btn-ghost" id="timeline-status-btn"
+                    onclick="_tlToggleMenu('status')">Status ▾</button>
+            <div id="timeline-status-menu" class="timeline-dropdown" style="display:none">
+              <label><input type="checkbox" value="ok"        onchange="_tlApplyCheckFilter('status','ok',this.checked)"> ● ok</label>
+              <label><input type="checkbox" value="warning"   onchange="_tlApplyCheckFilter('status','warning',this.checked)"> ◑ warning</label>
+              <label><input type="checkbox" value="attention" onchange="_tlApplyCheckFilter('status','attention',this.checked)"> ⚠ attention</label>
+              <label><input type="checkbox" value="failed"    onchange="_tlApplyCheckFilter('status','failed',this.checked)"> ✕ failed</label>
+            </div>
+          </div>
+          <div style="position:relative">
+            <button class="btn btn-sm btn-ghost" id="timeline-severity-btn"
+                    onclick="_tlToggleMenu('severity')">Severity ▾</button>
+            <div id="timeline-severity-menu" class="timeline-dropdown" style="display:none">
+              <label><input type="checkbox" value="critical" onchange="_tlApplyCheckFilter('severity','critical',this.checked)"> 🔴 critical</label>
+              <label><input type="checkbox" value="high"     onchange="_tlApplyCheckFilter('severity','high',this.checked)"> 🟠 high</label>
+              <label><input type="checkbox" value="medium"   onchange="_tlApplyCheckFilter('severity','medium',this.checked)"> 🟡 medium</label>
+              <label><input type="checkbox" value="low"      onchange="_tlApplyCheckFilter('severity','low',this.checked)"> ⚪ low</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- CENTER: locality — single 3-state segmented control -->
+        <div class="tl-view-mode" id="timeline-locality-toggle">
+          <button class="active" id="tl-loc-all"    onclick="_tlSetLocality(null)">● All</button>
+          <button                id="tl-loc-local"  onclick="_tlSetLocality('local')">⬡ Local</button>
+          <button                id="tl-loc-shared" onclick="_tlSetLocality('shared')">⇡ Shared</button>
+        </div>
+
+        <!-- RIGHT: sort -->
+        <select class="btn btn-sm btn-ghost" id="timeline-sort" onchange="_tlApplySort()"
+                style="padding:3px 6px;font-size:0.72rem">
+          <option value="ts:desc">Newest first</option>
+          <option value="ts:asc">Oldest first</option>
+          <option value="severity:desc">Most critical</option>
+          <option value="status:desc">Failures first</option>
+          <option value="source:asc">By domain</option>
+        </select>
+
+      </div>
+
+      <!-- Row 2: active filter pills — own strip, never shifts toolbar above -->
+      <div id="timeline-active-filters" class="tl-filter-pills-row"></div>
+
+      <!-- Row 3: search -->
+      <div style="display:flex;align-items:center;gap:4px;margin-top:4px">
+        <span style="color:var(--text-muted)">🔍</span>
+        <input id="timeline-search" type="text"
+               placeholder="Search summary, target, module…"
+               style="flex:1;font-size:0.72rem;padding:3px 8px;background:var(--bg-inset);
+                      border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+                      color:var(--text-primary)"
+               oninput="_tlSearchDebounce()">
+        <div id="timeline-live-indicator"
+             style="font-size:0.64rem;color:var(--accent);flex-shrink:0"
+             title="Live — new entries appear automatically">⟳ Live</div>
+      </div>
+    </div>
+
+    <!-- Entry list -->
+    <div id="timeline-list"></div>
+
+    <!-- Scroll sentinel -->
+    <div id="timeline-sentinel" style="height:1px"></div>
+
+    <!-- Loading indicator -->
+    <div id="timeline-loading" style="display:none;padding:var(--space-md);text-align:center;
+         font-size:0.72rem;color:var(--text-muted)">
+      <span class="spinner"></span> Loading older entries…
+    </div>
+
+    <!-- Empty state -->
+    <div id="timeline-empty" style="display:none;padding:var(--space-xl);text-align:center;
+         font-size:0.8rem;color:var(--text-muted)">
+      No timeline entries match the current filters.
+    </div>
+
+  </div><!-- #timeline-main -->
+</div><!-- #timeline-layout -->
