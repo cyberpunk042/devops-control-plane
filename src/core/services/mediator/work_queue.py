@@ -73,7 +73,11 @@ class Priority(IntEnum):
 
     IDLE (4)
         Heavy background tasks — security scan, test pipeline,
-        AST symbol parsing.  Runs last, yields to everything.
+        audit probes.  Runs last, yields to everything.
+
+    BACKGROUND (5)
+        Passive indexing — AST peek, symbol extraction.
+        Dead last.  Only runs when nothing else needs capacity.
     """
 
     CRITICAL = 0
@@ -81,6 +85,7 @@ class Priority(IntEnum):
     NORMAL = 2
     LOW = 3
     IDLE = 4
+    BACKGROUND = 5
 
 
 # ── Work item ──────────────────────────────────────────────────────

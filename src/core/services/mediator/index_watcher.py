@@ -399,7 +399,7 @@ def _poll_loop(
             # duplicate work.
             try:
                 from .config import (
-                    TIER_PATHS, AUDIT_L0L1, AUDIT_L2,
+                    TIER_PATHS, AUDIT_L0L1, AUDIT_L2, INDEX_PASSIVE,
                 )
                 from .work_queue import Priority
 
@@ -434,6 +434,7 @@ def _poll_loop(
                 tier3_paths = [p for p in all_paths if p in _T3_PATHS]
 
                 # T4: slow index nodes (background metadata)
+                # Excludes peek/symbols — those go to T7.
                 if _warm:
                     # Warm start: index nodes already cached from disk.
                     # Still dispatch delta/stats/view — content may
@@ -442,8 +443,11 @@ def _poll_loop(
                         "index.delta", "index.stats", "index.view",
                     ]
                 else:
-                    # Cold start: slow index nodes
-                    tier4_paths = list(_get_slow_index()) + ["index.view"]
+                    # Cold start: slow index nodes (exclude passive)
+                    tier4_paths = [
+                        p for p in list(_get_slow_index()) + ["index.view"]
+                        if p not in INDEX_PASSIVE
+                    ]
 
                 # T5: aggregates
                 tier5_paths = (
@@ -453,6 +457,9 @@ def _poll_loop(
                 )
                 # T6: deep audit
                 tier6_paths = [p for p in all_paths if p in AUDIT_L2]
+
+                # T7: passive heavy index (dead last)
+                tier7_paths = [p for p in all_paths if p in INDEX_PASSIVE]
 
                 # ── Smart dispatch: filter by classify change ──
                 # If classify didn't change, narrow dispatch scope.
@@ -511,6 +518,7 @@ def _poll_loop(
                     ("T4:index",     tier4_paths, Priority.LOW),
                     ("T5:aggregate", tier5_paths, Priority.IDLE),
                     ("T6:deep",      tier6_paths, Priority.IDLE),
+                    ("T7:passive",   tier7_paths, Priority.BACKGROUND),
                 ]
 
                 # Filter out empty tiers

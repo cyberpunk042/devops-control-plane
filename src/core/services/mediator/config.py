@@ -44,6 +44,7 @@ _DEFAULTS: dict[str, Any] = {
         "T4:index":     {"priority": 3},
         "T5:aggregate": {"priority": 4},
         "T6:deep":      {"priority": 4},
+        "T7:passive":   {"priority": 5},
     },
 }
 
@@ -88,6 +89,11 @@ AUDIT_L2 = frozenset({
     "audit.l2_risks", "audit.scores_enriched",
 })
 
+# T7: passive heavy index (dead last)
+INDEX_PASSIVE = frozenset({
+    "index.peek", "index.symbols",
+})
+
 
 def tier_for_path(path: str) -> str:
     """Classify a mediator path into its tier name.
@@ -95,22 +101,26 @@ def tier_for_path(path: str) -> str:
     Returns the tier name (e.g. ``"T1:visible"``) or ``"T4:index"``
     as fallback for unclassified paths.
     """
-    # Check exact-match sets first
+    # ── Exact-match sets (checked first, order matters) ────────
     for tier_name, path_set in TIER_PATHS.items():
         if path in path_set:
             return tier_name
 
-    # Check prefix-based classification
-    for tier_name, prefixes in TIER_PREFIXES.items():
-        for prefix in prefixes:
-            if path.startswith(prefix):
-                return tier_name
+    # Passive heavy index — must check BEFORE the "index." prefix
+    if path in INDEX_PASSIVE:
+        return "T7:passive"
 
     # Audit classification
     if path in AUDIT_L0L1:
         return "T5:aggregate"
     if path in AUDIT_L2:
         return "T6:deep"
+
+    # ── Prefix-based fallbacks ─────────────────────────────────
+    for tier_name, prefixes in TIER_PREFIXES.items():
+        for prefix in prefixes:
+            if path.startswith(prefix):
+                return tier_name
 
     # Fallback
     return "T4:index"
