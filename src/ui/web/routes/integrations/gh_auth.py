@@ -14,6 +14,21 @@ from src.ui.web.helpers import project_root as _project_root
 from . import integrations_bp
 
 
+def _bust_gh_caches() -> None:
+    """Bust github + wizard caches via the mediator.
+
+    Invalidating ``detect.github`` cascades to ``devops.github``.
+    ``detect.wizard`` is also busted (GitHub auth affects wizard detection).
+    """
+    try:
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        m.put("detect.github", cascade=True)
+        m.put("detect.wizard", cascade=True)
+    except Exception:
+        pass  # mediator not initialized — non-fatal
+
+
 @integrations_bp.route("/gh/auth/logout", methods=["POST"])
 @run_tracked("setup", "setup:gh_logout")
 def gh_auth_logout():  # type: ignore[no-untyped-def]
@@ -46,13 +61,7 @@ def gh_auth_login():  # type: ignore[no-untyped-def]
 
     # Cache-bust on successful token auth so status is fresh
     if result.get("ok") and result.get("authenticated"):
-        try:
-            from src.core.services.devops import cache as devops_cache
-            root = _project_root()
-            devops_cache.invalidate(root, "github")
-            devops_cache.invalidate(root, "wiz:detect")
-        except Exception:
-            pass
+        _bust_gh_caches()
 
     # Determine HTTP status:
     #  - 200 for success, terminal spawned, no_terminal (actionable), or fallback
@@ -110,12 +119,7 @@ def gh_auth_device_poll_route():  # type: ignore[no-untyped-def]
 
     # Cache-bust on successful auth — only the github card
     if result.get("complete") and result.get("authenticated"):
-        try:
-            from src.core.services.devops import cache as devops_cache
-            devops_cache.invalidate(root, "github")
-            devops_cache.invalidate(root, "wiz:detect")
-        except Exception:
-            pass
+        _bust_gh_caches()
 
     return jsonify(result)
 
@@ -146,13 +150,7 @@ def gh_auth_terminal_poll_route():  # type: ignore[no-untyped-def]
 
         # If success, bust cache
         if data.get("status") == "success":
-            try:
-                from src.core.services.devops import cache as devops_cache
-                root = _project_root()
-                devops_cache.invalidate(root, "github")
-                devops_cache.invalidate(root, "wiz:detect")
-            except Exception:
-                pass
+            _bust_gh_caches()
             return jsonify(data)
 
         # If stuck at code_ready, check live gh auth status
@@ -170,13 +168,7 @@ def gh_auth_terminal_poll_route():  # type: ignore[no-untyped-def]
                     # Auth succeeded! Update signal file + bust cache
                     data = {"status": "success", "ts": data.get("ts", "")}
                     signal_file.write_text(_json.dumps(data))
-                    try:
-                        from src.core.services.devops import cache as devops_cache
-                        root = _project_root()
-                        devops_cache.invalidate(root, "github")
-                        devops_cache.invalidate(root, "wiz:detect")
-                    except Exception:
-                        pass
+                    _bust_gh_caches()
                     return jsonify(data)
             except Exception as exc:
                 gh_err = str(exc)

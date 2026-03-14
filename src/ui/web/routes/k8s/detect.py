@@ -13,15 +13,12 @@ from . import k8s_bp
 @k8s_bp.route("/k8s/status")
 def k8s_status():  # type: ignore[no-untyped-def]
     """Manifest detection and kubectl availability."""
-    from src.core.services.devops.cache import get_cached
-
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
-    return jsonify(get_cached(
-        root, "k8s",
-        lambda: k8s_ops.k8s_status(root),
-        force=force,
-    ))
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("devops.k8s", force=force)
+    return jsonify(result["data"])
 
 
 @k8s_bp.route("/k8s/validate")

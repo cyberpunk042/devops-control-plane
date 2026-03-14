@@ -13,15 +13,12 @@ from . import packages_bp
 @packages_bp.route("/packages/status")
 def package_status():  # type: ignore[no-untyped-def]
     """Detected package managers and dependency files."""
-    from src.core.services.devops.cache import get_cached
-
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
-    return jsonify(get_cached(
-        root, "packages",
-        lambda: package_ops.package_status_enriched(root),
-        force=force,
-    ))
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("devops.packages", force=force)
+    return jsonify(result["data"])
 
 
 @packages_bp.route("/packages/outdated")

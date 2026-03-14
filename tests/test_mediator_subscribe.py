@@ -224,3 +224,101 @@ class TestSubscribe:
             all_paths.extend(call[0][0]["paths"])
         assert "devops.git" in all_paths
         assert "devops.docker" in all_paths
+
+
+# ── TestComputeSubscriber ─────────────────────────────────────────
+
+
+class TestComputeSubscriber:
+    """Verify subscribers fire on get() computation with compute_meta."""
+
+    def test_subscriber_fires_on_get_compute(
+        self, mediator: QueryMediator,
+    ) -> None:
+        """Subscriber is called when get() computes a value."""
+        cb = MagicMock()
+        mediator.subscribe("devops.*", cb)
+
+        with patch("src.core.services.event_bus.bus", MagicMock()):
+            mediator.get("devops.git")
+
+        cb.assert_called_once()
+        event = cb.call_args[0][0]
+        assert event["type"] == "computed"
+        assert event["trigger"] == "devops.git"
+        assert "devops.git" in event["paths"]
+
+    def test_compute_meta_contains_data(
+        self, mediator: QueryMediator,
+    ) -> None:
+        """compute_meta includes the computed data."""
+        cb = MagicMock()
+        mediator.subscribe("devops.*", cb)
+
+        with patch("src.core.services.event_bus.bus", MagicMock()):
+            mediator.get("devops.git")
+
+        event = cb.call_args[0][0]
+        assert "compute_meta" in event
+        meta = event["compute_meta"]
+        assert meta["data"] == {"tool": "git"}
+
+    def test_compute_meta_contains_elapsed(
+        self, mediator: QueryMediator,
+    ) -> None:
+        """compute_meta includes elapsed_s."""
+        cb = MagicMock()
+        mediator.subscribe("devops.*", cb)
+
+        with patch("src.core.services.event_bus.bus", MagicMock()):
+            mediator.get("devops.git")
+
+        meta = cb.call_args[0][0]["compute_meta"]
+        assert "elapsed_s" in meta
+        assert isinstance(meta["elapsed_s"], float)
+        assert meta["elapsed_s"] >= 0
+
+    def test_compute_meta_contains_computed_at(
+        self, mediator: QueryMediator,
+    ) -> None:
+        """compute_meta includes computed_at timestamp."""
+        cb = MagicMock()
+        mediator.subscribe("devops.*", cb)
+
+        with patch("src.core.services.event_bus.bus", MagicMock()):
+            mediator.get("devops.git")
+
+        meta = cb.call_args[0][0]["compute_meta"]
+        assert "computed_at" in meta
+        assert isinstance(meta["computed_at"], float)
+
+    def test_subscriber_not_fired_on_cache_hit(
+        self, mediator: QueryMediator,
+    ) -> None:
+        """Subscriber is NOT called when get() returns cached data."""
+        cb = MagicMock()
+
+        # First get — computes (no subscriber yet)
+        with patch("src.core.services.event_bus.bus", MagicMock()):
+            mediator.get("devops.git")
+
+        # Now subscribe
+        mediator.subscribe("devops.*", cb)
+
+        # Second get — cache hit, no compute
+        mediator.get("devops.git")
+
+        cb.assert_not_called()
+
+    def test_put_events_have_no_compute_meta(
+        self, mediator: QueryMediator,
+    ) -> None:
+        """put() events do NOT include compute_meta."""
+        cb = MagicMock()
+        mediator.subscribe("devops.*", cb)
+
+        with patch("src.core.services.event_bus.bus", MagicMock()):
+            mediator.put("devops.git", data={"v": 1}, cascade=False)
+
+        event = cb.call_args[0][0]
+        assert "compute_meta" not in event

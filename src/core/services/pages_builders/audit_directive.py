@@ -207,15 +207,33 @@ def _resolve_scope_from_explicit(
 def _read_cached_card(project_root: Path, card_key: str) -> dict | None:
     """Read cached card data without triggering recomputation.
 
-    Follows the same pattern as l2_risk._cached_or_compute().
+    Uses mediator.peek() to read from in-memory cache.
     Returns the data dict or None if not available.
     """
+    # Map card keys to mediator paths
+    _CARD_TO_MEDIATOR = {
+        "testing": "devops.testing",
+        "git": "devops.git",
+        "audit:scores": "audit.scores",
+        "audit:system": "audit.system",
+        "audit:deps": "audit.deps",
+        "audit:structure": "audit.structure",
+        "audit:clients": "audit.clients",
+        "audit:l2:quality": "audit.l2_quality",
+        "audit:l2:structure": "audit.l2_structure",
+        "audit:l2:risks": "audit.l2_risks",
+        "audit:scores:enriched": "audit.scores_enriched",
+    }
     try:
-        from src.core.services.devops.cache import _load_cache
-        cache = _load_cache(project_root)
-        entry = cache.get(card_key)
-        if entry and "data" in entry:
-            return entry["data"]
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        mediator_path = _CARD_TO_MEDIATOR.get(card_key)
+        if mediator_path is None:
+            # Try generic devops.{key} mapping
+            mediator_path = f"devops.{card_key}"
+        result = m.peek(mediator_path)
+        if result is not None:
+            return result.get("data")
     except Exception:
         pass
     return None

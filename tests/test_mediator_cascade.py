@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+
+
 
 import pytest
 
@@ -34,10 +35,10 @@ def mediator() -> QueryMediator:
 class TestCascadeTreeStructure:
     """Test the tree after Phase 4 additions."""
 
-    def test_thirty_three_total_nodes(self, mediator: QueryMediator) -> None:
-        """33 nodes: 6 posture + 13 detect + 14 devops (13 cards + 1 status)."""
+    def test_thirty_four_total_nodes(self, mediator: QueryMediator) -> None:
+        """34 nodes: 6 posture + 14 detect + 14 devops (13 cards + 1 status)."""
         paths = mediator.tree.all_paths()
-        assert len(paths) == 33
+        assert len(paths) == 34
 
     def test_devops_branch_has_fourteen_children(
         self, mediator: QueryMediator
@@ -55,7 +56,7 @@ class TestCascadeTreeStructure:
         assert node.is_registered
         assert node.resolver is not None
         assert node.ttl is None
-        assert node.persist is False
+        assert node.persist is True
 
 
 # ── Inter-devops dependency tests ─────────────────────────────────
@@ -208,154 +209,6 @@ class TestAggregateNode:
 # ── Legacy cascade equivalence tests ──────────────────────────────
 
 
-class TestLegacyCascadeEquivalence:
-    """Test that the mediator cascade produces the same or superset of keys."""
-
-    def test_legacy_cascade_git(self) -> None:
-        """_legacy_cascade('git') should produce the same as old _CASCADE."""
-        from src.core.services.devops.cache import _legacy_cascade
-
-        keys = _legacy_cascade("git")
-        assert "git" in keys
-        assert "github" in keys
-        assert "docker" in keys
-        assert "ci" in keys
-        assert "pages" in keys
-        assert "project-status" in keys
-
-    def test_legacy_cascade_docker(self) -> None:
-        from src.core.services.devops.cache import _legacy_cascade
-
-        keys = _legacy_cascade("docker")
-        assert "docker" in keys
-        assert "ci" in keys
-        assert "k8s" in keys
-        assert "project-status" in keys
-
-    def test_legacy_cascade_github(self) -> None:
-        from src.core.services.devops.cache import _legacy_cascade
-
-        keys = _legacy_cascade("github")
-        assert "github" in keys
-        assert "ci" in keys
-        assert "project-status" in keys
-
-    def test_legacy_cascade_pages(self) -> None:
-        from src.core.services.devops.cache import _legacy_cascade
-
-        keys = _legacy_cascade("pages")
-        assert "pages" in keys
-        assert "dns" in keys
-        assert "project-status" in keys
-
-    def test_legacy_cascade_no_cascade(self) -> None:
-        """Cards not in _CASCADE should only have themselves + aggregate."""
-        from src.core.services.devops.cache import _legacy_cascade
-
-        keys = _legacy_cascade("terraform")
-        assert keys == ["terraform", "project-status"]
-
-    def test_legacy_cascade_non_integration(self) -> None:
-        """Non-integration keys should not get aggregate."""
-        from src.core.services.devops.cache import _legacy_cascade
-
-        keys = _legacy_cascade("whatever")
-        assert keys == ["whatever"]
-
-
-# ── Mediator cascade function tests ───────────────────────────────
-
-
-class TestMediatorCascade:
-    """Test the _mediator_cascade function."""
-
-    def test_mediator_cascade_returns_none_without_mediator(self) -> None:
-        """When mediator is not initialized, should return None."""
-        from src.core.services.devops.cache import _mediator_cascade
-
-        # Mock get_mediator to raise
-        with patch(
-            "src.core.services.mediator.get_mediator",
-            side_effect=RuntimeError("not initialized"),
-        ):
-            result = _mediator_cascade("docker")
-            assert result is None
-
-    def test_mediator_cascade_git(self, mediator: QueryMediator) -> None:
-        """Mediator cascade for 'git' should produce superset of legacy."""
-        from src.core.services.devops.cache import _mediator_cascade
-
-        with patch(
-            "src.core.services.mediator.get_mediator",
-            return_value=mediator,
-        ):
-            keys = _mediator_cascade("git")
-            assert keys is not None
-            assert "git" in keys
-            assert "docker" in keys
-            assert "github" in keys
-            assert "ci" in keys
-            assert "k8s" in keys  # transitive: git → docker → k8s
-            assert "project-status" in keys
-
-    def test_mediator_cascade_docker(self, mediator: QueryMediator) -> None:
-        from src.core.services.devops.cache import _mediator_cascade
-
-        with patch(
-            "src.core.services.mediator.get_mediator",
-            return_value=mediator,
-        ):
-            keys = _mediator_cascade("docker")
-            assert keys is not None
-            assert "docker" in keys
-            assert "k8s" in keys
-            assert "ci" in keys
-            assert "project-status" in keys
-
-    def test_mediator_cascade_unknown_card(
-        self, mediator: QueryMediator
-    ) -> None:
-        """Unknown card should return None (fallback to legacy)."""
-        from src.core.services.devops.cache import _mediator_cascade
-
-        with patch(
-            "src.core.services.mediator.get_mediator",
-            return_value=mediator,
-        ):
-            result = _mediator_cascade("pages")
-            assert result is None  # no devops.pages node
-
-    def test_mediator_superset_of_legacy_git(
-        self, mediator: QueryMediator
-    ) -> None:
-        """Mediator cascade should be a superset of legacy for 'git'.
-
-        Legacy: git, github, docker, ci, pages, project-status
-        Mediator: git, docker, github, ci, k8s, project-status
-        (mediator adds k8s transitively, but doesn't have pages)
-        """
-        from src.core.services.devops.cache import (
-            _legacy_cascade,
-            _mediator_cascade,
-        )
-
-        with patch(
-            "src.core.services.mediator.get_mediator",
-            return_value=mediator,
-        ):
-            legacy = set(_legacy_cascade("git"))
-            mediator_keys = set(_mediator_cascade("git") or [])
-
-            # Mediator should have all legacy keys EXCEPT 'pages'
-            # (no devops.pages node exists)
-            expected_common = legacy - {"pages"}
-            assert expected_common.issubset(mediator_keys), (
-                f"Missing from mediator: {expected_common - mediator_keys}"
-            )
-
-            # Mediator should additionally have k8s (transitive)
-            assert "k8s" in mediator_keys
-
 
 # ── Diag tests ────────────────────────────────────────────────────
 
@@ -363,9 +216,9 @@ class TestMediatorCascade:
 class TestCascadeDiag:
     """Test diagnostics reflect Phase 4 changes."""
 
-    def test_diag_shows_thirty_three(self, mediator: QueryMediator) -> None:
+    def test_diag_shows_thirty_four(self, mediator: QueryMediator) -> None:
         info = mediator.diag()
-        assert info["tree"]["registered"] == 33
+        assert info["tree"]["registered"] == 34
 
     def test_diag_devops_branch_fourteen(
         self, mediator: QueryMediator

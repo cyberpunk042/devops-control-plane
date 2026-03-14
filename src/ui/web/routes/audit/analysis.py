@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from src.core.services.devops import cache as devops_cache
+
 from src.core.services.audit import (
     audit_scores,
     audit_scores_enriched,
@@ -42,6 +42,17 @@ from . import audit_bp
 # ── L0: System Profile ─────────────────────────────────────────
 
 
+def _mediator_or_legacy(mediator_path, cache_key, compute_fn, bust):
+    """Resolve data via mediator.
+
+    Used for L0/L1 audit routes.
+    """
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get(mediator_path, force=bust)
+    return result["data"]
+
+
 @audit_bp.route("/audit/system")
 def audit_system():
     root = _project_root()
@@ -49,18 +60,15 @@ def audit_system():
     deep = "deep" in request.args
 
     if deep:
-        # Deep tier: separate cache key, longer compute budget
-        result = devops_cache.get_cached(
-            root, "audit:system:deep",
-            lambda: l0_system_profile(root, deep=True),
-            force=bust,
+        # Deep tier: separate mediator node
+        result = _mediator_or_legacy(
+            "audit.system_deep", "audit:system:deep",
+            lambda: l0_system_profile(root, deep=True), bust,
         )
     else:
-        # Fast tier: original behavior, unchanged
-        result = devops_cache.get_cached(
-            root, "audit:system",
-            lambda: l0_system_profile(root),
-            force=bust,
+        result = _mediator_or_legacy(
+            "audit.system", "audit:system",
+            lambda: l0_system_profile(root), bust,
         )
     return jsonify(result)
 
@@ -71,10 +79,9 @@ def audit_system():
 def audit_dependencies():
     root = _project_root()
     bust = "bust" in request.args
-    result = devops_cache.get_cached(
-        root, "audit:deps",
-        lambda: l1_dependencies(root),
-        force=bust,
+    result = _mediator_or_legacy(
+        "audit.deps", "audit:deps",
+        lambda: l1_dependencies(root), bust,
     )
     return jsonify(result)
 
@@ -85,10 +92,9 @@ def audit_dependencies():
 def audit_structure():
     root = _project_root()
     bust = "bust" in request.args
-    result = devops_cache.get_cached(
-        root, "audit:structure",
-        lambda: l1_structure(root),
-        force=bust,
+    result = _mediator_or_legacy(
+        "audit.structure", "audit:structure",
+        lambda: l1_structure(root), bust,
     )
     return jsonify(result)
 
@@ -99,10 +105,9 @@ def audit_structure():
 def audit_clients():
     root = _project_root()
     bust = "bust" in request.args
-    result = devops_cache.get_cached(
-        root, "audit:clients",
-        lambda: l1_clients(root),
-        force=bust,
+    result = _mediator_or_legacy(
+        "audit.clients", "audit:clients",
+        lambda: l1_clients(root), bust,
     )
     return jsonify(result)
 
@@ -113,10 +118,9 @@ def audit_clients():
 def audit_scores_endpoint():
     root = _project_root()
     bust = "bust" in request.args
-    result = devops_cache.get_cached(
-        root, "audit:scores",
-        lambda: audit_scores(root),
-        force=bust,
+    result = _mediator_or_legacy(
+        "audit.scores", "audit:scores",
+        lambda: audit_scores(root), bust,
     )
     return jsonify(result)
 
@@ -129,10 +133,9 @@ def audit_scores_enriched_endpoint():
     """
     root = _project_root()
     bust = "bust" in request.args
-    result = devops_cache.get_cached(
-        root, "audit:scores:enriched",
-        lambda: audit_scores_enriched(root),
-        force=bust,
+    result = _mediator_or_legacy(
+        "audit.scores_enriched", "audit:scores:enriched",
+        lambda: audit_scores_enriched(root), bust,
     )
     return jsonify(result)
 
@@ -153,28 +156,44 @@ def _cache_or_needs_scan(root, cache_key, compute_fn, bust):
     """Return cached L2 data, or {"needs_scan": true} on cold cache.
 
     When ``bust`` is True (explicit refresh), forces synchronous
-    recompute via get_cached.  Otherwise, returns instantly:
-    either the cached data or a lightweight {"needs_scan": true}
+    recompute via the mediator.  Otherwise, uses ``peek`` to return
+    instantly: either the cached data or a lightweight {"needs_scan"}
     response that the frontend uses to trigger POST /audit/scan.
 
     This prevents the 30-second timeout that occurs when slow L2
     compute functions (risks: 32s, quality: 16s) block the request.
     """
-    if bust:
-        # Explicit refresh — compute synchronously
-        return devops_cache.get_cached(
-            root, cache_key, compute_fn, force=True,
-        )
+    from src.core.services.mediator import get_mediator
 
-    # Try cache read without computing
-    try:
-        from src.core.services.devops.cache import _load_cache
-        cache = _load_cache(root)
-        entry = cache.get(cache_key)
-        if entry and "data" in entry:
-            return entry["data"]
-    except Exception:
-        pass
+    # Mapping from legacy devops_cache keys to mediator paths
+    _L2_KEY_MAP = {
+        "audit:l2:structure": "audit.l2_structure",
+        "audit:l2:quality": "audit.l2_quality",
+        "audit:l2:repo": "audit.l2_repo",
+        "audit:l2:risks": "audit.l2_risks",
+    }
+    mediator_path = _L2_KEY_MAP.get(cache_key)
+
+    if bust:
+        # Explicit refresh — compute synchronously via mediator.
+        if mediator_path:
+            m = get_mediator()
+            result = m.get(mediator_path, force=True)
+            return result["data"]
+        # No mediator path — shouldn't happen, but fallback
+        return compute_fn()
+
+    # Non-bust: check mediator cache (peek = never blocks)
+    if mediator_path:
+        try:
+            m = get_mediator()
+            result = m.peek(mediator_path)
+            if result is not None:
+                data = result.get("data")
+                if data is not None:
+                    return data
+        except Exception:
+            pass
 
     # No cache — tell the frontend to trigger async scan
     return {"needs_scan": True, "cache_key": cache_key}

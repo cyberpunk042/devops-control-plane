@@ -335,6 +335,24 @@ def wizard_detect(root: Path) -> dict:
     except Exception:
         pass
 
+    # ── Embedded data: one-stop-shop, no secondary API calls ──
+    # For keys that overlap with mediator nodes (devops.*, detect.*),
+    # peek the mediator first — no redundant subprocess calls.
+    # Fall back to direct compute only if mediator hasn't run yet.
+    def _peek_or_compute(mediator_path: str, fallback):
+        """Peek mediator for cached data, else call fallback."""
+        try:
+            from src.core.services.mediator import get_mediator
+            m = get_mediator()
+            result = m.peek(mediator_path)
+            if result is not None:
+                data = result.get("data")
+                if data is not None:
+                    return data
+        except Exception:
+            pass
+        return fallback()
+
     return {
         "tools": tools,
         "files": files,
@@ -346,18 +364,41 @@ def wizard_detect(root: Path) -> dict:
         "_python_version": py_ver,
         "_project_name": root.name,
 
-        # ── Embedded data: one-stop-shop, no secondary API calls ──
-        "status_probes": run_all_probes(root),
+        # ── Mediator-backed: peek first, compute only if cold ──
+        "status_probes": _peek_or_compute(
+            "devops.status",
+            lambda: run_all_probes(root),
+        ),
+        "docker_status": _peek_or_compute(
+            "devops.docker",
+            lambda: _wizard_docker_status(root),
+        ),
+        "k8s_status": _peek_or_compute(
+            "devops.k8s",
+            lambda: _wizard_k8s_status(root),
+        ),
+        "terraform_status": _peek_or_compute(
+            "devops.terraform",
+            lambda: _wizard_terraform_status(root),
+        ),
+        "dns_status": _peek_or_compute(
+            "devops.dns",
+            lambda: _wizard_dns_status(root),
+        ),
+        "gh_cli_status": _peek_or_compute(
+            "devops.github",
+            lambda: _wizard_gh_cli_status(root),
+        ),
+        "ci_status": _peek_or_compute(
+            "devops.ci",
+            lambda: _wizard_ci_status(root),
+        ),
+
+        # ── Wizard-unique: computed directly (lightweight / no mediator node) ──
         "config_data": _wizard_config_data(root),
-        "docker_status": _wizard_docker_status(root),
-        "k8s_status": _wizard_k8s_status(root),
-        "terraform_status": _wizard_terraform_status(root),
-        "dns_status": _wizard_dns_status(root),
-        "gh_cli_status": _wizard_gh_cli_status(root),
         "gh_user": _wizard_gh_user(root),
         "gh_repo_info": _wizard_gh_repo_info(root),
         "gh_environments": _wizard_gh_environments(root),
-        "ci_status": _wizard_ci_status(root),
         "gitignore_analysis": _wizard_gitignore_analysis(root),
         "git_remotes": _wizard_git_remotes(root),
         "codeowners_content": _wizard_codeowners_content(root),

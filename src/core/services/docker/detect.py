@@ -55,12 +55,27 @@ def docker_status(project_root: Path) -> dict:
     dockerfiles: list[str] = []
     if (project_root / "Dockerfile").is_file():
         dockerfiles.append("Dockerfile")
-    for p in project_root.rglob("Dockerfile*"):
-        rel = str(p.relative_to(project_root))
-        if rel not in dockerfiles and ".git" not in rel and "node_modules" not in rel:
-            dockerfiles.append(rel)
-            if len(dockerfiles) >= 20:
-                break
+
+    # Walk project tree for additional Dockerfiles, pruning heavy dirs
+    import os
+    _skip = frozenset({
+        ".git", ".venv", "venv", "node_modules", "__pycache__",
+        ".terraform", "dist", "build", ".pages",
+    })
+    for dirpath, dirnames, filenames in os.walk(project_root):
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _skip and not d.startswith(".")
+        ]
+        for fname in filenames:
+            if fname.startswith("Dockerfile"):
+                rel = str(Path(dirpath, fname).relative_to(project_root))
+                if rel not in dockerfiles:
+                    dockerfiles.append(rel)
+                    if len(dockerfiles) >= 20:
+                        break
+        if len(dockerfiles) >= 20:
+            break
 
     # Parse Dockerfile content
     dockerfile_details: list[dict] = []
@@ -129,18 +144,29 @@ def docker_status(project_root: Path) -> dict:
             **file_info,
         }
 
-    # Version
-    r_ver = run_docker("--version", cwd=project_root, timeout=5)
-    version = r_ver.stdout.strip() if r_ver.returncode == 0 else None
+    # Version, daemon check, compose — all independent, run in parallel
+    from concurrent.futures import ThreadPoolExecutor
 
-    # Daemon check
-    r_info = run_docker("info", "--format", "{{.ServerVersion}}", cwd=project_root, timeout=10)
-    daemon_running = r_info.returncode == 0
+    def _get_version():
+        r = run_docker("--version", cwd=project_root, timeout=0.5)
+        return r.stdout.strip() if r.returncode == 0 else None
 
-    # Compose available
-    r_compose = run_docker("compose", "version", "--short", cwd=project_root, timeout=5)
-    compose_available = r_compose.returncode == 0
-    compose_version = r_compose.stdout.strip() if compose_available else None
+    def _get_daemon():
+        r = run_docker("info", "--format", "{{.ServerVersion}}", cwd=project_root, timeout=2)
+        return r.returncode == 0
+
+    def _get_compose():
+        r = run_docker("compose", "version", "--short", cwd=project_root, timeout=0.5)
+        return (r.returncode == 0, r.stdout.strip() if r.returncode == 0 else None)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_ver = pool.submit(_get_version)
+        f_daemon = pool.submit(_get_daemon)
+        f_compose = pool.submit(_get_compose)
+
+    version = f_ver.result()
+    daemon_running = f_daemon.result()
+    compose_available, compose_version = f_compose.result()
 
     from src.core.services.tool_requirements import check_required_tools
     return {

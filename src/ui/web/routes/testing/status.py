@@ -13,15 +13,12 @@ from . import testing_bp
 @testing_bp.route("/testing/status")
 def testing_status():  # type: ignore[no-untyped-def]
     """Detected test frameworks and stats."""
-    from src.core.services.devops.cache import get_cached
-
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
-    return jsonify(get_cached(
-        root, "testing",
-        lambda: testing_ops.testing_status(root),
-        force=force,
-    ))
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("devops.testing", force=force)
+    return jsonify(result["data"])
 
 
 @testing_bp.route("/testing/inventory")

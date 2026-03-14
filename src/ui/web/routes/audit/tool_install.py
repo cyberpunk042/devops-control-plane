@@ -20,14 +20,13 @@ Endpoints:
 
 from __future__ import annotations
 
-from pathlib import Path
+
 
 from flask import current_app, jsonify, request
 
-from src.core.services.devops import cache as devops_cache
 from src.core.services.run_tracker import run_tracked
 from src.core.services.tool_install.path_refresh import refresh_server_path as _refresh_server_path
-from src.ui.web.helpers import bust_tool_caches, project_root as _project_root
+from src.ui.web.helpers import bust_tool_caches
 
 from . import audit_bp
 
@@ -282,38 +281,12 @@ def tools_status():
     Returns all registered tools with availability, category,
     install type, and whether an install recipe exists.
     """
-    from src.core.services.devops.cache import get_cached
-
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
 
-    def _compute() -> dict:
-        _refresh_server_path()
-        from src.core.services.audit.l0_detection import detect_tools
-        from src.core.services.tool_install import TOOL_RECIPES
-
-        tools = detect_tools()
-        # Enrich with recipe availability
-        for t in tools:
-            tid = t["id"]
-            recipe = TOOL_RECIPES.get(tid)
-            t["has_recipe"] = recipe is not None
-            t["needs_sudo"] = (
-                any(recipe["needs_sudo"].values()) if recipe else False
-            )
-
-        available = sum(1 for t in tools if t["available"])
-        missing = [t for t in tools if not t["available"]]
-
-        return {
-            "tools": tools,
-            "total": len(tools),
-            "available": available,
-            "missing_count": len(missing),
-            "missing": missing,
-        }
-
-    return jsonify(get_cached(root, "tools", _compute, force=force))
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("catalog.tools", force=force)
+    return jsonify(result["data"])
 
 
 # ── Update & version routes ─────────────────────────────────

@@ -12,13 +12,9 @@ Endpoint:
 
 from __future__ import annotations
 
-from pathlib import Path
+from flask import jsonify, request
 
-from flask import current_app, jsonify, request
-
-from src.core.services.devops import cache as devops_cache
 from . import devops_bp
-from src.ui.web.helpers import project_root as _project_root
 
 
 
@@ -30,16 +26,12 @@ def wizard_detect():  # type: ignore[no-untyped-def]
     Returns a lightweight snapshot used by the setup wizard to suggest
     which integrations to enable and which tools to install.
 
-    Cached server-side via devops_cache (key ``wiz:detect``).
+    Cached via the mediator (node ``detect.wizard``).
     Pass ``?bust=1`` to force a fresh scan.
     """
-    from src.core.services.wizard_ops import wizard_detect as _detect
-
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
 
-    return jsonify(devops_cache.get_cached(
-        root, "wiz:detect",
-        lambda: _detect(root),
-        force=force,
-    ))
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("detect.wizard", force=force)
+    return jsonify(result["data"])

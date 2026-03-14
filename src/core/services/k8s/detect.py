@@ -48,7 +48,7 @@ def _detect_cli(name: str) -> dict:
     args, pattern = spec
     try:
         result = subprocess.run(
-            args, capture_output=True, text=True, timeout=10,
+            args, capture_output=True, text=True, timeout=0.5,
         )
         if result.returncode == 0:
             match = re.search(pattern, result.stdout)
@@ -203,22 +203,20 @@ def k8s_status(project_root: Path) -> dict:
         "has_secret_generator": has_secret_generator,
     }
 
-    # ── Tool availability ─────────────────────────────────────────
+    # ── Tool availability (parallelized) ───────────────────────────
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    cli_names = ["helm", "kustomize", "skaffold", "minikube", "kind", "az", "aws", "gcloud"]
+    with ThreadPoolExecutor(max_workers=len(cli_names)) as pool:
+        futures = {name: pool.submit(_detect_cli, name) for name in cli_names}
+        cli_results = {name: fut.result() for name, fut in futures.items()}
 
     tool_availability = {
-        # Core K8s tool
+        # Core K8s tool (already detected above)
         "kubectl": kubectl,
-        # K8s deployment tools
-        "helm": _detect_cli("helm"),
-        "kustomize": _detect_cli("kustomize"),
-        "skaffold": _detect_cli("skaffold"),
-        # Local cluster tools
-        "minikube": _detect_cli("minikube"),
-        "kind": _detect_cli("kind"),
-        # Cloud CLIs (authentication for managed clusters)
-        "az": _detect_cli("az"),
-        "aws": _detect_cli("aws"),
-        "gcloud": _detect_cli("gcloud"),
+        # Parallel results
+        **cli_results,
     }
 
     # ── Deployment readiness ──────────────────────────────────────
@@ -264,21 +262,23 @@ def k8s_status(project_root: Path) -> dict:
 def _collect_yaml_files(
     project_root: Path, manifest_dirs: list[str]
 ) -> list[Path]:
-    """Collect YAML files from manifest dirs or root."""
-    files: list[Path] = []
+    """Collect YAML files from manifest dirs (not full project tree)."""
+    import os
 
+    files: list[Path] = []
     search_dirs = [project_root / d for d in manifest_dirs] if manifest_dirs else [project_root]
 
     for search_dir in search_dirs:
-        for ext in ("*.yaml", "*.yml"):
-            for f in search_dir.rglob(ext):
-                skip = False
-                for part in f.relative_to(project_root).parts:
-                    if part in _SKIP_DIRS:
-                        skip = True
-                        break
-                if not skip:
-                    files.append(f)
+        if not search_dir.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(search_dir):
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in _SKIP_DIRS and not d.startswith(".")
+            ]
+            for fname in filenames:
+                if fname.endswith((".yaml", ".yml")):
+                    files.append(Path(dirpath) / fname)
 
     return files[:50]  # Cap
 
@@ -286,22 +286,38 @@ def _collect_yaml_files(
 def _detect_helm_charts(project_root: Path) -> list[dict]:
     """Detect Helm charts (Chart.yaml) with full structure analysis.
 
+    Searches known directories only — not full project tree.
+    Charts live in root, manifest dirs, or one level deep.
+
     Returns list of dicts with:
         path, name, version, description, app_version, type,
         has_values, has_templates, has_subcharts, has_lockfile,
         env_values_files
     """
+    import os
+
     charts: list[dict] = []
 
-    for chart_file in project_root.rglob("Chart.yaml"):
-        skip = False
-        for part in chart_file.relative_to(project_root).parts:
-            if part in _SKIP_DIRS:
-                skip = True
-                break
-        if skip:
+    # Search known dirs + 1 level deep, NOT full rglob
+    search_dirs = [project_root] + [project_root / d for d in _MANIFEST_DIRS]
+    chart_files: list[Path] = []
+    for sd in search_dirs:
+        if not sd.is_dir():
             continue
+        candidate = sd / "Chart.yaml"
+        if candidate.is_file():
+            chart_files.append(candidate)
+        # One level deep (sub-charts, service charts)
+        try:
+            for entry in sd.iterdir():
+                if entry.is_dir() and entry.name not in _SKIP_DIRS:
+                    sub_chart = entry / "Chart.yaml"
+                    if sub_chart.is_file():
+                        chart_files.append(sub_chart)
+        except PermissionError:
+            pass
 
+    for chart_file in chart_files:
         chart_dir = chart_file.parent
         rel_path = str(chart_dir.relative_to(project_root))
 

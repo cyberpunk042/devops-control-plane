@@ -254,32 +254,43 @@ def _detect_coverage_tool(
 
 
 def _count_tests(project_root: Path, frameworks: list[dict]) -> dict:
-    """Count test files, functions, and classes."""
+    """Count test files, functions, and classes.
+
+    Uses a single os.walk pass (with directory pruning) instead of
+    multiple rglob calls.  This avoids traversing node_modules, .venv,
+    .git, etc. five separate times.
+    """
+    import os
+
     test_files = 0
     test_functions = 0
     test_classes = 0
     source_files = 0
     test_file_paths: list[str] = []
 
-    # Count source files (for ratio)
-    for ext in (".py", ".js", ".ts", ".go", ".rs"):
-        for f in project_root.rglob(f"*{ext}"):
-            skip = False
-            for part in f.relative_to(project_root).parts:
-                if part in _SKIP_DIRS:
-                    skip = True
-                    break
-            if skip:
+    _source_exts = frozenset({".py", ".js", ".ts", ".go", ".rs"})
+
+    for dirpath, dirnames, filenames in os.walk(project_root):
+        # Prune skip directories IN-PLACE — os.walk won't descend
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _SKIP_DIRS and not d.startswith(".")
+        ]
+
+        for fname in filenames:
+            fpath = Path(dirpath) / fname
+            ext = fpath.suffix
+            if ext not in _source_exts:
                 continue
 
-            rel = str(f.relative_to(project_root))
+            rel = str(fpath.relative_to(project_root))
 
             # Determine if this is a test file
             is_test = False
             for fw in frameworks:
                 marker = _FRAMEWORK_MARKERS.get(fw["name"], {})
                 pattern = marker.get("test_pattern")
-                if pattern and pattern.match(f.name):
+                if pattern and pattern.match(fname):
                     is_test = True
                     break
 
@@ -290,7 +301,7 @@ def _count_tests(project_root: Path, frameworks: list[dict]) -> dict:
 
                 # Count test functions/methods
                 try:
-                    content = f.read_text(encoding="utf-8", errors="ignore")
+                    content = fpath.read_text(encoding="utf-8", errors="ignore")
                     for fw in frameworks:
                         marker = _FRAMEWORK_MARKERS.get(fw["name"], {})
                         func_pattern = marker.get("function_pattern")

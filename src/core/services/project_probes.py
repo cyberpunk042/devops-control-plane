@@ -12,6 +12,7 @@ Used by:
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -23,14 +24,7 @@ logger = logging.getLogger(__name__)
 
 def has_cmd(cmd: str) -> bool:
     """Check if a command is available on PATH."""
-    try:
-        result = subprocess.run(
-            ["which", cmd],
-            capture_output=True, timeout=3,
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
+    return shutil.which(cmd) is not None
 
 
 def count_glob(root: Path, pattern: str) -> int:
@@ -76,34 +70,34 @@ def probe_git(root: Path) -> dict:
     git_version = ""
     commit_count = 0
     try:
-        # Git version
+        # Git version — local binary, instant
         rv = subprocess.run(
             ["git", "--version"],
-            capture_output=True, timeout=3,
+            capture_output=True, timeout=0.5,
         )
         if rv.returncode == 0:
             ver_line = rv.stdout.decode().strip()
             git_version = ver_line.replace("git version ", "").strip()
 
-        # Remote URL
+        # Remote URL — reads local .git/config, instant
         r = subprocess.run(
             ["git", "remote", "get-url", "origin"],
-            cwd=str(root), capture_output=True, timeout=5,
+            cwd=str(root), capture_output=True, timeout=0.5,
         )
         has_remote = r.returncode == 0
         remote_url = r.stdout.decode().strip() if has_remote else ""
 
-        # Current branch
+        # Current branch — reads local .git/HEAD, instant
         r2 = subprocess.run(
             ["git", "branch", "--show-current"],
-            cwd=str(root), capture_output=True, timeout=5,
+            cwd=str(root), capture_output=True, timeout=0.5,
         )
         branch = r2.stdout.decode().strip() if r2.returncode == 0 else ""
 
-        # Commit count
+        # Commit count — local rev walk
         rc = subprocess.run(
             ["git", "rev-list", "--count", "HEAD"],
-            cwd=str(root), capture_output=True, timeout=5,
+            cwd=str(root), capture_output=True, timeout=0.5,
         )
         if rc.returncode == 0:
             commit_count = int(rc.stdout.decode().strip())
@@ -144,15 +138,17 @@ def probe_github(root: Path) -> dict:
     authenticated = False
     repo = ""
     try:
+        # gh auth status — checks local auth cache, may hit API
         r = subprocess.run(
             ["gh", "auth", "status"],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=2,
         )
         authenticated = r.returncode == 0
 
+        # gh repo view — may hit GitHub API
         r2 = subprocess.run(
             ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-            cwd=str(root), capture_output=True, timeout=5,
+            cwd=str(root), capture_output=True, timeout=2,
         )
         repo = r2.stdout.decode().strip() if r2.returncode == 0 else ""
     except Exception:
@@ -241,7 +237,12 @@ def probe_cicd(root: Path) -> dict:
 
 
 def probe_k8s(root: Path) -> dict:
-    """Check Kubernetes setup."""
+    """Check Kubernetes setup.
+
+    Pure file + PATH detection — NO remote cluster contact.
+    cluster_connected is always False here; the full k8s_status()
+    in k8s/detect.py handles live cluster checks on demand.
+    """
     _has_kubectl = has_cmd("kubectl")
     _has_helm = has_cmd("helm")
 
@@ -261,18 +262,8 @@ def probe_k8s(root: Path) -> dict:
     )
     has_skaffold = (root / "skaffold.yaml").is_file()
 
-    cluster_connected = False
-    if _has_kubectl:
-        try:
-            r = subprocess.run(
-                ["kubectl", "cluster-info", "--request-timeout=3s"],
-                capture_output=True, timeout=5,
-            )
-            cluster_connected = r.returncode == 0
-        except Exception:
-            pass
-
-    if manifest_count > 0 and cluster_connected:
+    # No remote cluster contact in probe — that belongs in k8s_status()
+    if manifest_count > 0 and _has_kubectl:
         status = "ready"
     elif manifest_count > 0 or _has_kubectl:
         status = "partial"
@@ -287,14 +278,17 @@ def probe_k8s(root: Path) -> dict:
         "has_chart": has_chart,
         "has_kustomize": has_kustomize,
         "has_skaffold": has_skaffold,
-        "cluster_connected": cluster_connected,
+        "cluster_connected": False,
     }
 
 
 def probe_terraform(root: Path) -> dict:
     """Check Terraform setup."""
     _has_cli = has_cmd("terraform")
-    tf_files = count_glob(root, "*.tf") + count_glob(root, "**/*.tf")
+    # Only check known tf directories, not full tree walk via **/*.tf
+    tf_files = count_glob(root, "*.tf")
+    for d in ("terraform", "infra"):
+        tf_files += count_glob(root / d, "*.tf")
     has_state = (root / "terraform.tfstate").is_file() or (root / ".terraform").is_dir()
     initialized = (root / ".terraform").is_dir()
 

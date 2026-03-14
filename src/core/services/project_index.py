@@ -202,11 +202,29 @@ def _build_index_from_mediator(m) -> ProjectIndex:  # type: ignore[no-untyped-de
     idx.file_count = len(scan_data)
     idx.ready = True
 
-    # SPEC-7.9: Bridge does NOT fetch index.symbols — deadlock risk.
-    # SPEC-7.10: Bridge does NOT fetch index.peek — deadlock risk.
-    # Callers needing symbols/peek should use mediator directly:
-    #   m.get("index.symbols") or m.get("index.peek")
-    # The peek.py module already does this via mediator-direct helpers.
+    # Symbols: peek (never blocks, never triggers computation)
+    try:
+        sym_result = m.peek("index.symbols")
+        if sym_result is not None:
+            sym_data = sym_result.get("data")
+            if sym_data:
+                idx.symbol_map = sym_data
+                idx.symbols_ready = True
+                idx.symbol_count = sum(len(v) for v in sym_data.values())
+    except Exception:
+        pass
+
+    # Peek cache: peek (never blocks, never triggers computation)
+    try:
+        peek_result = m.peek("index.peek")
+        if peek_result is not None:
+            peek_data = peek_result.get("data")
+            if peek_data:
+                idx.peek_cache = peek_data
+                idx.peek_cached = True
+                idx.peek_page_count = len(peek_data)
+    except Exception:
+        pass
 
     return idx
 

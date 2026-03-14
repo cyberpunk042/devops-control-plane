@@ -825,40 +825,5 @@ def load_activity(project_root: Path, n: int = 50) -> list[dict]:
         except (json.JSONDecodeError, IOError):
             entries = []
 
-    # ── Seed from cache if empty ────────────────────────────────
-    if not entries:
-        from .cache import _load_cache
-
-        cache = _load_cache(project_root)
-        if cache:
-            for card_key, entry in cache.items():
-                cached_at = entry.get("cached_at", 0)
-                elapsed = entry.get("elapsed_s", 0)
-                if not cached_at:
-                    continue
-                iso = datetime.datetime.fromtimestamp(
-                    cached_at, tz=datetime.UTC
-                ).isoformat()
-                entries.append({
-                    "ts": cached_at,
-                    "iso": iso,
-                    "card": card_key,
-                    "label": _card_label(card_key),
-                    "status": "ok",
-                    "duration_s": elapsed,
-                    "summary": "loaded from cache (historical)",
-                    "bust": False,
-                })
-            # Sort by timestamp
-            entries.sort(key=lambda e: e.get("ts", 0))
-            # Persist the seeded data
-            if entries:
-                try:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_text(
-                        json.dumps(entries, default=str), encoding="utf-8"
-                    )
-                except IOError:
-                    pass
 
     return entries[-n:]

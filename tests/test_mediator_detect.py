@@ -54,19 +54,20 @@ EXPECTED_DETECT_NODES = {
     "detect.testing",
     "detect.docs",
     "detect.dns",
+    "detect.wizard",
 }
 
 
 class TestDetectRegistration:
     """Test that detect nodes are registered correctly."""
 
-    def test_thirteen_detect_nodes_registered(
+    def test_fourteen_detect_nodes_registered(
         self, mediator_detect: QueryMediator
     ) -> None:
-        """All 13 detect nodes should be registered (plus 9 index nodes)."""
+        """All 14 detect nodes should be registered (plus 9 index nodes)."""
         paths = set(mediator_detect.tree.all_paths())
         detect_paths = {p for p in paths if p.startswith("detect.")}
-        assert len(detect_paths) == 13
+        assert len(detect_paths) == 14
         assert detect_paths == EXPECTED_DETECT_NODES
 
     def test_detect_branch_exists(
@@ -81,9 +82,9 @@ class TestDetectRegistration:
     def test_detect_branch_children(
         self, mediator_detect: QueryMediator
     ) -> None:
-        """detect branch should have 13 children."""
+        """detect branch should have 14 children."""
         children = mediator_detect.tree.children("detect")
-        assert len(children) == 13
+        assert len(children) == 14
 
     def test_all_have_resolvers(
         self, mediator_detect: QueryMediator
@@ -208,9 +209,9 @@ class TestCombinedTree:
     def test_combined_total_nodes(
         self, mediator_full: QueryMediator
     ) -> None:
-        """Combined tree should have 28 registered nodes (6 posture + 9 index + 13 detect)."""
+        """Combined tree should have 29 registered nodes (6 posture + 9 index + 14 detect)."""
         paths = mediator_full.tree.all_paths()
-        assert len(paths) == 28
+        assert len(paths) == 29
 
     def test_three_top_level_branches(
         self, mediator_full: QueryMediator
@@ -231,7 +232,7 @@ class TestCombinedTree:
     def test_detect_nodes_present(
         self, mediator_full: QueryMediator
     ) -> None:
-        """All 13 detect nodes should be present alongside posture."""
+        """All 14 detect nodes should be present alongside posture."""
         paths = set(mediator_full.tree.all_paths())
         assert EXPECTED_DETECT_NODES.issubset(paths)
 
@@ -245,9 +246,9 @@ class TestDetectDiag:
     def test_diag_summary_shows_twenty_eight(
         self, mediator_full: QueryMediator
     ) -> None:
-        """diag() should show 28 registered nodes (6 posture + 9 index + 13 detect)."""
+        """diag() should show 29 registered nodes (6 posture + 9 index + 14 detect)."""
         info = mediator_full.diag()
-        assert info["tree"]["registered"] == 28
+        assert info["tree"]["registered"] == 29
 
     def test_diag_detect_branch(
         self, mediator_full: QueryMediator
@@ -257,7 +258,7 @@ class TestDetectDiag:
         assert info["path"] == "detect"
         assert info["registered"] is False
         assert info["is_branch"] is True
-        assert len(info["children"]) == 13
+        assert len(info["children"]) == 14
 
     def test_diag_docker_detail(
         self, mediator_full: QueryMediator

@@ -28,19 +28,34 @@ def register_all(mediator: QueryMediator) -> None:
 
     Registration order matters: index first (root of tree),
     then detect, then devops (depends on detect), then posture,
-    then extra (gh-pulls, audit, project-status — depends on devops).
+    then github, audit, catalog (leaf domains, no cascading deps).
     """
     from .index import register_index
     from .posture import register_posture
     from .detect import register_detect
     from .devops import register_devops
-    from .extra import register_extra
+    from .github import register_github
+    from .audit import register_audit
+    from .catalog import register_catalog
 
     register_index(mediator)    # root of the tree — everything depends on this
-    register_detect(mediator)
-    register_devops(mediator)
-    register_posture(mediator)
-    register_extra(mediator)    # last — extra.project_status depends on devops.status
+    register_detect(mediator)   # detect.* depends on index.classify
+    register_devops(mediator)   # devops.* depends on detect.*
+    register_posture(mediator)  # posture.* depends on devops.*
+    register_github(mediator)   # github.* — leaf, no cascade deps
+    register_audit(mediator)    # audit.* — leaf, no cascade deps
+    register_catalog(mediator)  # catalog.* — leaf, no cascade deps
+
+    # ── Subscribers (after all domains) ────────────────────────
+    from src.core.services.mediator.subscribers.activity import (
+        register_activity_subscriber,
+    )
+    from src.core.services.mediator.subscribers.eventbus_bridge import (
+        register_eventbus_bridge,
+    )
+    register_activity_subscriber(mediator)
+    register_eventbus_bridge(mediator)
+
     logger.info(
         "mediator: registered %d nodes (%s)",
         len(mediator.tree.all_paths()),

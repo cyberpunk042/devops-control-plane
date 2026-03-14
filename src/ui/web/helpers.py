@@ -79,20 +79,28 @@ def get_stack_names() -> list[str]:
 
 
 def bust_tool_caches() -> None:
-    """Invalidate devops caches after tool install/update/remove.
+    """Invalidate mediator caches after tool install/update/remove.
 
     Called after any operation that changes tool availability so
     that the UI picks up the new state on next poll.
-    """
-    from src.core.services.devops import cache as devops_cache
 
+    Invalidating ``detect.*`` cascades to ``devops.*`` via ``depends_on``.
+    Catalog and wizard nodes are busted directly.
+    """
     try:
-        root = project_root()
-        devops_cache.invalidate_scope(root, "integrations")
-        devops_cache.invalidate_scope(root, "devops")
-        devops_cache.invalidate(root, "wiz:detect")
-        devops_cache.invalidate(root, "tools")
-        devops_cache.invalidate(root, "builders")
+        from src.core.services.mediator import get_mediator
+
+        m = get_mediator()
+        # Bust all detect nodes — cascade invalidates devops.*
+        for path in list(m.tree.all_paths()):
+            if path.startswith("detect."):
+                m.put(path, cascade=True)
+        # Bust catalog + detect.wizard nodes
+        for bust_path in ("catalog.tools", "catalog.builders", "detect.wizard"):
+            try:
+                m.bust(bust_path)
+            except KeyError:
+                pass  # node may not exist yet
     except Exception as exc:
         logger.warning("Failed to bust tool caches: %s", exc)
 

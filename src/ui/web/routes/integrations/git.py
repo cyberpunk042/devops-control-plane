@@ -5,7 +5,6 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import git_ops
-from src.core.services.devops.cache import get_cached
 from src.core.services.run_tracker import run_tracked
 from src.ui.web.helpers import requires_git_auth, project_root as _project_root
 
@@ -15,13 +14,12 @@ from . import integrations_bp
 @integrations_bp.route("/git/status")
 def git_status():  # type: ignore[no-untyped-def]
     """Git repository status: branch, dirty files, ahead/behind tracking."""
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
-    return jsonify(get_cached(
-        root, "git",
-        lambda: git_ops.git_status(root),
-        force=force,
-    ))
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("devops.git", force=force)
+    return jsonify(result["data"])
 
 
 @integrations_bp.route("/git/log")

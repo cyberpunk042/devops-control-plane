@@ -34,9 +34,9 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 
-from flask import Blueprint, Response, current_app, jsonify, request
+
+from flask import Blueprint, Response, jsonify, request
 
 from src.core.services.pages.engine import (
     # Segment CRUD
@@ -60,7 +60,7 @@ from src.core.services.pages.engine import (
     # CI
     generate_ci_workflow,
     # Builder / feature listing
-    list_builders_detail,
+
     list_feature_categories,
     # File resolution
     resolve_file_to_segments,
@@ -93,29 +93,12 @@ pages_api_bp = Blueprint("pages_api", __name__)
 @pages_api_bp.route("/pages/segments")
 def list_segments():  # type: ignore[no-untyped-def]
     """List all configured segments."""
-    from src.core.services.devops.cache import get_cached
-
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
 
-    def _compute() -> dict:
-        segments = _get_segments(root)
-        return {
-            "segments": [
-                {
-                    "name": s.name,
-                    "source": s.source,
-                    "builder": s.builder,
-                    "path": s.path,
-                    "auto": s.auto,
-                    "config": s.config,
-                    "build_status": get_build_status(root, s.name),
-                }
-                for s in segments
-            ]
-        }
-
-    return jsonify(get_cached(root, "pages", _compute, force=force))
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("catalog.pages", force=force)
+    return jsonify(result["data"])
 
 
 @pages_api_bp.route("/pages/segments", methods=["POST"])
@@ -184,15 +167,12 @@ def set_meta():  # type: ignore[no-untyped-def]
 @pages_api_bp.route("/pages/builders")
 def list_builders_route():  # type: ignore[no-untyped-def]
     """List available page builders with pipeline stage info."""
-    from src.core.services.devops.cache import get_cached
-
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
 
-    def _compute() -> dict:
-        return {"builders": list_builders_detail()}
-
-    return jsonify(get_cached(root, "builders", _compute, force=force))
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("catalog.builders", force=force)
+    return jsonify(result["data"])
 
 
 @pages_api_bp.route("/pages/resolve-file")

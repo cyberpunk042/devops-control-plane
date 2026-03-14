@@ -232,7 +232,7 @@ def _detect_tools() -> list[dict]:
             try:
                 r = subprocess.run(
                     [sys.executable, "-m", "pip", "--version"],
-                    capture_output=True, timeout=5,
+                    capture_output=True, timeout=0.5,
                 )
                 if r.returncode == 0:
                     path = f"{sys.executable} -m pip"
@@ -268,14 +268,10 @@ def _detect_modules(project_root: Path) -> list[dict]:
             # Count source files
             file_count = 0
             if mod_path.is_dir():
-                for f in mod_path.rglob("*"):
-                    if f.is_file() and not any(
-                        p in f.parts for p in (
-                            "__pycache__", "node_modules", ".git",
-                            ".venv", "venv", "dist", "build",
-                        )
-                    ):
-                        file_count += 1
+                _skip = {"__pycache__", "node_modules", ".git", ".venv", "venv", "dist", "build"}
+                for dirpath, dirnames, filenames in os.walk(mod_path):
+                    dirnames[:] = [d for d in dirnames if d not in _skip and not d.startswith(".")]
+                    file_count += len(filenames)
 
             modules.append({
                 "name": m.name,

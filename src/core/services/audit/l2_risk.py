@@ -21,49 +21,52 @@ from src.core.services.audit.models import wrap_result
 logger = logging.getLogger(__name__)
 
 
-# ── Cache-first data access ────────────────────────────────────
-# All _findings functions use cache-first via get_cached():
-# they both READ and POPULATE the devops cache.  This means:
-#   - If the devops tab already loaded a card → instant (0ms)
-#   - If l2_risks ran before → instant (0ms)
-#   - First cold call → slow but caches for next time
-#
-# Cache keys used:
-#   security           → scan_secrets data      (saves ~7s)
-#   risks:pkg-audit    → package_audit data     (saves ~5s)
-#   risks:pkg-outdated → package_outdated data  (saves ~5s)
-#   docs               → docs_status data       (saves ~1s)
-#   env                → env_status data        (saves ~0.1s)
-#   testing            → testing_status data    (saves ~0.5s)
-# Total: ~32s → ~0s when caches are warm.
+# Known mappings from legacy cache keys to mediator paths.
+_KEY_TO_MEDIATOR: dict[str, str] = {
+    "security": "devops.security",
+    "docs": "devops.docs",
+    "testing": "devops.testing",
+    "env": "devops.env",
+    "packages": "devops.packages",
+}
+
 
 def _cached_or_compute(project_root: Path, key: str) -> dict | None:
     """Read cached card data if available, else return None.
 
     Read-only: does NOT compute — it only reads.
-    Used for keys like 'docs' / 'env' where the compute function
-    is fast enough to call inline as fallback.
     """
-    try:
-        from src.core.services.devops.cache import _load_cache
-        cache = _load_cache(project_root)
-        entry = cache.get(key)
-        if entry and "data" in entry:
-            return entry["data"]
-    except Exception:
-        pass
+    mediator_path = _KEY_TO_MEDIATOR.get(key)
+    if mediator_path:
+        try:
+            from src.core.services.mediator import get_mediator
+            m = get_mediator()
+            result = m.peek(mediator_path)
+            if result is not None:
+                return result.get("data")
+        except Exception:
+            pass
     return None
 
 
 def _cached_get(project_root: Path, key: str, compute_fn) -> dict:
-    """Read-through cache: return cached data or compute + cache.
+    """Read-through: return mediator-cached data or compute directly.
 
-    Uses the devops cache system (get_cached) so results persist
-    across requests AND benefit other consumers of the same data
-    (e.g. the devops Security tab reads the 'security' key too).
+    For known devops keys, uses the mediator (non-blocking get).
+    For L2-specific keys (risks:*), computes directly since
+    they're only used within the l2_risks resolver.
     """
-    from src.core.services.devops.cache import get_cached
-    return get_cached(project_root, key, compute_fn)
+    mediator_path = _KEY_TO_MEDIATOR.get(key)
+    if mediator_path:
+        try:
+            from src.core.services.mediator import get_mediator
+            m = get_mediator()
+            result = m.get(mediator_path)
+            return result["data"]
+        except Exception:
+            pass
+    # No mediator path or mediator failed — compute directly
+    return compute_fn()
 
 
 # ═══════════════════════════════════════════════════════════════════

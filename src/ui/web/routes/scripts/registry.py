@@ -39,17 +39,12 @@ def scripts_list():
         ?source=template      — filter by source (template/root/override)
         ?bust                 — force cache refresh
     """
-    from src.core.services.scripts.registry import get_scripts_summary
-    from src.core.services.devops import cache as devops_cache
+    from src.core.services.mediator import get_mediator
 
-    root = _project_root()
     bust = "bust" in request.args
-
-    data = devops_cache.get_cached(
-        root, "scripts",
-        lambda: get_scripts_summary(root),
-        force=bust,
-    )
+    m = get_mediator()
+    result = m.get("catalog.scripts", force=bust)
+    data = result["data"]
 
     # Apply client-side filters (on the already-cached summary)
     scripts = data.get("scripts", [])

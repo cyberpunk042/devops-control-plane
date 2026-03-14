@@ -13,15 +13,12 @@ from . import ci_bp
 @ci_bp.route("/ci/status")
 def ci_status():  # type: ignore[no-untyped-def]
     """CI/CD availability: detected providers, workflow count."""
-    from src.core.services.devops.cache import get_cached
-
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
-    return jsonify(get_cached(
-        root, "ci",
-        lambda: ci_ops.ci_status(root),
-        force=force,
-    ))
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("devops.ci", force=force)
+    return jsonify(result["data"])
 
 
 @ci_bp.route("/ci/workflows")

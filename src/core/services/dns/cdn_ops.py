@@ -103,6 +103,8 @@ def dns_cdn_status(project_root: Path) -> dict:
             "has_dns": bool,
         }
     """
+    import os
+
     cdn_providers: list[dict] = []
     domains: set[str] = set()
     dns_files: list[str] = []
@@ -128,29 +130,31 @@ def dns_cdn_status(project_root: Path) -> dict:
         except OSError:
             pass
 
-    # DNS zone files
-    for pattern in ("*.zone", "*.dns", "db.*"):
-        for f in project_root.rglob(pattern):
-            skip = False
-            for part in f.relative_to(project_root).parts:
-                if part in _SKIP_DIRS:
-                    skip = True
-                    break
-            if not skip:
-                dns_files.append(str(f.relative_to(project_root)))
+    # Single os.walk pass for DNS zone files + SSL certificates
+    # (replaces 7 separate rglob calls)
+    _dns_exts = frozenset({".zone", ".dns"})
+    _ssl_exts = frozenset({".pem", ".crt", ".cert", ".key"})
 
-    # SSL certificate files
-    for ext in ("*.pem", "*.crt", "*.cert", "*.key"):
-        for f in project_root.rglob(ext):
-            skip = False
-            for part in f.relative_to(project_root).parts:
-                if part in _SKIP_DIRS:
-                    skip = True
-                    break
-            if not skip:
-                cert_type = "private_key" if f.suffix == ".key" else "certificate"
+    for dirpath, dirnames, filenames in os.walk(project_root):
+        # Prune skip directories IN-PLACE
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _SKIP_DIRS and not d.startswith(".")
+        ]
+
+        for fname in filenames:
+            fpath = Path(dirpath) / fname
+            ext = fpath.suffix
+            rel = str(fpath.relative_to(project_root))
+
+            # DNS zone files: *.zone, *.dns, db.*
+            if ext in _dns_exts or fname.startswith("db."):
+                dns_files.append(rel)
+            # SSL certificate files: *.pem, *.crt, *.cert, *.key
+            elif ext in _ssl_exts:
+                cert_type = "private_key" if ext == ".key" else "certificate"
                 ssl_certs.append({
-                    "path": str(f.relative_to(project_root)),
+                    "path": rel,
                     "type": cert_type,
                 })
 
@@ -191,24 +195,23 @@ def _detect_cdn_provider(
             except OSError:
                 pass
 
-    # Terraform resources
+    # Terraform resources — check common tf directories only, not full rglob
     tf_resource = spec.get("tf_resource")
     if tf_resource:
-        for tf_file in project_root.rglob("*.tf"):
-            skip = False
-            for part in tf_file.relative_to(project_root).parts:
-                if part in _SKIP_DIRS:
-                    skip = True
-                    break
-            if skip:
+        _tf_dirs = [project_root, project_root / "terraform", project_root / "infra"]
+        for tf_dir in _tf_dirs:
+            if not tf_dir.is_dir():
                 continue
-            try:
-                content = tf_file.read_text(encoding="utf-8", errors="ignore")
-                if tf_resource in content:
-                    detected_by.append(f"{tf_resource} in {tf_file.relative_to(project_root)}")
-                    break
-            except OSError:
-                pass
+            for tf_file in tf_dir.glob("*.tf"):
+                try:
+                    content = tf_file.read_text(encoding="utf-8", errors="ignore")
+                    if tf_resource in content:
+                        detected_by.append(f"{tf_resource} in {tf_file.relative_to(project_root)}")
+                        break
+                except OSError:
+                    pass
+            if any(tf_resource in d for d in detected_by):
+                break
 
     if not detected_by:
         return None

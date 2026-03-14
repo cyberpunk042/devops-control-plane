@@ -184,23 +184,6 @@ def create_app(
     _registry = get_registry()
     app.config["DATA_REGISTRY"] = _registry
 
-    # Keys safe to pre-inject into HTML (~10 KB total).
-    # Audit L2 keys (audit:l2:*) are excluded — too large (200+ KB).
-    _INJECT_KEYS = frozenset({
-        # DevOps tab (9 cards)
-        "security", "testing", "quality", "packages", "env", "docs",
-        "k8s", "terraform", "dns",
-        # Integrations tab
-        "git", "github", "ci", "docker",
-        "gh-pulls", "gh-runs", "gh-workflows",
-        # Dashboard
-        "project-status",
-        # Audit L0/L1 (small summaries)
-        "audit:system", "audit:deps", "audit:structure",
-        "audit:clients", "audit:scores",
-        # Wizard detect
-        "wiz:detect",
-    })
 
     # ── Pre-compute stacks catalog (static — never changes at runtime) ──
     from src.core.config.stack_loader import discover_stacks
@@ -235,35 +218,9 @@ def create_app(
     except Exception:
         _stacks_js = []
 
-    # ── Devops disk cache reader (instant — reads ONE file) ─────────
-    # This is the mtime-cached reader for .state/devops_cache.json.
-    # It provides the fallback data source for keys that are NOT
-    # mediator nodes (gh-pulls, audit:*, project-status, wiz:detect).
-    from src.core.services.devops.cache import _cache_path
-
-    _devops_cache_file = _cache_path(Path(project_root))
-    _devops_cache_data: dict = {}
-    _devops_cache_mtime: float = 0.0
-
-    def _get_devops_cache() -> dict:
-        nonlocal _devops_cache_data, _devops_cache_mtime
-        try:
-            stat = _devops_cache_file.stat()
-            if stat.st_mtime != _devops_cache_mtime:
-                import json as _json
-                _devops_cache_data = _json.loads(
-                    _devops_cache_file.read_text(encoding="utf-8")
-                )
-                _devops_cache_mtime = stat.st_mtime
-        except (OSError, ValueError):
-            pass
-        return _devops_cache_data
-
-    # Pre-warm on startup
-    _get_devops_cache()
 
     # ── Map of inject keys → mediator paths ─────────────────────────
-    # 13 devops.* nodes + 10 extra.* nodes = all 23 _INJECT_KEYS
+    # All 23 inject keys map to mediator paths across 7 domains.
     _KEY_TO_MEDIATOR: dict[str, str] = {
         # devops domain (13 keys)
         "docker": "devops.docker",
@@ -279,24 +236,29 @@ def create_app(
         "testing": "devops.testing",
         "docs": "devops.docs",
         "dns": "devops.dns",
-        # extra domain (10 keys)
-        "gh-pulls": "extra.gh_pulls",
-        "gh-runs": "extra.gh_runs",
-        "gh-workflows": "extra.gh_workflows",
-        "project-status": "extra.project_status",
-        "wiz:detect": "extra.wiz_detect",
-        "audit:scores": "extra.audit_scores",
-        "audit:system": "extra.audit_system",
-        "audit:deps": "extra.audit_deps",
-        "audit:structure": "extra.audit_structure",
-        "audit:clients": "extra.audit_clients",
+        # github domain (3 keys)
+        "gh-pulls": "github.pulls",
+        "gh-runs": "github.runs",
+        "gh-workflows": "github.workflows",
+        # detect domain (1 key)
+        "wiz:detect": "detect.wizard",
+        # devops.status (was extra.project_status — redundant passthrough)
+        "project-status": "devops.status",
+        # audit domain (5 keys)
+        "audit:scores": "audit.scores",
+        "audit:system": "audit.system",
+        "audit:deps": "audit.deps",
+        "audit:structure": "audit.structure",
+        "audit:clients": "audit.clients",
     }
 
     @app.context_processor
     def _inject_data_catalogs():  # type: ignore[no-untyped-def]
         initial: dict[str, dict] = {}
 
-        # Strategy 1: peek at mediator for devops.* keys (NEVER blocks)
+        # Peek at mediator for all inject keys (NEVER blocks).
+        # Mediator is hydrated from disk shards on startup (persist=True),
+        # so data is available immediately after server init.
         try:
             from src.core.services.mediator import get_mediator
             m = get_mediator()
@@ -310,19 +272,7 @@ def create_app(
                 except Exception:
                     pass
         except (RuntimeError, Exception):
-            pass  # Mediator not initialized — fall through to disk cache
-
-        # Strategy 2: fill remaining keys from devops cache file (instant)
-        try:
-            cache = _get_devops_cache()
-            for key in _INJECT_KEYS:
-                if key in initial:
-                    continue  # Already got from mediator peek
-                entry = cache.get(key)
-                if entry and "data" in entry:
-                    initial[key] = {"data": entry["data"]}
-        except Exception:
-            pass  # Degrade gracefully
+            pass  # Mediator not initialized — degrade gracefully
 
         # Merge static catalogs with pre-computed stacks
         dcp = _registry.to_js_dict()
@@ -333,22 +283,16 @@ def create_app(
             "initial_state": initial,
         }
 
-    # Start staleness watcher (background mtime polling → state:stale events)
-    from src.core.services.staleness_watcher import start_watcher
-    start_watcher(app.config["PROJECT_ROOT"])
+
 
     # Start index watcher (FS polling → mediator cascade)
     # When peek/index is enabled, the FS watcher drives the mediator tree.
+    # The legacy project_index bridge (get_index()) uses mediator.peek()
+    # so consumers get mediator-backed data without a separate background thread.
     from src.core.services.server_settings import is_peek_index_enabled
     if is_peek_index_enabled(app.config["PROJECT_ROOT"]):
         from src.core.services.mediator.index_watcher import start_index_watcher
         start_index_watcher(app.config["PROJECT_ROOT"], mediator_inst)
-
-        # Legacy project index — safety net until persistence is validated.
-        # Builds _index (the legacy singleton) which the bridge falls back
-        # to if mediator index nodes aren't computed yet.
-        from src.core.services.project_index import start_project_index
-        start_project_index(app.config["PROJECT_ROOT"])
     else:
         logger.info("Project index disabled by server settings")
 

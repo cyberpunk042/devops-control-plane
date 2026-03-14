@@ -56,12 +56,16 @@ def _run_terraform(
 
 def _terraform_available() -> dict:
     """Check if terraform CLI is available."""
+    import shutil
+    if shutil.which("terraform") is None:
+        return {"available": False, "version": None}
+
     try:
         result = subprocess.run(
             ["terraform", "version", "-json"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=0.5,
         )
         if result.returncode == 0:
             data = json.loads(result.stdout)
@@ -78,7 +82,7 @@ def _terraform_available() -> dict:
             ["terraform", "version"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=0.5,
         )
         if result.returncode == 0:
             version = result.stdout.strip().split("\n")[0]
@@ -97,16 +101,7 @@ def _find_tf_root(project_root: Path) -> Path | None:
         if any(candidate.glob("*.tf")):
             return candidate
 
-    # Fallback: search for any .tf file
-    for tf_file in project_root.rglob("*.tf"):
-        skip = False
-        for part in tf_file.relative_to(project_root).parts:
-            if part in _SKIP_DIRS:
-                skip = True
-                break
-        if not skip:
-            return tf_file.parent
-
+    # NO rglob fallback — tf files live in known dirs
     return None
 
 
@@ -157,14 +152,10 @@ def terraform_status(project_root: Path) -> dict:
     resources: list[dict] = []
     backend: dict | None = None
 
-    for tf_file in sorted(tf_root.rglob("*.tf")):
-        skip = False
-        for part in tf_file.relative_to(project_root).parts:
-            if part in _SKIP_DIRS:
-                skip = True
-                break
-        if skip:
-            continue
+    # tf_root is already a specific directory (terraform/, infra/, etc.)
+    # Just glob it directly — no need for rglob since tf files
+    # should be at the root of the tf directory, not deeply nested
+    for tf_file in sorted(tf_root.glob("*.tf")):
 
         rel_path = str(tf_file.relative_to(project_root))
         file_type = _classify_tf_file(tf_file.name)

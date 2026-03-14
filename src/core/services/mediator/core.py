@@ -23,10 +23,12 @@ Implemented phases
 
 Not yet implemented
 ───────────────────
-- No mtime checking
+- explain()
 """
 
 from __future__ import annotations
+
+import os
 
 import fnmatch
 import logging
@@ -60,6 +62,71 @@ class CacheEntry:
     seq: int                 # monotonic sequence number
     source: str              # "computed" | "cache" | "disk"
     elapsed_s: float = 0.0  # how long the computation took
+
+
+# ── mtime staleness check ──────────────────────────────────────────
+
+# Directories to skip during mtime walks (mirrors devops/cache.py)
+_MTIME_WALK_SKIP = frozenset({
+    ".git", ".backup", "node_modules", "__pycache__", ".venv", "venv",
+    "build", "dist", ".tox", ".mypy_cache", ".ruff_cache",
+    ".pytest_cache", ".next", ".nuxt", "site-packages", "_build",
+})
+_MTIME_WALK_MAX_DEPTH = 3
+
+
+def _check_mtime(
+    project_root: Path,
+    mtime_paths: list[str],
+    computed_at: float,
+) -> bool:
+    """Check if any watched path has been modified since computed_at.
+
+    Returns True if the cached value is stale (a path was modified
+    after the value was computed).  Returns False if everything is
+    still fresh or if the paths don't exist.
+
+    For directory entries (paths ending with ``/``), walks up to
+    3 levels deep checking file mtimes — matching the same logic
+    as ``devops/cache.py:_max_mtime``.
+    """
+    for rel in mtime_paths:
+        p = project_root / rel
+        try:
+            if rel.endswith("/") and p.is_dir():
+                mt = _walk_max_mtime(p)
+            else:
+                mt = os.stat(p).st_mtime
+            if mt > computed_at:
+                return True  # stale
+        except (FileNotFoundError, OSError):
+            pass
+    return False  # still fresh
+
+
+def _walk_max_mtime(directory: Path) -> float:
+    """Walk a directory (depth-limited) and return the max file mtime."""
+    max_mt = 0.0
+    base = str(directory)
+    for root, dirs, files in os.walk(directory):
+        depth = root[len(base):].count(os.sep)
+        if depth >= _MTIME_WALK_MAX_DEPTH:
+            dirs.clear()
+            continue
+        dirs[:] = [
+            d for d in dirs
+            if d not in _MTIME_WALK_SKIP and not d.startswith(".")
+        ]
+        for fname in files:
+            if fname.startswith("."):
+                continue
+            try:
+                mt = os.stat(os.path.join(root, fname)).st_mtime
+                if mt > max_mt:
+                    max_mt = mt
+            except (FileNotFoundError, OSError):
+                pass
+    return max_mt
 
 
 # ── Subscription entry ─────────────────────────────────────────────
@@ -249,6 +316,20 @@ class QueryMediator:
                     if age >= effective_max:
                         fresh = False
 
+                # mtime_paths check — catches file changes the
+                # FS watcher may miss (e.g. .git/HEAD)
+                if fresh and node.mtime_paths:
+                    if _check_mtime(
+                        self._project_root,
+                        node.mtime_paths,
+                        entry.computed_at,
+                    ):
+                        fresh = False
+                        if explain:
+                            explanation.append(
+                                "mtime_paths changed since last compute"
+                            )
+
                 if fresh:
                     if explain:
                         explanation.append(
@@ -323,6 +404,14 @@ class QueryMediator:
                     if effective_max is not None and effective_max != math.inf:
                         if age >= effective_max:
                             fresh = False
+                    # mtime_paths check (same as above)
+                    if fresh and node.mtime_paths:
+                        if _check_mtime(
+                            self._project_root,
+                            node.mtime_paths,
+                            entry.computed_at,
+                        ):
+                            fresh = False
                     if fresh:
                         if explain:
                             explanation.append(
@@ -358,16 +447,27 @@ class QueryMediator:
             self._set_cached(path, entry)
             node.last_change_seq = seq
 
-            # Persist to disk — survives restarts
-            try:
-                from src.core.services.mediator.persistence import persist_node
-                persist_node(self._project_root, path, result)
-            except Exception:
-                pass  # persistence must never break computation
+            # Persist to disk — survives restarts.
+            # Only save nodes that declared persist=True.
+            if node.persist:
+                try:
+                    from src.core.services.mediator.persistence import persist_node
+                    persist_node(self._project_root, path, result)
+                except Exception:
+                    pass  # persistence must never break computation
 
             # Publish compute event so SSE clients see activity
             self._publish_change(
                 path, seq, [path], [],
+            )
+            # Notify in-process subscribers with compute metadata
+            self._notify_subscribers(
+                "computed", path, seq, [path],
+                compute_meta={
+                    "data": result,
+                    "elapsed_s": elapsed,
+                    "computed_at": entry.computed_at,
+                },
             )
 
             return self._make_result(
@@ -871,17 +971,30 @@ class QueryMediator:
         trigger: str,
         seq: int,
         paths: list[str],
+        *,
+        compute_meta: dict[str, Any] | None = None,
     ) -> None:
-        """Call all matching subscribers.  Errors logged and swallowed."""
+        """Call all matching subscribers.  Errors logged and swallowed.
+
+        Parameters
+        ----------
+        compute_meta : dict | None
+            Extra metadata included only for ``"computed"`` events.
+            Contains ``data``, ``elapsed_s``, ``computed_at``.
+            Subscribers that need compute details (e.g. activity
+            logging) use this; others can ignore it.
+        """
         if not self._subscriptions:
             return
 
-        event = {
+        event: dict[str, Any] = {
             "type": event_type,
             "trigger": trigger,
             "seq": seq,
             "paths": paths,
         }
+        if compute_meta is not None:
+            event["compute_meta"] = compute_meta
 
         for sub in list(self._subscriptions.values()):
             # Check if any affected path matches this subscriber's pattern
@@ -1054,6 +1167,42 @@ class QueryMediator:
 
         return {"busted": busted, "count": len(busted)}
 
+    def bust_path(
+        self,
+        path: str,
+        *,
+        cascade: bool = True,
+        cascade_depth: int = -1,
+        notify: bool = True,
+    ) -> dict[str, Any]:
+        """Invalidate a specific path and optionally cascade.
+
+        Convenience wrapper around ``put(path, data=None)``.
+        Unlike ``bust()`` which is age-based across all nodes,
+        this targets a specific path and removes its cache entry
+        plus all transitive dependents.
+
+        Parameters
+        ----------
+        path : str
+            Dot-separated path to invalidate.
+        cascade : bool
+            Whether to cascade-invalidate all dependents.
+        cascade_depth : int
+            Maximum cascade depth.  -1 = infinite.
+        notify : bool
+            Whether to publish change events.
+
+        Returns
+        -------
+        dict
+            ``{"invalidated": [...], "seq": N}``
+        """
+        return self.put(
+            path, data=None, cascade=cascade,
+            cascade_depth=cascade_depth, notify=notify,
+        )
+
     def dispatch(self, *paths: str) -> dict[str, Any]:
         """Submit paths for background recompute.  Returns immediately.
 
@@ -1120,19 +1269,37 @@ class QueryMediator:
     ) -> None:
         """Background worker for dispatch().  Runs in the executor.
 
-        Skips nodes that are already cached (e.g. hydrated from disk).
-        Only force-recomputes nodes with no cached data.
+        Skips nodes whose cached data is still FRESH (age < TTL).
+        Recomputes nodes that are stale or have no cached data.
+
+        This is the delta principle applied to dispatch: only do
+        work for data that actually needs refreshing.
         """
         for p in paths:
             try:
-                # If already cached (e.g. from disk hydration), skip
                 entry = self._get_cached(p)
                 if entry is not None:
-                    logger.debug(
-                        "dispatch %s: %s already cached, skipping",
-                        task_id, p,
-                    )
-                    continue
+                    # Check if the cached data is still fresh
+                    node = self._tree.resolve(p)
+                    if node is not None and node.ttl is not None:
+                        age = time.time() - entry.computed_at
+                        if node.ttl == math.inf or age < node.ttl:
+                            logger.debug(
+                                "dispatch %s: %s still fresh "
+                                "(age=%.1fs, ttl=%s), skipping",
+                                task_id, p, age, node.ttl,
+                            )
+                            continue
+                    elif node is not None and node.ttl is None:
+                        # No TTL = event-driven invalidation.
+                        # If it has cached data, it's valid until
+                        # explicitly invalidated via put/bust.
+                        logger.debug(
+                            "dispatch %s: %s cached (no TTL, "
+                            "event-driven), skipping",
+                            task_id, p,
+                        )
+                        continue
                 self.get(p, force=True)
             except Exception:
                 logger.exception(

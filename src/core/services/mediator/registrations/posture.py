@@ -79,6 +79,7 @@ def register_posture(mediator: QueryMediator) -> None:
         resolver=lambda: _bridge_project(mediator.project_root),
         ttl=60,              # 1 minute (underlying is mtime-cached)
         persist=True,
+        depends_on=["devops.*"],
     ))
 
     tree.register(TreeRegistration(

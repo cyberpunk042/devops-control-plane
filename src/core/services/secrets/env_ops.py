@@ -42,7 +42,7 @@ def list_environments(project_root: Path) -> dict:
             cwd=str(project_root),
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=3,
         )
         if api_result.returncode == 0:
             names = [
@@ -85,7 +85,7 @@ def create_environment(project_root: Path, env_name: str) -> dict:
             cwd=str(project_root),
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=3,
         )
         if result.returncode == 0:
             logger.info("Created GitHub environment: %s", env_name)
@@ -133,7 +133,7 @@ def cleanup_environment(
                     cwd=str(project_root),
                     capture_output=True,
                     text=True,
-                    timeout=15,
+                    timeout=3,
                 )
                 results["github"] = {
                     "success": result.returncode == 0,

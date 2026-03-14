@@ -66,9 +66,9 @@ class TestDevopsRegistration:
     def test_devops_nodes_registered(
         self, mediator_devops_only: QueryMediator
     ) -> None:
-        """9 index + 13 detect + 14 devops = 36 total."""
+        """9 index + 14 detect + 14 devops = 37 total."""
         paths = set(mediator_devops_only.tree.all_paths())
-        assert len(paths) == 36
+        assert len(paths) == 37
         assert EXPECTED_DEVOPS_NODES.issubset(paths)
 
     def test_devops_branch_exists(
@@ -115,15 +115,15 @@ class TestDevopsTTLs:
 
 
 class TestDevopsPersist:
-    """All devops nodes should NOT be persisted (delegated to get_cached)."""
+    """All devops nodes should be persisted (mediator handles persistence directly)."""
 
-    def test_all_not_persisted(
+    def test_all_persisted(
         self, mediator_devops_only: QueryMediator
     ) -> None:
         for path in EXPECTED_DEVOPS_NODES:
             node = mediator_devops_only.tree.resolve(path)
             assert node is not None
-            assert node.persist is False, f"{path} should not be persisted"
+            assert node.persist is True, f"{path} should be persisted"
 
 
 # ── Dependency tests ────────────────────────────────────────────────
@@ -243,9 +243,9 @@ class TestCombinedTree:
     def test_total_nodes(
         self, mediator_full: QueryMediator
     ) -> None:
-        """Combined tree should have 42 registered nodes (6 posture + 9 index + 13 detect + 14 devops)."""
+        """Combined tree should have 43 registered nodes (6 posture + 9 index + 14 detect + 14 devops)."""
         paths = mediator_full.tree.all_paths()
-        assert len(paths) == 42
+        assert len(paths) == 43
 
     def test_four_top_level_branches(
         self, mediator_full: QueryMediator
@@ -280,9 +280,9 @@ class TestDevopsDiag:
     def test_diag_summary_shows_total(
         self, mediator_full: QueryMediator
     ) -> None:
-        """diag() should show 42 registered nodes."""
+        """diag() should show 43 registered nodes."""
         info = mediator_full.diag()
-        assert info["tree"]["registered"] == 42
+        assert info["tree"]["registered"] == 43
 
     def test_diag_devops_branch(
         self, mediator_full: QueryMediator
@@ -303,18 +303,18 @@ class TestDevopsDiag:
         assert info["registered"] is True
         assert info["has_resolver"] is True
         assert info["ttl"] is None
-        assert info["persist"] is False
+        assert info["persist"] is True
         assert info["cached"] is False
         assert "detect.docker" in info["depends_on"]
 
     def test_diag_persistent_count(
         self, mediator_full: QueryMediator
     ) -> None:
-        """Persistent count should be 16 (posture + detect only).
+        """Persistent count should be 31 (posture + detect + devops).
 
         posture: platform, toolchain, project, full, summary = 5
-        detect: all except git and env = 11
-        devops: all False = 0
+        detect: all except git and env = 12 (13 probes + wizard - git - env)
+        devops: all 14 persisted (13 cards + status) = 14
         """
         info = mediator_full.diag()
-        assert info["tree"]["persistent"] == 16
+        assert info["tree"]["persistent"] == 31

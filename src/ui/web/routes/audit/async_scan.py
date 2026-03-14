@@ -27,7 +27,7 @@ from typing import Any
 
 from flask import jsonify, request
 
-from src.core.services.devops import cache as devops_cache
+
 from src.core.services.event_bus import bus
 from src.ui.web.helpers import project_root as _project_root
 
@@ -147,12 +147,24 @@ def _run_scan(task: ScanTask, root: Path, force: bool) -> None:
                 cumulative += weight
                 continue
 
-            # Run through the cache system (force=True to get fresh data)
+            # Try mediator first (force=True recomputes and caches)
+            _PHASE_TO_MEDIATOR = {
+                "audit:l2:structure": "audit.l2_structure",
+                "audit:l2:quality": "audit.l2_quality",
+                "audit:l2:repo": "audit.l2_repo",
+                "audit:l2:risks": "audit.l2_risks",
+                "audit:scores": "audit.scores",
+                "audit:scores:enriched": "audit.scores_enriched",
+            }
+            mediator_path = _PHASE_TO_MEDIATOR.get(cache_key)
+
             t0 = time.time()
             try:
-                result = devops_cache.get_cached(
-                    root, cache_key, compute_fn, force=force,
-                )
+                from src.core.services.mediator import get_mediator
+                m = get_mediator()
+                mr = m.get(mediator_path, force=force)
+                result = mr.get("data")
+
                 results[phase_name] = result
                 elapsed = round((time.time() - t0) * 1000)
                 task.phase_detail = f"done in {elapsed}ms"

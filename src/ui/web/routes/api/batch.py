@@ -185,37 +185,10 @@ def _ensure_registry() -> None:
         return check_system_health().to_dict()
 
     def _resolve_tools() -> dict:
-        from src.core.services.devops.cache import get_cached
-        from src.core.services.tool_install.path_refresh import (
-            refresh_server_path as _refresh_server_path,
-        )
-
-        root = _root()
-
-        def _compute() -> dict:
-            _refresh_server_path()
-            from src.core.services.audit.l0_detection import detect_tools
-            from src.core.services.tool_install import TOOL_RECIPES
-
-            tools = detect_tools()
-            for t in tools:
-                tid = t["id"]
-                recipe = TOOL_RECIPES.get(tid)
-                t["has_recipe"] = recipe is not None
-                t["needs_sudo"] = (
-                    any(recipe["needs_sudo"].values()) if recipe else False
-                )
-            available = sum(1 for t in tools if t["available"])
-            missing = [t for t in tools if not t["available"]]
-            return {
-                "tools": tools,
-                "total": len(tools),
-                "available": available,
-                "missing_count": len(missing),
-                "missing": missing,
-            }
-
-        return get_cached(root, "tools", _compute)
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        result = m.get("catalog.tools")
+        return result["data"]
 
     # ── boot-deferred ──────────────────────────────────────
 
@@ -231,13 +204,10 @@ def _ensure_registry() -> None:
         return check_auth(_root())
 
     def _resolve_gh_status() -> dict:
-        from src.core.services import git_ops
-        from src.core.services.devops.cache import get_cached
-        root = _root()
-        return get_cached(
-            root, "github",
-            lambda: git_ops.gh_status(root),
-        )
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        result = m.get("devops.github")
+        return result["data"]
 
     def _resolve_notifications_badge() -> dict:
         from src.core.services.error_log import get_unacked_count

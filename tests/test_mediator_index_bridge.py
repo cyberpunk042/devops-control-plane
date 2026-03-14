@@ -39,10 +39,24 @@ def project(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def mediator(project: Path) -> QueryMediator:
-    """Create a mediator with index nodes registered."""
+    """Create a mediator with index nodes registered and computed.
+
+    Mirrors the real startup: register nodes, then compute them
+    (as the watcher does on first cycle).  This warms the cache
+    so peek() returns data in bridge tests.
+    """
     tree = DataTree()
     m = QueryMediator(tree, project)
     register_index(m)
+
+    # Simulate watcher first cycle: compute all index nodes in order
+    for path in [
+        "index.scan", "index.delta", "index.files", "index.dirs",
+        "index.paths", "index.classify", "index.symbols", "index.peek",
+        "index.stats",
+    ]:
+        m.get(path, force=True)
+
     return m
 
 

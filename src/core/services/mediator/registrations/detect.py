@@ -91,7 +91,10 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: docker_ops.docker_status(root),
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[
+            "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+            ".dockerignore",
+        ],
     ))
 
     tree.register(TreeRegistration(
@@ -99,7 +102,10 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: k8s_ops.k8s_status(root),
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[
+            "k8s/", "kubernetes/", "deploy/", "charts/",
+            "kustomization.yaml", "kustomization.yml",
+        ],
     ))
 
     tree.register(TreeRegistration(
@@ -107,7 +113,10 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: terraform_ops.terraform_status(root),
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[
+            "terraform/", "infra/",
+            "main.tf", "variables.tf", "outputs.tf",
+        ],
     ))
 
     tree.register(TreeRegistration(
@@ -115,7 +124,10 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: dns_cdn_ops.dns_cdn_status(root),
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[
+            "netlify.toml", "vercel.json", "wrangler.toml",
+            "CNAME", "cloudflare/",
+        ],
     ))
 
     # ── VCS detection ──────────────────────────────────────────────
@@ -124,7 +136,7 @@ def register_detect(mediator: QueryMediator) -> None:
         path="detect.git",
         resolver=lambda: git_ops.git_status(root),
         ttl=30,              # shorter — git status changes frequently
-        depends_on=["index.classify"],
+        mtime_paths=[".git/HEAD", ".git/index", ".gitignore"],
     ))
 
     tree.register(TreeRegistration(
@@ -132,7 +144,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: git_ops.gh_status(root),
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[".github/"],
     ))
 
     tree.register(TreeRegistration(
@@ -140,7 +152,10 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: ci_ops.ci_status(root),
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[
+            ".github/workflows/", ".gitlab-ci.yml",
+            "Jenkinsfile", ".circleci/",
+        ],
     ))
 
     # ── Code analysis detection ────────────────────────────────────
@@ -150,7 +165,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=_compute_security,
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[".gitignore", ".gitignore.global", "src/"],
     ))
 
     tree.register(TreeRegistration(
@@ -158,7 +173,11 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: package_ops.package_status_enriched(root),
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[
+            "requirements.txt", "requirements-dev.txt", "pyproject.toml",
+            "package.json", "package-lock.json",
+            "Cargo.toml", "go.mod", "Pipfile",
+        ],
     ))
 
     tree.register(TreeRegistration(
@@ -166,7 +185,12 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: quality_ops.quality_status(root),
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[
+            "pyproject.toml", ".ruff.toml", "ruff.toml",
+            "mypy.ini", ".mypy.ini",
+            ".eslintrc.json", ".eslintrc.js", ".prettierrc",
+            "biome.json", "setup.cfg",
+        ],
     ))
 
     tree.register(TreeRegistration(
@@ -174,7 +198,9 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: testing_ops.testing_status(root),
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[
+            "tests/", "pyproject.toml", "package.json", "setup.cfg",
+        ],
     ))
 
     tree.register(TreeRegistration(
@@ -182,7 +208,10 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: docs_ops.docs_status(root),
         ttl=120,
         persist=True,
-        depends_on=["index.classify"],
+        mtime_paths=[
+            "docs/", "README.md", "CHANGELOG.md", "LICENSE",
+            "CONTRIBUTING.md", "openapi.yaml", "openapi.json",
+        ],
     ))
 
     # ── Environment detection ──────────────────────────────────────
@@ -191,7 +220,29 @@ def register_detect(mediator: QueryMediator) -> None:
         path="detect.env",
         resolver=lambda: env_ops.env_card_status(root),
         ttl=60,              # shorter — env files change occasionally
-        depends_on=["index.classify"],
+        mtime_paths=[
+            ".env", ".env.active", ".env.vault",
+            "project.yml", "project.yaml",
+        ],
     ))
 
-    logger.debug("registered detect.* nodes (13 total)")
+    # ── Wizard detection ────────────────────────────────────────────
+
+    def _resolve_wiz_detect():
+        from src.core.services.wizard_ops import wizard_detect
+        return wizard_detect(root)
+
+    tree.register(TreeRegistration(
+        path="detect.wizard",
+        resolver=_resolve_wiz_detect,
+        ttl=120,
+        persist=True,
+        mtime_paths=[
+            "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+            ".github/workflows/", "k8s/", "kubernetes/",
+            "terraform/", "main.tf", "project.yml",
+            "pyproject.toml", "package.json",
+        ],
+    ))
+
+    logger.debug("registered detect.* nodes (14 total)")

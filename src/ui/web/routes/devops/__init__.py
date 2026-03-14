@@ -81,152 +81,82 @@ def integration_prefs_put():
 # ── Cache bust ──────────────────────────────────────────────────
 
 
-def _mediator_bust(card: str) -> None:
-    """Invalidate mediator nodes when devops cache is busted (best-effort).
+# Mediator paths for scoped busts.
+# "devops" scope: detect nodes whose devops.* counterparts are devops tab cards.
+_DEVOPS_SCOPE_DETECT = [
+    "detect.security", "detect.testing", "detect.quality", "detect.packages",
+    "detect.env", "detect.docs", "detect.k8s", "detect.terraform", "detect.dns",
+]
+# "integrations" scope: detect nodes for integration tab cards.
+_INTEGRATIONS_SCOPE_DETECT = [
+    "detect.git", "detect.github", "detect.ci", "detect.docker",
+    "detect.k8s", "detect.terraform",
+]
 
-    Invalidates ``detect.*`` nodes — the cascade engine automatically
-    propagates to ``devops.*`` nodes via ``depends_on``.
+
+def _mediator_bust_scope(scope: str) -> list[str]:
+    """Bust mediator nodes for a given scope. Returns list of busted paths.
+
+    Invalidating ``detect.*`` cascades to ``devops.*`` via ``depends_on``.
     """
-    try:
-        from src.core.services.mediator import get_mediator
+    from src.core.services.mediator import get_mediator
 
-        m = get_mediator()
-        if card in ("all", "devops", "integrations"):
-            # Invalidate all detect nodes — cascade handles devops.*
-            for path in list(m.tree.all_paths()):
-                if path.startswith("detect."):
-                    m.put(path, cascade=True)
-        else:
-            # Single card: invalidate the detect.* node (cascade → devops.*)
-            detect_path = f"detect.{card}"
-            node = m.tree.resolve(detect_path)
-            if node is not None:
-                m.put(detect_path, cascade=True)
-    except Exception:
-        pass  # mediator bust is best-effort, never break the bust flow
+    m = get_mediator()
+    busted: list[str] = []
+
+    if scope == "all":
+        # Bust ALL detect + audit + catalog nodes
+        for path in list(m.tree.all_paths()):
+            if path.startswith(("detect.", "audit.", "catalog.")):
+                result = m.put(path, cascade=True)
+                busted.append(path)
+    elif scope == "devops":
+        for path in _DEVOPS_SCOPE_DETECT:
+            m.put(path, cascade=True)
+            busted.append(path)
+    elif scope == "integrations":
+        for path in _INTEGRATIONS_SCOPE_DETECT:
+            m.put(path, cascade=True)
+            busted.append(path)
+    elif scope == "audit":
+        for path in list(m.tree.all_paths()):
+            if path.startswith("audit."):
+                m.put(path, cascade=True)
+                busted.append(path)
+    else:
+        # Single card: invalidate the detect.* node (cascade → devops.*)
+        detect_path = f"detect.{scope}"
+        node = m.tree.resolve(detect_path)
+        if node is not None:
+            m.put(detect_path, cascade=True)
+            busted.append(detect_path)
+
+    return busted
 
 
 @devops_bp.route("/devops/cache/bust", methods=["POST"])
 def devops_cache_bust():
-    """Bust server-side cache.
+    """Bust server-side cache via the mediator.
 
     Body: {"card": "security"}       — bust one card (with cascade)
     Body: {"card": "devops"}         — bust devops tab cards only
     Body: {"card": "integrations"}   — bust integration tab cards only
+    Body: {"card": "audit"}          — bust audit cards only
     Body: {} or {"card": "all"}      — bust all cards
 
-    On scoped/all bust, starts a background thread that recomputes
-    the affected cards sequentially (no I/O contention).  Browser GETs
-    that arrive during recompute block on the per-key lock and get
-    fresh results without duplicating work.
+    The mediator handles invalidation and cascade propagation.
+    Detect node invalidation cascades to devops.* via depends_on.
     """
     data = request.get_json(silent=True) or {}
     card = data.get("card", "all")
 
-    root = _project_root()
-    _ensure_registry()
+    try:
+        busted = _mediator_bust_scope(card)
+    except Exception:
+        busted = []  # mediator not ready — non-fatal
 
-    # Scoped busts: devops / integrations / audit / all
-    if card in ("all", "devops", "integrations", "audit"):
-        if card == "all":
-            devops_cache.invalidate_all(root)
-            devops_cache.recompute_all(root)
-        else:
-            busted = devops_cache.invalidate_scope(root, card)
-            scope_map = {
-                "devops": devops_cache.DEVOPS_KEYS,
-                "integrations": devops_cache.INTEGRATION_KEYS,
-                "audit": devops_cache.AUDIT_KEYS,
-            }
-            devops_cache.recompute_all(root, keys=scope_map[card])
+    return jsonify({"ok": True, "busted": card})
 
-        # Cascade mediator invalidation (best-effort)
-        _mediator_bust(card)
-
-        return jsonify({"ok": True, "busted": card})
-    else:
-        # Single card bust (with cascade)
-        busted = devops_cache.invalidate_with_cascade(root, card)
-
-        # Cascade mediator invalidation (best-effort)
-        _mediator_bust(card)
-
-        return jsonify({"ok": True, "busted": busted})
-
-
-# ── Compute function registry (lazy init) ───────────────────────
-# Populated on first bust-all.  Each entry maps a cache key to a
-# function(project_root) → dict.  Imports are deferred to avoid
-# circular import issues at module load time.
-
-_registry_done = False
-
-
-def _ensure_registry() -> None:
-    """Register all card compute functions (once)."""
-    global _registry_done
-    if _registry_done:
-        return
-    _registry_done = True
-
-    from src.core.services import (
-        dns_cdn_ops,
-        docker_ops,
-        docs_ops,
-        env_ops,
-        k8s_ops,
-        package_ops,
-        quality_ops,
-        security_ops as _sec_ops,
-        testing_ops,
-    )
-    from src.core.services import ci_ops
-    from src.core.services import git_ops
-
-    from src.core.services.terraform import ops as terraform_ops
-
-    def _compute_security(root: Path) -> dict:
-        scan = _sec_ops.scan_secrets(root)
-        posture = _sec_ops.security_posture(root)
-        return {
-            "findings": scan.get("findings", []),
-            "finding_count": scan.get("count", 0),
-            "posture": posture,
-        }
-
-    reg = devops_cache.register_compute
-    reg("packages", lambda root: package_ops.package_status_enriched(root))
-    reg("quality", lambda root: quality_ops.quality_status(root))
-    reg("git", lambda root: git_ops.git_status(root))
-    reg("ci", lambda root: ci_ops.ci_status(root))
-    reg("security", lambda root: _compute_security(root))
-    reg("docker", lambda root: docker_ops.docker_status(root))
-    reg("k8s", lambda root: k8s_ops.k8s_status(root))
-    reg("env", lambda root: env_ops.env_card_status(root))
-    reg("docs", lambda root: docs_ops.docs_status(root))
-    reg("terraform", lambda root: terraform_ops.terraform_status(root))
-    reg("dns", lambda root: dns_cdn_ops.dns_cdn_status(root))
-    reg("testing", lambda root: testing_ops.testing_status(root))
-    # Integration-only keys
-    reg("github", lambda root: git_ops.gh_status(root))
-
-    from src.core.services.scripts.registry import get_scripts_summary as _scripts_summary
-    reg("scripts", lambda root: _scripts_summary(root))
-
-    # Note: "pages" uses complex inlined compute (segments + build_status)
-    # so it's not registered here; it computes via the browser GET path.
-
-    # Audit L0/L1 keys
-    from src.core.services.audit import (
-        audit_scores as _audit_scores,
-        l0_system_profile, l1_dependencies,
-        l1_structure, l1_clients,
-    )
-    reg("audit:scores", lambda root: _audit_scores(root))
-    reg("audit:system", lambda root: l0_system_profile(root))
-    reg("audit:deps", lambda root: l1_dependencies(root))
-    reg("audit:structure", lambda root: l1_structure(root))
-    reg("audit:clients", lambda root: l1_clients(root))
 
 
 # ── Sub-module imports (register routes on devops_bp) ───────────

@@ -102,14 +102,26 @@ def scan_secrets(
 
 
 def _iter_files(root: Path, max_count: int) -> list[Path]:
-    """Iterate files under root, respecting max count."""
+    """Iterate files under root, respecting max count.
+
+    Uses os.walk with directory pruning instead of rglob to avoid
+    traversing .git, node_modules, .venv, etc.
+    """
+    import os
+
     result: list[Path] = []
     try:
-        for path in root.rglob("*"):
-            if path.is_file():
-                result.append(path)
+        for dirpath, dirnames, filenames in os.walk(root):
+            # Prune skip directories IN-PLACE
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in _SKIP_DIRS and not d.startswith(".")
+            ]
+            for fname in filenames:
+                fpath = Path(dirpath) / fname
+                result.append(fpath)
                 if len(result) >= max_count:
-                    break
+                    return result
     except PermissionError:
         pass
     return result
@@ -146,33 +158,31 @@ def detect_sensitive_files(project_root: Path) -> dict:
         except OSError:
             pass
 
+    # Collect all project files once (with pruning) for pattern matching
+    import os
+    all_files: list[tuple[Path, str]] = []  # (path, rel_path)
+    for dirpath, dirnames, filenames in os.walk(project_root):
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _SKIP_DIRS and not d.startswith(".")
+        ]
+        for fname in filenames:
+            fpath = Path(dirpath) / fname
+            rel = str(fpath.relative_to(project_root))
+            all_files.append((fpath, rel))
+
     for pattern, description in _sensitive_patterns():
-        if "*" in pattern:
-            matches = list(project_root.rglob(pattern))
-        else:
-            matches = list(project_root.rglob(pattern))
+        for match, rel in all_files:
+            if fnmatch.fnmatch(match.name, pattern) or fnmatch.fnmatch(rel, pattern):
+                # Simple gitignore check (not fully spec-compliant, but practical)
+                gitignored = _is_gitignored(rel, pattern, gitignore_content)
 
-        for match in matches:
-            rel = str(match.relative_to(project_root))
-
-            # Skip files in ignored directories
-            skip = False
-            for part in match.relative_to(project_root).parts:
-                if part in _SKIP_DIRS:
-                    skip = True
-                    break
-            if skip:
-                continue
-
-            # Simple gitignore check (not fully spec-compliant, but practical)
-            gitignored = _is_gitignored(rel, pattern, gitignore_content)
-
-            found.append({
-                "path": rel,
-                "pattern": pattern,
-                "description": description,
-                "gitignored": gitignored,
-            })
+                found.append({
+                    "path": rel,
+                    "pattern": pattern,
+                    "description": description,
+                    "gitignored": gitignored,
+                })
 
     return {
         "files": found,

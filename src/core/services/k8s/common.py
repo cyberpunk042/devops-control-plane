@@ -51,7 +51,7 @@ _MANIFEST_DIRS = ["k8s", "kubernetes", "deploy", "manifests", "kube", "charts"]
 
 def _run_kubectl(
     *args: str,
-    timeout: int = 15,
+    timeout: int = 2,
 ) -> subprocess.CompletedProcess[str]:
     """Run a kubectl command and return the result."""
     return subprocess.run(

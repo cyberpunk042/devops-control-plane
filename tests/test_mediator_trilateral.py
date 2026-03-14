@@ -1,13 +1,12 @@
 """Tests for Phase W2 — full cascade depth from index.scan through all domains.
 
 Proves the trilateral bridge: one put("index.scan") at the root cascades
-through index → detect → devops. This is the SPEC-6 proof.
+through index → detect → devops → posture. This is the SPEC-6 proof.
 
-NOTE on posture: posture.* nodes are NOT reachable from index.scan because
-posture pillars (platform, toolchain, project, runtime) are independent —
-they don't depend on detect or devops nodes. Connecting posture to the
-cascade is a separate milestone (would require posture.project to depend
-on devops.status or similar).
+Posture cascade: posture.project depends on devops.* (wired in Chunk 6).
+This means index.scan → detect.* → devops.* → posture.project → posture.full
+→ posture.summary. The only posture nodes NOT in the cascade are
+posture.platform, posture.toolchain, and posture.runtime (independent scanners).
 """
 
 from __future__ import annotations
@@ -103,29 +102,41 @@ class TestCascadeReachesDevops:
             )
 
 
-# ── SPEC-6.4: cascade does NOT reach posture (documented gap) ─────
+# ── SPEC-6.4: cascade reaches posture via devops.* ────────────────
 
 
-class TestCascadePostureGap:
-    """SPEC-6.4: posture.* is NOT currently reachable from index.scan.
+class TestCascadeReachesPosture:
+    """SPEC-6.4: posture.project depends on devops.*, so index.scan
+    cascades all the way to posture.project → posture.full → posture.summary.
 
-    This is a documented gap — posture pillars are independent.
-    This test documents the current state so we know when we fix it.
+    posture.platform, toolchain, runtime remain independent (not in cascade).
     """
 
-    def test_posture_not_in_cascade(
+    def test_posture_project_in_cascade(
         self, mediator_all: QueryMediator
     ) -> None:
-        """Posture nodes should NOT appear in index.scan cascade (yet)."""
+        """posture.project should be in index.scan cascade via devops.*."""
         m = mediator_all
-
         all_deps = m.tree.dependents("index.scan")
 
         posture_in_cascade = {d for d in all_deps if d.startswith("posture.")}
-        assert posture_in_cascade == set(), (
-            f"Posture nodes unexpectedly in cascade: {posture_in_cascade}. "
-            "If you've wired posture.project → devops.status, update this test!"
+        assert posture_in_cascade == {
+            "posture.project", "posture.full", "posture.summary",
+        }, (
+            f"Expected project/full/summary in cascade, got: {posture_in_cascade}"
         )
+
+    def test_independent_posture_pillars_not_in_cascade(
+        self, mediator_all: QueryMediator
+    ) -> None:
+        """platform, toolchain, runtime are independent — not in cascade."""
+        m = mediator_all
+        all_deps = set(m.tree.dependents("index.scan"))
+
+        for pillar in ["posture.platform", "posture.toolchain", "posture.runtime"]:
+            assert pillar not in all_deps, (
+                f"{pillar} should NOT be in index.scan cascade"
+            )
 
 
 # ── SPEC-6.5: full cascade depth ──────────────────────────────────
@@ -137,19 +148,20 @@ class TestFullCascadeDepth:
     def test_cascade_set_size(
         self, mediator_all: QueryMediator
     ) -> None:
-        """Cascade from index.scan should reach at least 35 nodes.
+        """Cascade from index.scan should reach at least 39 nodes.
 
-        8 index dependents + 13 detect + 14 devops = 35 minimum.
+        8 index dependents + 14 detect + 14 devops + 3 posture = 39 minimum.
         """
         m = mediator_all
 
         all_deps = m.tree.dependents("index.scan")
 
         # 8 index (delta, files, dirs, paths, classify, symbols, peek, stats)
-        # 13 detect
+        # 14 detect (13 probes + wizard)
         # 14 devops (13 cards + status)
-        assert len(all_deps) >= 35, (
-            f"Expected at least 35 nodes in cascade, got {len(all_deps)}: "
+        # 3 posture (project, full, summary — via devops.*)
+        assert len(all_deps) >= 39, (
+            f"Expected at least 39 nodes in cascade, got {len(all_deps)}: "
             f"{sorted(all_deps)}"
         )
 

@@ -324,9 +324,14 @@ def batch_dismiss_findings(
         if not r.get("ok"):
             errors.append(r)
 
-    # Bust caches once after all writes
-    devops_cache.invalidate(project_root, "audit:l2:risks")
-    devops_cache.invalidate(project_root, "security")
+    # Bust mediator nodes so UI picks up fresh data
+    try:
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        m.put("audit.l2_risks", cascade=True)
+        m.put("devops.security", cascade=True)
+    except Exception:
+        pass  # mediator not initialized — non-fatal
 
     # Audit: only log newly dismissed items (not already-dismissed)
     ok_items = [r for r in results if r.get("ok") and not r.get("already")]
@@ -364,8 +369,14 @@ def undismiss_finding_audited(
     result = undismiss_finding(project_root, file, line)
 
     if result.get("ok"):
-        devops_cache.invalidate(project_root, "audit:l2:risks")
-        devops_cache.invalidate(project_root, "security")
+        # Bust mediator nodes so UI picks up fresh data
+        try:
+            from src.core.services.mediator import get_mediator
+            m = get_mediator()
+            m.put("audit.l2_risks", cascade=True)
+            m.put("devops.security", cascade=True)
+        except Exception:
+            pass  # mediator not initialized — non-fatal
 
         if not result.get("already"):
             devops_cache.record_event(

@@ -44,20 +44,20 @@ class TestAllDomainsRegistered:
     def test_total_node_count(
         self, mediator_startup: QueryMediator
     ) -> None:
-        """Should have 52 registered nodes (9 index + 13 detect + 14 devops + 6 posture + 10 extra)."""
+        """Should have 61 registered nodes (9 index + 14 detect + 14 devops + 6 posture + 3 github + 11 audit + 4 catalog)."""
         paths = mediator_startup.tree.all_paths()
-        assert len(paths) == 52, (
-            f"Expected 52 nodes, got {len(paths)}: {sorted(paths)}"
+        assert len(paths) == 61, (
+            f"Expected 61 nodes, got {len(paths)}: {sorted(paths)}"
         )
 
-    def test_four_domains_present(
+    def test_seven_domains_present(
         self, mediator_startup: QueryMediator
     ) -> None:
-        """All five top-level branches should exist."""
+        """All seven top-level branches should exist."""
         top = mediator_startup.tree.children("")
         names = sorted(c.path for c in top)
-        assert names == ["detect", "devops", "extra", "index", "posture"], (
-            f"Expected 5 domains, got: {names}"
+        assert names == ["audit", "catalog", "detect", "devops", "github", "index", "posture"], (
+            f"Expected 7 domains, got: {names}"
         )
 
     def test_index_nodes_present(
@@ -76,9 +76,9 @@ class TestAllDomainsRegistered:
     def test_detect_nodes_present(
         self, mediator_startup: QueryMediator
     ) -> None:
-        """All 13 detect nodes registered."""
+        """All 14 detect nodes registered (13 probes + wizard)."""
         detect = {p for p in mediator_startup.tree.all_paths() if p.startswith("detect.")}
-        assert len(detect) == 13
+        assert len(detect) == 14
 
     def test_devops_nodes_present(
         self, mediator_startup: QueryMediator
@@ -94,12 +94,26 @@ class TestAllDomainsRegistered:
         posture = {p for p in mediator_startup.tree.all_paths() if p.startswith("posture.")}
         assert len(posture) == 6
 
-    def test_extra_nodes_present(
+    def test_github_nodes_present(
         self, mediator_startup: QueryMediator
     ) -> None:
-        """All 10 extra nodes registered."""
-        extra = {p for p in mediator_startup.tree.all_paths() if p.startswith("extra.")}
-        assert len(extra) == 10
+        """All 3 github nodes registered."""
+        github = {p for p in mediator_startup.tree.all_paths() if p.startswith("github.")}
+        assert len(github) == 3
+
+    def test_audit_nodes_present(
+        self, mediator_startup: QueryMediator
+    ) -> None:
+        """All 11 audit nodes registered."""
+        audit = {p for p in mediator_startup.tree.all_paths() if p.startswith("audit.")}
+        assert len(audit) == 11
+
+    def test_catalog_nodes_present(
+        self, mediator_startup: QueryMediator
+    ) -> None:
+        """All 4 catalog nodes registered."""
+        catalog = {p for p in mediator_startup.tree.all_paths() if p.startswith("catalog.")}
+        assert len(catalog) == 4
 
 
 # ── SPEC-9.2: Registration order is correct ───────────────────────
@@ -209,9 +223,9 @@ class TestDiagAfterStartup:
     def test_diag_summary(
         self, mediator_startup: QueryMediator
     ) -> None:
-        """diag() should show 52 registered nodes."""
+        """diag() should show 61 registered nodes."""
         info = mediator_startup.diag()
-        assert info["tree"]["registered"] == 52
+        assert info["tree"]["registered"] == 61
 
     def test_diag_node_detail(
         self, mediator_startup: QueryMediator

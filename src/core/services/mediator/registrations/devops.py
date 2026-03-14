@@ -1,17 +1,14 @@
 """
-DevOps domain registration — bridges devops cache cards into the mediator tree.
+DevOps domain registration — direct compute into the mediator tree.
 
-Registers 14 nodes (13 card nodes + 1 aggregate) that wrap ``get_cached()``
-from the devops cache module.  Each resolver goes THROUGH ``get_cached`` to
-preserve all its side effects:
+Registers 14 nodes (13 card nodes + 1 aggregate).  Each resolver calls
+the compute function DIRECTLY — no ``get_cached()`` wrapper.  The mediator
+is the sole data hub:
 
-    - mtime-based staleness checking
-    - per-key thread locking
-    - file persistence (.state/devops_cache.json)
-    - EventBus publishing (cache:hit, cache:miss, cache:done, cache:error)
-    - activity logging (.state/audit_activity.json)
-    - audit staging (.state/pending_audits.json)
-    - _cache metadata injection
+    - Staleness via cascade (detect.* → devops.*) + mtime_paths (on detect nodes)
+    - Persistence via mediator shards (persist=True)
+    - Activity logging via the activity subscriber
+    - EventBus events via the compat subscriber
 
 Each devops.* node depends on the corresponding detect.* node::
 
@@ -25,7 +22,6 @@ Phase 4 added **inter-devops dependencies** that mirror the devops cache's
     devops.github  ──depends_on──→  devops.git
     devops.docker  ──depends_on──→  devops.git
     devops.ci      ──depends_on──→  devops.git, devops.docker, devops.github
-    devops.pages   ──depends_on──→  devops.git
     devops.k8s     ──depends_on──→  devops.docker
     devops.dns     ──depends_on──→  devops.pages
 
@@ -33,7 +29,8 @@ Phase 4 also added ``devops.status`` — an aggregate node that depends on
 ALL devops.* card nodes via glob, replacing ``_AGGREGATE_KEYS``.
 
 TTL is ``None`` for all devops nodes because freshness is determined by
-``get_cached``'s own mtime logic, not the mediator's TTL system.
+cascade invalidation + mtime_paths on the upstream detect nodes, not
+the mediator's TTL system.
 """
 
 from __future__ import annotations
@@ -80,10 +77,9 @@ _INTER_DEVOPS_DEPS: dict[str, list[str]] = {
 def register_devops(mediator: QueryMediator) -> None:
     """Register devops.* nodes in the mediator tree.
 
-    Each node wraps ``get_cached()`` so all devops cache side effects
-    (activity logging, audit staging, EventBus, persistence) are preserved.
-    Nodes depend on the corresponding ``detect.*`` node for cascade, plus
-    inter-devops dependencies mirroring the devops cache ``_CASCADE`` dict.
+    Each node calls its compute function directly — the mediator provides
+    caching, persistence, and staleness detection.  No ``get_cached()``
+    wrapper is involved.
 
     Parameters
     ----------
@@ -94,7 +90,6 @@ def register_devops(mediator: QueryMediator) -> None:
     root = mediator.project_root
 
     # ── Deferred imports ──────────────────────────────────────────
-    from src.core.services.devops.cache import get_cached
     from src.core.services import (
         dns_cdn_ops,
         docker_ops,
@@ -122,28 +117,32 @@ def register_devops(mediator: QueryMediator) -> None:
 
     # ── Node definitions ──────────────────────────────────────────
     #
-    # Pattern: each resolver wraps get_cached to preserve all side effects.
-    # TTL=None → freshness delegated to get_cached's mtime logic.
-    # persist=False → devops cache handles its own persistence.
-    # depends_on → detect.* node + inter-devops deps from _INTER_DEVOPS_DEPS.
+    # Each resolver calls compute directly — mediator handles caching.
+    # TTL=None → staleness via cascade + mtime_paths on detect nodes.
+    # persist=True → mediator writes/reads JSON shards for cold start.
+    # depends_on → detect.* node + inter-devops deps.
+    #
+    # NOTE: detect.* nodes have the same resolvers but are NOT dispatched
+    # proactively — they exist for cascade invalidation and on-demand
+    # queries only.  Dispatch only sends devops.* to avoid duplication.
 
     _nodes = [
-        ("devops.docker",    "docker",    lambda: docker_ops.docker_status(root)),
-        ("devops.k8s",       "k8s",       lambda: k8s_ops.k8s_status(root)),
-        ("devops.git",       "git",       lambda: git_ops.git_status(root)),
-        ("devops.github",    "github",    lambda: git_ops.gh_status(root)),
-        ("devops.ci",        "ci",        lambda: ci_ops.ci_status(root)),
-        ("devops.terraform", "terraform", lambda: terraform_ops.terraform_status(root)),
-        ("devops.env",       "env",       lambda: env_ops.env_card_status(root)),
-        ("devops.security",  "security",  _compute_security),
-        ("devops.packages",  "packages",  lambda: package_ops.package_status_enriched(root)),
-        ("devops.quality",   "quality",   lambda: quality_ops.quality_status(root)),
-        ("devops.testing",   "testing",   lambda: testing_ops.testing_status(root)),
-        ("devops.docs",      "docs",      lambda: docs_ops.docs_status(root)),
-        ("devops.dns",       "dns",       lambda: dns_cdn_ops.dns_cdn_status(root)),
+        ("devops.docker",    lambda: docker_ops.docker_status(root)),
+        ("devops.k8s",       lambda: k8s_ops.k8s_status(root)),
+        ("devops.git",       lambda: git_ops.git_status(root)),
+        ("devops.github",    lambda: git_ops.gh_status(root)),
+        ("devops.ci",        lambda: ci_ops.ci_status(root)),
+        ("devops.terraform", lambda: terraform_ops.terraform_status(root)),
+        ("devops.env",       lambda: env_ops.env_card_status(root)),
+        ("devops.security",  _compute_security),
+        ("devops.packages",  lambda: package_ops.package_status_enriched(root)),
+        ("devops.quality",   lambda: quality_ops.quality_status(root)),
+        ("devops.testing",   lambda: testing_ops.testing_status(root)),
+        ("devops.docs",      lambda: docs_ops.docs_status(root)),
+        ("devops.dns",       lambda: dns_cdn_ops.dns_cdn_status(root)),
     ]
 
-    for mediator_path, cache_key, compute_fn in _nodes:
+    for mediator_path, compute_fn in _nodes:
         # Base dependency: the corresponding detect.* node
         detect_dep = mediator_path.replace("devops.", "detect.", 1)
         deps = [detect_dep]
@@ -151,18 +150,14 @@ def register_devops(mediator: QueryMediator) -> None:
         # Inter-devops dependencies (Phase 4)
         deps.extend(_INTER_DEVOPS_DEPS.get(mediator_path, []))
 
-        # Build a resolver that wraps get_cached.
-        # We use a default arg to capture the loop variables correctly.
-        def _make_resolver(ck, fn):
-            return lambda: get_cached(root, ck, fn)
-
         tree.register(TreeRegistration(
             path=mediator_path,
-            resolver=_make_resolver(cache_key, compute_fn),
+            resolver=compute_fn,
             ttl=None,
-            persist=False,
+            persist=True,
             depends_on=deps,
         ))
+
 
     # ── Aggregate node: devops.status (Phase 4) ───────────────────
     #
@@ -185,9 +180,9 @@ def register_devops(mediator: QueryMediator) -> None:
 
     tree.register(TreeRegistration(
         path="devops.status",
-        resolver=lambda: get_cached(root, "project-status", _compute_status),
+        resolver=_compute_status,
         ttl=None,
-        persist=False,
+        persist=True,
         depends_on=["devops.*"],
     ))
 

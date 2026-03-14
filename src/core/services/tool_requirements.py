@@ -32,36 +32,31 @@ def check_required_tools(tool_ids: list[str]) -> list[dict[str, Any]]:
 
         Empty list if all tools are available.
     """
-    from src.core.services.audit.l0_detection import detect_tools
+    import shutil
+    from src.core.services.audit.l0_detection import TOOL_REGISTRY
     from src.core.services.tool_install import TOOL_RECIPES
 
-    # Only detect the tools we care about (fast — reuses cached shutil.which)
-    all_tools = {t["id"]: t for t in detect_tools()}
+    # Build lookup from the registry (no detection, just metadata)
+    registry_by_id = {t["id"]: t for t in TOOL_REGISTRY}
 
     missing = []
     for tid in tool_ids:
+        spec = registry_by_id.get(tid)
+        cli_name = spec["cli"] if spec else tid
+
+        # Only check this specific tool — not all 35
+        if shutil.which(cli_name) is not None:
+            continue  # available, skip
+
         recipe = TOOL_RECIPES.get(tid)
-        t = all_tools.get(tid)
-        if t is None:
-            # Tool not in registry at all
-            missing.append({
-                "id": tid,
-                "label": tid,
-                "install_type": "none",
-                "has_recipe": recipe is not None,
-                "needs_sudo": (
-                    any(recipe["needs_sudo"].values()) if recipe else False
-                ),
-            })
-        elif not t["available"]:
-            missing.append({
-                "id": t["id"],
-                "label": t["label"],
-                "install_type": t["install_type"],
-                "has_recipe": recipe is not None,
-                "needs_sudo": (
-                    any(recipe["needs_sudo"].values()) if recipe else False
-                ),
-            })
+        missing.append({
+            "id": tid,
+            "label": spec["label"] if spec else tid,
+            "install_type": spec.get("install_type", "none") if spec else "none",
+            "has_recipe": recipe is not None,
+            "needs_sudo": (
+                any(recipe["needs_sudo"].values()) if recipe else False
+            ),
+        })
 
     return missing

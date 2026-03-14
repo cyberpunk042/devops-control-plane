@@ -5,7 +5,6 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import git_ops
-from src.core.services.devops.cache import get_cached
 from src.core.services.run_tracker import run_tracked
 from src.ui.web.helpers import project_root as _project_root
 from src.ui.web.routes.integrations.gh_helpers import requires_gh_auth
@@ -16,40 +15,36 @@ from . import integrations_bp
 @integrations_bp.route("/integrations/gh/status")
 def gh_status_extended():  # type: ignore[no-untyped-def]
     """Extended GitHub status — version, repo, auth details."""
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
-    return jsonify(get_cached(
-        root, "github",
-        lambda: git_ops.gh_status(root),
-        force=force,
-    ))
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("devops.github", force=force)
+    return jsonify(result["data"])
 
 
 @integrations_bp.route("/gh/pulls")
 @requires_gh_auth
 def gh_pulls():  # type: ignore[no-untyped-def]
     """List open pull requests."""
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
-    return jsonify(get_cached(
-        root, "gh-pulls",
-        lambda: git_ops.gh_pulls(root),
-        force=force,
-    ))
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("github.pulls", force=force)
+    return jsonify(result["data"])
 
 
 @integrations_bp.route("/gh/actions/runs")
 @requires_gh_auth
 def gh_actions_runs():  # type: ignore[no-untyped-def]
     """Recent workflow run history."""
-    root = _project_root()
-    n = request.args.get("n", 10, type=int)
     force = request.args.get("bust", "") == "1"
-    return jsonify(get_cached(
-        root, "gh-runs",
-        lambda: git_ops.gh_actions_runs(root, n=n),
-        force=force,
-    ))
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("github.runs", force=force)
+    return jsonify(result["data"])
 
 
 @integrations_bp.route("/gh/actions/dispatch", methods=["POST"])
@@ -74,13 +69,12 @@ def gh_actions_dispatch():  # type: ignore[no-untyped-def]
 @requires_gh_auth
 def gh_actions_workflows():  # type: ignore[no-untyped-def]
     """List available workflows."""
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
-    return jsonify(get_cached(
-        root, "gh-workflows",
-        lambda: git_ops.gh_actions_workflows(root),
-        force=force,
-    ))
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("github.workflows", force=force)
+    return jsonify(result["data"])
 
 
 @integrations_bp.route("/gh/user")

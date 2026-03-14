@@ -79,16 +79,24 @@ def docs_status(project_root: Path) -> dict:
         result["readme"] = {"exists": False}
 
     # Doc directories
+    import os
     doc_dirs: list[dict] = []
     for dir_name in _DOC_DIRS:
         dir_path = project_root / dir_name
         if dir_path.is_dir():
-            files = list(f for f in dir_path.rglob("*") if f.is_file())
-            doc_files = [f for f in files if f.suffix.lower() in _DOC_EXTENSIONS]
-            total_size = sum(f.stat().st_size for f in files)
+            all_files: list[Path] = []
+            for dirpath, dirnames, filenames in os.walk(dir_path):
+                dirnames[:] = [
+                    d for d in dirnames
+                    if d not in _SKIP_DIRS and not d.startswith(".")
+                ]
+                for fname in filenames:
+                    all_files.append(Path(dirpath) / fname)
+            doc_files = [f for f in all_files if f.suffix.lower() in _DOC_EXTENSIONS]
+            total_size = sum(f.stat().st_size for f in all_files)
             doc_dirs.append({
                 "name": dir_name,
-                "file_count": len(files),
+                "file_count": len(all_files),
                 "doc_count": len(doc_files),
                 "total_size": total_size,
             })
@@ -159,20 +167,19 @@ def _detect_api_specs(project_root: Path) -> list[dict]:
 
     for filename, spec_type, spec_format in _api_spec_files():
         if "*" in filename:
-            # Glob pattern
-            for match in project_root.rglob(filename):
-                rel = str(match.relative_to(project_root))
-                skip = False
-                for part in match.relative_to(project_root).parts:
-                    if part in _SKIP_DIRS:
-                        skip = True
-                        break
-                if not skip:
-                    found.append({
-                        "file": rel,
-                        "type": spec_type,
-                        "format": spec_format,
-                    })
+            # Check root + common API dirs only, not full rglob
+            for check_dir in (project_root, project_root / "api", project_root / "docs"):
+                if not check_dir.is_dir():
+                    continue
+                import fnmatch
+                for f in check_dir.iterdir():
+                    if f.is_file() and fnmatch.fnmatch(f.name, filename):
+                        rel = str(f.relative_to(project_root))
+                        found.append({
+                            "file": rel,
+                            "type": spec_type,
+                            "format": spec_format,
+                        })
         else:
             path = project_root / filename
             if path.is_file():
@@ -222,14 +229,14 @@ def docs_coverage(project_root: Path) -> dict:
             # Count doc files in module directory
             doc_count = 0
             if mod_path.is_dir():
-                for f in mod_path.rglob("*"):
-                    if f.is_file() and f.suffix.lower() in _DOC_EXTENSIONS:
-                        skip = False
-                        for part in f.relative_to(mod_path).parts:
-                            if part in _SKIP_DIRS:
-                                skip = True
-                                break
-                        if not skip:
+                import os
+                for dirpath, dirnames, filenames in os.walk(mod_path):
+                    dirnames[:] = [
+                        d for d in dirnames
+                        if d not in _SKIP_DIRS and not d.startswith(".")
+                    ]
+                    for fname in filenames:
+                        if Path(fname).suffix.lower() in _DOC_EXTENSIONS:
                             doc_count += 1
 
             modules.append({
@@ -379,16 +386,20 @@ def _heading_to_anchor(text: str) -> str:
 
 def _collect_md_files(project_root: Path) -> list[Path]:
     """Collect all markdown files, respecting skip dirs."""
+    import os
+
     files: list[Path] = []
-    for f in project_root.rglob("*.md"):
-        skip = False
-        for part in f.relative_to(project_root).parts:
-            if part in _SKIP_DIRS:
-                skip = True
-                break
-        if not skip:
-            files.append(f)
-    return files[:100]  # Cap at 100
+    for dirpath, dirnames, filenames in os.walk(project_root):
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _SKIP_DIRS and not d.startswith(".")
+        ]
+        for fname in filenames:
+            if fname.endswith(".md"):
+                files.append(Path(dirpath) / fname)
+                if len(files) >= 100:
+                    return files
+    return files
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -13,13 +13,11 @@ Endpoints:
 
 from __future__ import annotations
 
-from pathlib import Path
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, jsonify, request
 
 from src.core.services.dns import cdn_ops as dns_cdn_ops
 from src.core.services.run_tracker import run_tracked
-from src.ui.web.helpers import project_root as _project_root
 
 dns_bp = Blueprint("dns", __name__)
 
@@ -29,15 +27,12 @@ dns_bp = Blueprint("dns", __name__)
 @dns_bp.route("/dns/status")
 def dns_status():  # type: ignore[no-untyped-def]
     """DNS/CDN provider detection."""
-    from src.core.services.devops.cache import get_cached
-
-    root = _project_root()
     force = request.args.get("bust", "") == "1"
-    return jsonify(get_cached(
-        root, "dns",
-        lambda: dns_cdn_ops.dns_cdn_status(root),
-        force=force,
-    ))
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("devops.dns", force=force)
+    return jsonify(result["data"])
 
 
 @dns_bp.route("/dns/lookup/<domain>")

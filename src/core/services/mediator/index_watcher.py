@@ -40,6 +40,8 @@ import os
 import threading
 import time
 from pathlib import Path
+from src.core.services.mediator.core import _check_mtime
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -208,12 +210,26 @@ def _poll_loop(
 
             last_dir_mtimes = current_dir_mtimes
 
+            # Smart dispatch sentinel — set to None if no snapshot taken.
+            _prev_classify = None
+
             if changed_dirs:
                 logger.info(
                     "[IndexWatcher] %d dirs changed, refreshing tree",
                     len(changed_dirs),
                 )
                 _publish_change_event(changed_dirs)
+
+                # Snapshot classify output BEFORE invalidation.
+                # We'll compare after recomputation to decide
+                # whether downstream detect/devops nodes need dispatch.
+                _prev_classify = None
+                try:
+                    _pc = mediator.peek("index.classify")
+                    if _pc is not None:
+                        _prev_classify = _pc.get("data")
+                except Exception:
+                    pass
 
                 # Invalidate index.scan → cascade clears ALL downstream caches
                 mediator.put("index.scan")
@@ -327,10 +343,32 @@ def _poll_loop(
             # thread hogs the GIL.  The watcher thread is free.
             try:
                 all_paths = mediator.tree.all_paths()
-                bg_paths = [
-                    p for p in all_paths
-                    if p.startswith(("detect.", "devops.", "posture."))
-                ]
+                # Only dispatch devops.* and posture.* — NOT detect.*
+                # detect.* and devops.* call the SAME ops functions.
+                # Dispatching both doubles subprocess calls on cold start.
+                # detect.* exists for cascade invalidation, not proactive
+                # background computation.
+                #
+                # Priority ordering: fast nodes first so SSE clients see
+                # data quickly.  Heavy subprocess/rglob nodes later.
+                # Aggregate + posture LAST (they depend on card nodes).
+                _FAST_DEVOPS = frozenset({
+                    "devops.git", "devops.ci", "devops.packages",
+                    "devops.quality", "devops.github", "devops.env",
+                    "devops.docs",
+                })
+                _HEAVY_DEVOPS = frozenset({
+                    "devops.docker", "devops.k8s", "devops.dns",
+                    "devops.security", "devops.terraform", "devops.testing",
+                })
+                _LAST = frozenset({
+                    "devops.status",
+                })
+                fast = [p for p in all_paths if p in _FAST_DEVOPS]
+                heavy = [p for p in all_paths if p in _HEAVY_DEVOPS]
+                aggregate = [p for p in all_paths if p in _LAST]
+                posture = [p for p in all_paths if p.startswith("posture.")]
+                bg_paths = fast + heavy + aggregate + posture
 
                 if _warm:
                     # Warm start: slow index nodes already cached from disk.
@@ -340,7 +378,80 @@ def _poll_loop(
                     # Cold start: also dispatch slow index nodes
                     # (symbols is CPU-heavy). Essential nodes first.
                     slow_paths = list(_SLOW_INDEX)
-                    all_dispatch = bg_paths + slow_paths
+
+                    # ── Smart dispatch: filter by classify change ──
+                    # If classify output is identical to previous cycle,
+                    # only dispatch detect nodes whose mtime_paths show
+                    # file-level changes. Avoids recomputing all 33 nodes
+                    # when only one file was modified.
+                    _classify_changed = True  # default: dispatch all
+                    if changed_dirs and _prev_classify is not None:
+                        try:
+                            new_classify = mediator.peek("index.classify")
+                            if (
+                                new_classify is not None
+                                and _prev_classify is not None
+                                and new_classify.get("data") == _prev_classify
+                            ):
+                                _classify_changed = False
+                        except Exception:
+                            pass
+
+                    if _classify_changed:
+                        all_dispatch = bg_paths + slow_paths
+                    else:
+                        # Classify unchanged — only dispatch detect nodes
+                        # whose mtime_paths indicate file-level staleness.
+                        stale_detect: list[str] = []
+                        cycle_ts = time.time() - poll_interval
+                        for p in bg_paths:
+                            if not p.startswith("detect."):
+                                continue
+                            node = mediator.tree.resolve(p)
+                            if node is None:
+                                continue
+                            if not node.mtime_paths:
+                                # No mtime_paths → relies on cascade only.
+                                # Classify didn't change → skip.
+                                continue
+                            if _check_mtime(
+                                project_root, node.mtime_paths, cycle_ts,
+                            ):
+                                stale_detect.append(p)
+
+                        # For each stale detect node, include its
+                        # downstream devops and posture counterparts.
+                        stale_downstream: list[str] = []
+                        for d in stale_detect:
+                            dependents = mediator.tree.dependents(d)
+                            for dep in dependents:
+                                if dep.startswith(("devops.", "posture.")):
+                                    stale_downstream.append(dep)
+
+                        all_dispatch = (
+                            stale_detect
+                            + stale_downstream
+                            + slow_paths
+                        )
+                        # Deduplicate while preserving order
+                        seen: set[str] = set()
+                        deduped: list[str] = []
+                        for p in all_dispatch:
+                            if p not in seen:
+                                seen.add(p)
+                                deduped.append(p)
+                        all_dispatch = deduped
+
+                        if len(stale_detect) < len(bg_paths):
+                            logger.info(
+                                "[IndexWatcher] smart dispatch: classify "
+                                "unchanged, dispatching %d/%d detect nodes "
+                                "(mtime stale: %s)",
+                                len(stale_detect),
+                                sum(1 for p in bg_paths
+                                    if p.startswith("detect.")),
+                                ", ".join(stale_detect) or "(none)",
+                            )
 
                 if all_dispatch:
                     mediator.dispatch(*all_dispatch)

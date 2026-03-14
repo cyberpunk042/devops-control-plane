@@ -2,7 +2,10 @@
 
 > **Goal:** On server restart, the mediator hydrates ALL persistable data from disk.
 > No "reset from scratch." Only delta gets recomputed. The system was DESIGNED for this
-> (persist flags, shard system, hydration) — the implementation is incomplete.
+> (persist flags, shard system, hydration).
+>
+> **Status (2026-03-13):** Phases A, B, C ✅ complete. Phase D (per-node deserializer) future.
+> `core.py` now gates `persist_node()` on `node.persist` — devops nodes (persist=False) skip disk I/O.
 
 ---
 
