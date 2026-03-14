@@ -203,6 +203,9 @@ def _build_chains(entries: list[TimelineEntry]) -> list[dict[str, Any]]:
 
     result = []
     for c in sorted(chain_map.values(), key=lambda x: x["last_ts"], reverse=True):
+        # Only include chains with 2+ members — solo entries are not chains
+        if c["entry_count"] < 2:
+            continue
         result.append({
             **c,
             "sources": sorted(c["sources"]),

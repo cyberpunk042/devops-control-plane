@@ -103,16 +103,17 @@ def save_audit_snapshot(
     head_sha = current_head_sha(project_root)
     if head_sha:
         tag_name = f"{AUDIT_TAG_PREFIX}{snapshot_id}"
-        tag_message = json.dumps(
-            {
-                "snapshot_id": snapshot_id,
-                "card_key": snapshot_data.get("card_key"),
-                "status": snapshot_data.get("status"),
-                "iso": snapshot_data.get("iso"),
-                "summary": snapshot_data.get("summary"),
-            },
-            ensure_ascii=False,
-        )
+        tag_meta: dict[str, Any] = {
+            "snapshot_id": snapshot_id,
+            "card_key": snapshot_data.get("card_key"),
+            "status": snapshot_data.get("status"),
+            "iso": snapshot_data.get("iso"),
+            "summary": snapshot_data.get("summary"),
+        }
+        op_id = snapshot_data.get("operation_id")
+        if op_id:
+            tag_meta["operation_id"] = op_id
+        tag_message = json.dumps(tag_meta, ensure_ascii=False)
         create_run_tag(
             project_root,
             tag_name=tag_name,

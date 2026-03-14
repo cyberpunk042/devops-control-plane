@@ -155,6 +155,15 @@ def stage_audit(
         "data": data,
     }
 
+    # Include operation_id if a CLI operation is active (chain linking)
+    try:
+        from src.core.engine.operation_context import get_operation_id
+        op_id = get_operation_id()
+        if op_id:
+            snapshot["operation_id"] = op_id
+    except Exception:
+        pass
+
     with _file_lock:
         pending = _load_pending(project_root)
         pending[card_key] = snapshot

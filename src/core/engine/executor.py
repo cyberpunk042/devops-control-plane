@@ -193,6 +193,9 @@ def execute_plan(
     Returns:
         ExecutionReport with all receipts.
     """
+    from src.core.engine.operation_context import set_operation_id
+    set_operation_id(plan.operation_id)
+
     report = ExecutionReport(
         operation_id=plan.operation_id,
         automation=plan.automation,
@@ -223,6 +226,7 @@ def execute_plan(
             receipt.status,
         )
 
+    set_operation_id(None)
     return report
 
 

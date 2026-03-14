@@ -324,6 +324,17 @@ def _poll_loop(
             if not _warm:
                 _slow_index = _get_slow_index()
                 _all_index = _FAST_INDEX + _slow_index
+
+                # Set cycle operation context so scan_activity entries
+                # chain to this index cycle
+                import datetime as _dt
+                _cycle_id = f"cycle-{_dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+                try:
+                    from src.core.engine.operation_context import set_operation_id
+                    set_operation_id(_cycle_id)
+                except Exception:
+                    pass
+
                 _publish_progress("index:cycle:start", {
                     "phase": "index",
                     "total": len(_all_index),
@@ -620,6 +631,12 @@ def _poll_loop(
                     "total": len(_all_index),
                     "elapsed_ms": round(total_elapsed * 1000),
                 })
+                # Clear cycle operation context
+                try:
+                    from src.core.engine.operation_context import set_operation_id
+                    set_operation_id(None)
+                except Exception:
+                    pass
                 logger.info(
                     "[IndexWatcher] cycle done: fast %d/%d in %.0fms, "
                     "%d nodes dispatched to background",

@@ -705,26 +705,7 @@ function _tlNavRenderChains() {
     const chevron    = c.members && c.members.length ? (isExpanded ? '▾' : '▸') : '';
 
     const membersHtml = (isExpanded && c.members && c.members.length)
-      ? `<div class="tl-nav-chain-members">
-          ${c.members.map(m => {
-            const sIcon = { ok:'●', warning:'◑', attention:'⚠', failed:'✕' }[m.status] ?? '●';
-            const sCol  = { ok:'var(--success)', warning:'var(--warning)',
-                            attention:'var(--warning)', failed:'var(--error)' }[m.status] ?? 'var(--text-muted)';
-            const lIcon = m.locality === 'shared' ? '⇡' : '⬡';
-            const lCol  = m.locality === 'shared' ? 'var(--accent)' : 'var(--text-muted)';
-            const role  = m.chain_role ? `<span style="font-size:0.58rem;color:var(--text-muted)">${_tlEsc(m.chain_role)}</span>` : '';
-            return `<div class="tl-nav-member ${m.chain_id === _tlNavActiveChain ? 'active' : ''}"
-                         onclick="_tlNavSelectChain('${_tlEsc(c.chain_id)}')">
-              <span style="color:${sCol}">${sIcon}</span>
-              <span style="color:${lCol}">${lIcon}</span>
-              <span class="tl-source-badge tl-source-${_tlEsc((m.source||'').toLowerCase())}"
-                    style="font-size:0.55rem">${_tlEsc((m.source||'').toUpperCase())}</span>
-              ${role}
-              <span class="tl-nav-member-summary">${_tlEsc(m.summary)}</span>
-              <span class="tl-nav-member-time">${_tlFormatTime(m.ts)}</span>
-            </div>`;
-          }).join('')}
-        </div>`
+      ? `<div class="tl-nav-chain-members">${_tlRenderChainTree(c.members, c.chain_id)}</div>`
       : '';
 
     return `
@@ -732,14 +713,13 @@ function _tlNavRenderChains() {
      onmouseenter="_tlNavHoverChain('${_tlEsc(c.chain_id)}')"
      onmouseleave="_tlNavHoverChain(null)">
   <div class="tl-nav-chain-header" style="user-select:none">
-    <span style="font-size:0.6rem;color:var(--text-muted);width:10px">${chevron}</span>
-    <span onclick="_tlNavToggleChain('${_tlEsc(c.chain_id)}')" style="flex:1;display:flex;align-items:center;gap:4px;overflow:hidden">
+    <span style="font-size:0.6rem;color:var(--text-muted);width:10px;cursor:pointer"
+          onclick="event.stopPropagation();_tlNavToggleChain('${_tlEsc(c.chain_id)}')">${chevron}</span>
+    <span onclick="_tlNavSelectChainAndExpand('${_tlEsc(c.chain_id)}')" style="flex:1;display:flex;align-items:center;gap:4px;overflow:hidden;cursor:pointer">
       <span>📎</span>
       <span class="tl-nav-chain-label" title="${_tlEsc(c.chain_id)}">${_tlEsc(label)}</span>
     </span>
-    <span class="tl-nav-chain-count"
-          onclick="_tlNavSelectChain('${_tlEsc(c.chain_id)}')"
-          title="Filter to this chain">${c.entry_count}</span>
+    <span class="tl-nav-chain-count">${c.entry_count}</span>
   </div>
   <div style="padding:0 8px 2px 24px;font-size:0.6rem;color:var(--text-muted)">${_tlEsc(srcs)}</div>
   ${membersHtml}
@@ -751,6 +731,72 @@ function _tlNavToggleChain(chainId) {
   if (_tlNavExpanded.has(chainId)) _tlNavExpanded.delete(chainId);
   else _tlNavExpanded.add(chainId);
   _tlNavRender();
+}
+
+function _tlRenderChainTree(members, chainId) {
+  // Build tree from chain_parent_ref
+  // Roots: members with chain_role=origin or no chain_parent_ref
+  // Children: members whose chain_parent_ref matches another member's id or ref
+  const byRef = {};
+  for (const m of members) {
+    if (m.id) byRef[m.id] = m;
+    // Also index by the ref portion of the id (e.g., operation_id)
+    const refPart = m.id ? m.id.split(':').slice(1).join(':') : null;
+    if (refPart) byRef[refPart] = m;
+  }
+
+  const roots = members.filter(m =>
+    m.chain_role === 'origin' || !m.chain_parent_ref
+  );
+  // Non-roots that aren't claimed by any parent go to roots too
+  const childSet = new Set();
+  for (const m of members) {
+    if (m.chain_parent_ref && m.chain_role !== 'origin') childSet.add(m);
+  }
+
+  function childrenOf(parent) {
+    // Children reference the parent by chain_parent_ref matching parent's ref-like fields
+    return members.filter(m =>
+      m !== parent && m.chain_parent_ref && m.chain_role !== 'origin' &&
+      (m.chain_parent_ref === parent.id ||
+       m.chain_parent_ref === chainId ||
+       // Match if chain_parent_ref equals the ref portion of parent's id
+       (parent.id && m.chain_parent_ref === parent.id.split(':').slice(1).join(':')))
+    );
+  }
+
+  function renderNode(m, depth, isLast) {
+    const sIcon = { ok:'●', warning:'◑', attention:'⚠', failed:'✕' }[m.status] ?? '●';
+    const sCol  = { ok:'var(--success)', warning:'var(--warning)',
+                    attention:'var(--warning)', failed:'var(--error)' }[m.status] ?? 'var(--text-muted)';
+    const lIcon = m.locality === 'shared' ? '⇡' : '⬡';
+    const lCol  = m.locality === 'shared' ? 'var(--accent)' : 'var(--text-muted)';
+    const roleLabel = m.chain_role ? `[${m.chain_role.toUpperCase()}]` : '';
+    const connector = depth === 0 ? '' : (isLast ? '└─ ' : '├─ ');
+    const indent = depth * 16;
+
+    let html = `<div class="tl-nav-member" style="padding-left:${indent}px;cursor:pointer"
+                     onclick="_tlScrollToEntry('${_tlEsc(m.id)}')">
+      <span style="font-size:0.58rem;color:var(--text-muted);font-family:monospace">${connector}</span>
+      <span style="color:${sCol}">${sIcon}</span>
+      <span style="color:${lCol};font-size:0.58rem">${lIcon}</span>
+      <span class="tl-source-badge tl-source-${_tlEsc((m.source||'').toLowerCase())}"
+            style="font-size:0.52rem">${_tlEsc((m.source||'').toUpperCase())}</span>
+      <span class="tl-nav-member-summary">${_tlEsc(m.summary)}</span>
+      <span class="tl-nav-member-time">${_tlFormatTime(m.ts)}</span>
+      <span style="font-size:0.52rem;color:var(--text-muted)">${roleLabel}</span>
+    </div>`;
+
+    const children = childrenOf(m);
+    children.forEach((child, i) => {
+      html += renderNode(child, depth + 1, i === children.length - 1);
+    });
+    return html;
+  }
+
+  // If no clear roots found, just use the first member as root
+  const actualRoots = roots.length ? roots : [members[0]];
+  return actualRoots.map((r, i) => renderNode(r, 0, i === actualRoots.length - 1)).join('');
 }
 
 // Tracks which nodes are expanded in domains tree
@@ -1033,13 +1079,28 @@ function _tlNavHoverChain(chainId) {
 }
 
 function _tlNavSelectChain(chainId) {
-  _tlNavActiveChain    = chainId;
-  _tlState.chainFilter = chainId;
-  _tlState.dateFrom    = null;  // clear date filter — chain and date are separate views
+  // Toggle: if already filtering this chain, clear it
+  if (_tlState.chainFilter === chainId) {
+    _tlNavActiveChain    = null;
+    _tlState.chainFilter = null;
+  } else {
+    _tlNavActiveChain    = chainId;
+    _tlState.chainFilter = chainId;
+  }
+  _tlState.dateFrom    = null;
   _tlState.dateTo      = null;
   _tlUpdateActivePills();
   _tlRenderFiltered();
   _tlNavRender();
+}
+
+function _tlNavSelectChainAndExpand(chainId) {
+  _tlNavSelectChain(chainId);
+  // Also expand the chain to show members
+  if (_tlState.chainFilter === chainId) {
+    _tlNavExpanded.add(chainId);
+    _tlNavRender();
+  }
 }
 
 function _tlFilterBySource(src) {

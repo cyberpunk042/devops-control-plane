@@ -714,6 +714,15 @@ def record_scan_activity(
     if detail:
         entry["detail"] = detail
 
+    # Include operation_id if a CLI operation is active (chain linking)
+    try:
+        from src.core.engine.operation_context import get_operation_id
+        op_id = get_operation_id()
+        if op_id:
+            entry["operation_id"] = op_id
+    except Exception:
+        pass
+
     path = _activity_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
 

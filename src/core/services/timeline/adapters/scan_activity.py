@@ -209,18 +209,25 @@ class ScanActivityAdapter:
         if duration is not None:
             detail["duration_s"] = duration
 
-        # chain_id
+        # chain_id — link to triggering CLI operation if operation_id is present
         chain_id: str | None = None
         chain_role: ChainRole | None = None
-        if source == Source.AUDIT:
-            # Link local audit entry to its ledger commit via operation_id in detail
-            op_id = detail.get("operation_id") or detail.get("context", {}).get("operation_id") if isinstance(detail.get("context"), dict) else None
-            if op_id:
-                chain_id = str(op_id)
-                chain_role = ChainRole.ORIGIN
+        chain_parent_ref: str | None = None
+
+        # operation_id at top level (written by record_scan_activity)
+        op_id = raw.get("operation_id")
+        # Fallback: in detail/context (legacy)
+        if not op_id and isinstance(detail.get("context"), dict):
+            op_id = detail["context"].get("operation_id")
+        if not op_id:
+            op_id = detail.get("operation_id") if detail else None
+
+        if op_id:
+            chain_id = str(op_id)
+            chain_role = ChainRole.STEP
+            chain_parent_ref = str(op_id)
         elif source == Source.WIZARD or source == Source.CONFIG:
             # Wizard events are chained to the git commit that follows
-            import datetime as _dt
             iso = raw.get("iso", "")
             date_part = iso[:10] if iso else ""
             chain_id = f"wizard:{target or card}:{date_part}" if date_part else None
@@ -245,5 +252,5 @@ class ScanActivityAdapter:
             detail=detail or None,
             chain_id=chain_id,
             chain_role=chain_role,
-            chain_parent_ref=None,
+            chain_parent_ref=chain_parent_ref,
         )

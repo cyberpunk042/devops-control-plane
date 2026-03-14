@@ -99,7 +99,7 @@ class GitLogAdapter:
             r = subprocess.run(
                 [
                     "git", "log",
-                    "--format=COMMIT_START:%H|%ae|%an|%at|%s",
+                    "--format=COMMIT_START:%H|%P|%ae|%an|%at|%s",
                     "--numstat",
                 ],
                 cwd=str(self._root),
@@ -131,17 +131,19 @@ class GitLogAdapter:
             if line.startswith("COMMIT_START:"):
                 if current is not None:
                     commits.append(current)
-                parts = line[len("COMMIT_START:"):].split("|", 4)
-                if len(parts) < 5:
+                parts = line[len("COMMIT_START:"):].split("|", 5)
+                if len(parts) < 6:
                     current = None
                     continue
-                hash_, email, author, ts_str, subject = parts
+                hash_, parents_str, email, author, ts_str, subject = parts
                 try:
                     ts = float(ts_str)
                 except ValueError:
                     ts = 0.0
+                parent_hashes = [p.strip() for p in parents_str.strip().split() if p.strip()]
                 current = {
                     "hash": hash_.strip(),
+                    "parents": parent_hashes,
                     "email": email.strip(),
                     "author": author.strip(),
                     "ts": ts,
@@ -198,6 +200,9 @@ class GitLogAdapter:
         if files:
             detail["files"] = files[:50]  # cap file list to avoid bloat
 
+        parents = commit.get("parents", [])
+        parent_ref = parents[0] if parents else None
+
         return TimelineEntry(
             id=f"git:{commit_hash}",
             ts=ts,
@@ -214,5 +219,5 @@ class GitLogAdapter:
             detail=detail,
             chain_id=commit_hash,       # runs triggered by this commit share this chain_id
             chain_role=ChainRole.ORIGIN,
-            chain_parent_ref=None,
+            chain_parent_ref=parent_ref,
         )

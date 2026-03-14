@@ -184,10 +184,11 @@ class LedgerAuditsAdapter:
             severity = Severity.MEDIUM
 
         # chain_id: operation_id links to the cli_ops entry for the same run
-        # operation_id may be present in snapshot metadata via context
+        # operation_id is present in tag metadata when audit staging preserved it
         op_id = meta.get("operation_id")
-        chain_id = str(op_id) if op_id else snapshot_id or None
-        chain_role = ChainRole.TERMINAL if chain_id else None
+        chain_id = str(op_id) if op_id else None
+        chain_role = ChainRole.TERMINAL if op_id else None
+        chain_parent_ref = str(op_id) if op_id else None
 
         return TimelineEntry(
             id=f"ledger_audit:{snapshot_id or tag_data.get('tag', '')}",
@@ -205,5 +206,5 @@ class LedgerAuditsAdapter:
             detail=detail or None,
             chain_id=chain_id,
             chain_role=chain_role,
-            chain_parent_ref=None,
+            chain_parent_ref=chain_parent_ref,
         )

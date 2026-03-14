@@ -314,6 +314,10 @@
                         onclick="_prefRestartServer()" style="color:var(--clr-warning,#f59e0b)">
                         ⚡ Restart
                     </button>
+                    <button class="settings-btn"
+                        onclick="_prefFactoryReset()" style="color:var(--error)">
+                        🗑️ Factory Reset
+                    </button>
                 </div>
             </div>`;
 
@@ -503,6 +507,101 @@
 
     // Expose for cross-script access (e.g. config_changed banner in _notifications.html)
     window._doServerRestart = _doServerRestart;
+
+    /**
+     * Factory Reset — clears .state/ folder and restarts.
+     * Opens a confirmation modal explaining what it does and does not touch.
+     */
+    function _prefFactoryReset() {
+        var overlay = document.createElement('div');
+        overlay.style.cssText = [
+            'position:fixed', 'inset:0', 'z-index:99999',
+            'display:flex', 'align-items:center', 'justify-content:center',
+            'background:rgba(0,0,0,0.6)',
+            'backdrop-filter:blur(4px)', '-webkit-backdrop-filter:blur(4px)',
+        ].join(';');
+
+        overlay.innerHTML = `
+            <div style="
+                background:var(--bg-card, #1e1e2e);
+                border:1px solid var(--error, #ef4444);
+                border-radius:12px;
+                padding:2rem;
+                max-width:420px;
+                width:calc(100% - 2rem);
+                text-align:center;
+                color:var(--text-primary, #e0e0e0);
+                font-family:var(--font-sans, system-ui, sans-serif);
+                box-shadow:0 24px 48px rgba(0,0,0,0.5);
+            ">
+                <div style="font-size:2rem;margin-bottom:0.75rem">🗑️</div>
+                <h3 style="margin:0 0 0.5rem;font-size:1rem;font-weight:600;color:var(--error,#ef4444)">
+                    Factory Reset
+                </h3>
+                <p style="
+                    color:var(--text-muted, #888);
+                    font-size:0.8rem;
+                    line-height:1.6;
+                    margin:0 0 0.75rem;
+                    text-align:left;
+                ">
+                    This will <strong style="color:var(--error,#ef4444)">delete the entire <code style="
+                        font-size:0.76rem;background:rgba(255,255,255,0.08);
+                        padding:0.1em 0.35em;border-radius:3px
+                    ">.state/</code> folder</strong> and restart the server.
+                    All caches, scan history, audit activity, pending audits, and mediator index shards will be cleared.
+                </p>
+                <p style="
+                    color:var(--text-secondary, #aaa);
+                    font-size:0.76rem;
+                    line-height:1.5;
+                    margin:0 0 1.25rem;
+                    text-align:left;
+                ">
+                    <strong>Not affected:</strong> project.yml, source code, git history, .ledger/ data, .agent/ docs, or any project files.
+                    The server will recompute all state from scratch on restart.
+                </p>
+                <div style="display:flex;gap:0.5rem;justify-content:center">
+                    <button id="factory-reset-cancel" style="
+                        background:var(--bg-input,#2a2a3e);color:var(--text-secondary,#aaa);
+                        border:1px solid var(--border-subtle,#333);border-radius:8px;
+                        padding:0.5rem 1.2rem;font-size:0.82rem;font-weight:500;
+                        cursor:pointer;font-family:inherit
+                    ">Cancel</button>
+                    <button id="factory-reset-go" style="
+                        background:var(--error,#ef4444);color:#fff;
+                        border:none;border-radius:8px;
+                        padding:0.5rem 1.2rem;font-size:0.82rem;font-weight:600;
+                        cursor:pointer;font-family:inherit
+                    ">🗑️ Reset & Restart</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        document.getElementById('factory-reset-cancel').addEventListener('click', function() {
+            overlay.remove();
+        });
+
+        document.getElementById('factory-reset-go').addEventListener('click', async function() {
+            overlay.remove();
+            try {
+                await fetch('/api/server/factory-reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}),
+                });
+            } catch (_) {
+                // Expected — server dies after clearing .state/
+            }
+            _showReconnectionOverlay();
+        });
+    }
 
     /** Full-screen overlay while waiting for the server to come back. */
     function _showReconnectionOverlay() {

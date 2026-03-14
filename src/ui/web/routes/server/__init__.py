@@ -7,7 +7,11 @@ Prefix: /api
 
 from __future__ import annotations
 
+import logging
+
 from flask import Blueprint, current_app, jsonify, request
+
+logger = logging.getLogger(__name__)
 
 server_bp = Blueprint("server", __name__)
 
@@ -56,6 +60,41 @@ def server_restart_route():  # type: ignore[no-untyped-def]
     if result and "error" in result:
         return jsonify(result), 500
     return jsonify(result)
+
+
+@server_bp.route("/server/factory-reset", methods=["POST"])
+def server_factory_reset_route():  # type: ignore[no-untyped-def]
+    """Factory reset: clear .state/ folder and restart.
+
+    Deletes all cached state, scan history, audit activity, pending audits,
+    and mediator index shards. Does NOT touch project.yml, source code,
+    git history, .ledger/ data, or .agent/ docs.
+
+    After clearing, triggers a server restart so all state is recomputed
+    from scratch.
+    """
+    import shutil
+
+    from src.core.services.server_lifecycle import request_restart
+
+    root = current_app.config["PROJECT_ROOT"]
+    state_dir = root / ".state"
+
+    logger.warning("Factory reset requested — clearing %s", state_dir)
+
+    try:
+        if state_dir.exists():
+            shutil.rmtree(state_dir)
+            state_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("Factory reset: .state/ cleared")
+    except Exception as exc:
+        logger.exception("Factory reset: failed to clear .state/")
+        return jsonify({"error": str(exc)}), 500
+
+    result = request_restart(root)
+    if result and "error" in result:
+        return jsonify(result), 500
+    return jsonify({"status": "factory_reset", "message": ".state/ cleared, restarting"})
 
 
 # ── Server settings (feature toggles) ──────────────────────────
