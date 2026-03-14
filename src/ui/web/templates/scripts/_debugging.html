@@ -184,7 +184,7 @@
     }
 
     async function loadDebugTab(subMode, subParts) {
-    const validModes = ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'];
+    const validModes = ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator', 'timeline'];
 
     // Restore from sessionStorage if no explicit mode given (e.g. clicking the Debugging tab)
     let restoredMode = null;
@@ -208,7 +208,7 @@
     // Activate the correct sub-tab button
     debugCurrentMode = mode;
     document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => b.classList.remove('active'));
-    const modeLabels = { audit: '📋 Audit Log', state: '📦 State', health: '❤️ Health', config: '⚙️ Config', commands: '⚡ Commands', traces: '📝 Traces', mediator: '🌳 Mediator' };
+    const modeLabels = { audit: '📋 Audit Log', state: '📦 State', health: '❤️ Health', config: '⚙️ Config', commands: '⚡ Commands', traces: '📝 Traces', mediator: '🌳 Mediator', timeline: '📅 History' };
     document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => {
         if (b.textContent.trim() === (modeLabels[mode] || '').trim()) b.classList.add('active');
     });
@@ -236,9 +236,14 @@
         if (subView) _pendingDebugSubView = { panel: mode, view: subView, node: nodeFromHash };
         if (typeof loadMediatorDiag === 'function') loadMediatorDiag();
     }
+    else if (mode === 'timeline') {
+        // Restore full timeline state from URL (nav mode, selection, filters, sort)
+        if (typeof _tlRestoreState === 'function') _tlRestoreState(subView, subParts);
+        if (typeof _tlInit === 'function') _tlInit();
+    }
 
     // Restore internal sub-view for non-async modes
-    if (subView && mode !== 'mediator') {
+    if (subView && mode !== 'mediator' && mode !== 'timeline') {
         const validSubViews = ['preview', 'source', 'status'];
         if (validSubViews.includes(subView)) {
             setTimeout(() => debugToggleView(mode, subView), 100);

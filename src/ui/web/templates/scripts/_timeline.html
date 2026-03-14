@@ -43,6 +43,120 @@ const _tlState = {
 let _tlNavActiveChain = null;
 let _tlSearchTimer    = null;
 
+// ── URL state persistence ────────────────────────────────────────────
+// Full UI state lives in the URL hash:
+//   #debugging/timeline/{navMode}/{selection}?src=...&status=...&sev=...&sort=...&q=...&loc=...
+// This allows page refresh, back/forward, and link sharing to restore the exact view.
+
+function _tlPushState() {
+  const navMode   = _tlState.navMode || 'chains';
+  let selection = '';
+  if (navMode === 'chains' && _tlState.chainFilter) selection = _tlState.chainFilter;
+  else if (navMode === 'calendar' && _tlState.dateFrom) {
+    const d = new Date(_tlState.dateFrom * 1000);
+    selection = d.toISOString().slice(0, 10); // YYYY-MM-DD
+  }
+  else if (navMode === 'domains' && _tlState.sources.length === 1) selection = _tlState.sources[0];
+
+  let path = `debugging/timeline/${navMode}`;
+  if (selection) path += '/' + selection;
+
+  // Build query params for filters
+  const params = new URLSearchParams();
+  if (_tlState.sources.length)    params.set('src',    _tlState.sources.join(','));
+  if (_tlState.statuses.length)   params.set('status', _tlState.statuses.join(','));
+  if (_tlState.severities.length) params.set('sev',    _tlState.severities.join(','));
+  if (_tlState.locality)          params.set('loc',    _tlState.locality);
+  if (_tlState.q)                 params.set('q',      _tlState.q);
+  const sortVal = `${_tlState.sortBy}:${_tlState.sortDir}`;
+  if (sortVal !== 'ts:desc')      params.set('sort',   sortVal);
+
+  const qs = params.toString();
+  const newHash = `#${path}${qs ? '?' + qs : ''}`;
+
+  if (typeof _debugViewMode !== 'undefined') _debugViewMode['timeline'] = navMode;
+  try { sessionStorage.setItem('_debugLastSubView_timeline', navMode); } catch(_) {}
+
+  if (location.hash !== newHash) {
+    history.pushState({ tab: path, depth: (window._navDepth || 0) }, '', newHash);
+    if (typeof _navDepth !== 'undefined') _navDepth++;
+  }
+}
+
+function _tlRestoreState(subView, subParts) {
+  // subView = navMode (chains/domains/calendar), subParts = ['timeline', navMode, selection?]
+  // Query params parsed from hash
+  const hashFull = location.hash.slice(1);
+  const qIdx = hashFull.indexOf('?');
+  const qs = qIdx >= 0 ? new URLSearchParams(hashFull.slice(qIdx + 1)) : null;
+
+  // Restore nav mode
+  if (subView && ['chains', 'domains', 'calendar'].includes(subView)) {
+    _tlState.navMode = subView;
+  }
+
+  // Restore selection from path segment
+  const selection = (subParts && subParts.length > 2) ? subParts[2] : null;
+  if (selection) {
+    if (_tlState.navMode === 'chains') {
+      _tlState.chainFilter = selection;
+      _tlNavActiveChain    = selection;
+    } else if (_tlState.navMode === 'calendar') {
+      const d = new Date(selection + 'T00:00:00Z');
+      if (!isNaN(d.getTime())) {
+        _tlState.dateFrom = d.getTime() / 1000;
+        _tlState.dateTo   = _tlState.dateFrom + 86400;
+      }
+    } else if (_tlState.navMode === 'domains') {
+      _tlState.sources = [selection];
+    }
+  }
+
+  // Restore filters from query params
+  if (qs) {
+    const src = qs.get('src');
+    if (src) _tlState.sources = src.split(',').filter(Boolean);
+    const status = qs.get('status');
+    if (status) _tlState.statuses = status.split(',').filter(Boolean);
+    const sev = qs.get('sev');
+    if (sev) _tlState.severities = sev.split(',').filter(Boolean);
+    const loc = qs.get('loc');
+    if (loc) _tlState.locality = loc;
+    const q = qs.get('q');
+    if (q) _tlState.q = q;
+    const sort = qs.get('sort');
+    if (sort) {
+      const [by, dir] = sort.split(':');
+      if (by) _tlState.sortBy = by;
+      if (dir) _tlState.sortDir = dir;
+    }
+  }
+
+  // Sync UI controls with restored state
+  _tlSyncControlsFromState();
+}
+
+function _tlSyncControlsFromState() {
+  // Locality toggle
+  document.querySelectorAll('#timeline-locality-toggle button').forEach(b => {
+    b.classList.toggle('active', b.id === ('tl-loc-' + (_tlState.locality || 'all')));
+  });
+  // Sort dropdown
+  const sortEl = document.getElementById('timeline-sort');
+  if (sortEl) sortEl.value = `${_tlState.sortBy}:${_tlState.sortDir}`;
+  // Search input
+  const searchEl = document.getElementById('timeline-search');
+  if (searchEl && _tlState.q) searchEl.value = _tlState.q;
+  // Nav mode buttons
+  document.querySelectorAll('.timeline-nav-modes button').forEach(b => {
+    b.classList.toggle('active', b.id === `tl-nav-mode-${_tlState.navMode}`);
+  });
+  const searchWrap = document.getElementById('tl-nav-chain-search-wrap');
+  if (searchWrap) searchWrap.style.display = _tlState.navMode === 'chains' ? '' : 'none';
+  // Active filter pills
+  _tlUpdateActivePills();
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function _tlEsc(str) {
@@ -226,6 +340,7 @@ function _tlRenderFiltered() {
   if (!filtered.length) {
     document.getElementById('timeline-empty').style.display = '';
     document.getElementById('timeline-loading').style.display = 'none';
+    _tlPushState();
     return;
   }
   document.getElementById('timeline-empty').style.display = 'none';
@@ -234,6 +349,9 @@ function _tlRenderFiltered() {
   _tlState._filteredEntries = filtered;
   _tlState._renderedCount   = 0;
   _tlRenderNextBatch();
+
+  // Persist full UI state to URL
+  _tlPushState();
 }
 
 function _tlRenderNextBatch() {
@@ -525,6 +643,7 @@ function _tlNavMode(mode) {
   const searchWrap = document.getElementById('tl-nav-chain-search-wrap');
   if (searchWrap) searchWrap.style.display = mode === 'chains' ? '' : 'none';
   _tlNavRender();
+  _tlPushState();
 }
 
 function _tlNavFilterChains(val) {
