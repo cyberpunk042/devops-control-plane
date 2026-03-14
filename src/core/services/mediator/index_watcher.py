@@ -338,135 +338,204 @@ def _poll_loop(
                     fast_ok, len(_FAST_INDEX), fast_elapsed * 1000,
                 )
 
-            # ── Phase 2: Dispatch background work ──────────────────────
-            # Everything goes to the thread pool executor so no single
-            # thread hogs the GIL.  The watcher thread is free.
+            # ── Phase 2: Tiered background dispatch ──────────────────
+            # Instead of submitting all paths at once, dispatch them
+            # in graduated tiers.  Each tier waits for the previous
+            # to complete before starting.  This ensures:
+            #   - Fast data appears in the UI within seconds
+            #   - Heavy tasks don't block light ones
+            #   - Aggregates run last (they depend on card data)
+            #
+            # Tier definitions:
+            #   T1 (instant)  — slow index nodes (symbols, peek, stats)
+            #   T2 (light)    — fast devops (git, ci, packages, quality, docs)
+            #   T3 (medium)   — infrastructure detection (docker, k8s, terraform, env)
+            #   T4 (heavy)    — heavy scans (security, testing) + github
+            #   T5 (aggregate)— devops.status, posture.* (need card data)
             try:
-                all_paths = mediator.tree.all_paths()
-                # Only dispatch devops.* and posture.* — NOT detect.*
-                # detect.* and devops.* call the SAME ops functions.
-                # Dispatching both doubles subprocess calls on cold start.
-                # detect.* exists for cascade invalidation, not proactive
-                # background computation.
-                #
-                # Priority ordering: fast nodes first so SSE clients see
-                # data quickly.  Heavy subprocess/rglob nodes later.
-                # Aggregate + posture LAST (they depend on card nodes).
-                _FAST_DEVOPS = frozenset({
+                from .work_queue import Priority
+
+                # ── Build tier path lists ────────────────────────────
+                _T2_PATHS = frozenset({
                     "devops.git", "devops.ci", "devops.packages",
-                    "devops.quality", "devops.github", "devops.env",
-                    "devops.docs",
+                    "devops.quality", "devops.docs", "devops.dns",
                 })
-                _HEAVY_DEVOPS = frozenset({
-                    "devops.docker", "devops.k8s", "devops.dns",
-                    "devops.security", "devops.terraform", "devops.testing",
+                _T3_PATHS = frozenset({
+                    "devops.docker", "devops.k8s", "devops.terraform",
+                    "devops.env", "devops.github",
                 })
-                _LAST = frozenset({
+                _T4_PATHS = frozenset({
+                    "devops.security", "devops.testing",
+                })
+                _T5_PATHS = frozenset({
                     "devops.status",
                 })
-                fast = [p for p in all_paths if p in _FAST_DEVOPS]
-                heavy = [p for p in all_paths if p in _HEAVY_DEVOPS]
-                aggregate = [p for p in all_paths if p in _LAST]
-                posture = [p for p in all_paths if p.startswith("posture.")]
-                bg_paths = fast + heavy + aggregate + posture
+
+                all_paths = mediator.tree.all_paths()
+                posture_paths = [
+                    p for p in all_paths if p.startswith("posture.")
+                ]
 
                 if _warm:
-                    # Warm start: slow index nodes already cached from disk.
-                    # Only dispatch detect/devops/posture.
-                    all_dispatch = bg_paths
+                    # Warm start: index nodes already cached from disk.
+                    # Only dispatch devops/posture tiers.
+                    tier1_paths: list[str] = []
                 else:
-                    # Cold start: also dispatch slow index nodes
-                    # (symbols is CPU-heavy). Essential nodes first.
-                    slow_paths = list(_SLOW_INDEX)
+                    # Cold start: T1 = slow index nodes
+                    tier1_paths = list(_SLOW_INDEX) + ["index.view"]
 
-                    # ── Smart dispatch: filter by classify change ──
-                    # If classify output is identical to previous cycle,
-                    # only dispatch detect nodes whose mtime_paths show
-                    # file-level changes. Avoids recomputing all 33 nodes
-                    # when only one file was modified.
-                    _classify_changed = True  # default: dispatch all
-                    if changed_dirs and _prev_classify is not None:
-                        try:
-                            new_classify = mediator.peek("index.classify")
-                            if (
-                                new_classify is not None
-                                and _prev_classify is not None
-                                and new_classify.get("data") == _prev_classify
-                            ):
-                                _classify_changed = False
-                        except Exception:
-                            pass
+                tier2_paths = [p for p in all_paths if p in _T2_PATHS]
+                tier3_paths = [p for p in all_paths if p in _T3_PATHS]
+                tier4_paths = [p for p in all_paths if p in _T4_PATHS]
+                tier5_paths = (
+                    [p for p in all_paths if p in _T5_PATHS]
+                    + posture_paths
+                )
 
-                    if _classify_changed:
-                        all_dispatch = bg_paths + slow_paths
-                    else:
-                        # Classify unchanged — only dispatch detect nodes
-                        # whose mtime_paths indicate file-level staleness.
-                        stale_detect: list[str] = []
-                        cycle_ts = time.time() - poll_interval
-                        for p in bg_paths:
-                            if not p.startswith("detect."):
-                                continue
+                # ── Smart dispatch: filter by classify change ──
+                # If classify didn't change, narrow dispatch scope.
+                _classify_changed = True
+                if changed_dirs and _prev_classify is not None:
+                    try:
+                        new_classify = mediator.peek("index.classify")
+                        if (
+                            new_classify is not None
+                            and new_classify.get("data") == _prev_classify
+                        ):
+                            _classify_changed = False
+                    except Exception:
+                        pass
+
+                if not _classify_changed:
+                    # Only dispatch detect nodes whose mtime_paths
+                    # indicate file-level staleness.
+                    cycle_ts = time.time() - poll_interval
+                    stale_set: set[str] = set()
+
+                    for tier_list in (tier2_paths, tier3_paths, tier4_paths):
+                        for p in tier_list:
                             node = mediator.tree.resolve(p)
-                            if node is None:
-                                continue
-                            if not node.mtime_paths:
-                                # No mtime_paths → relies on cascade only.
-                                # Classify didn't change → skip.
+                            if node is None or not node.mtime_paths:
                                 continue
                             if _check_mtime(
                                 project_root, node.mtime_paths, cycle_ts,
                             ):
-                                stale_detect.append(p)
+                                stale_set.add(p)
+                                # Include downstream dependents
+                                for dep in mediator.tree.dependents(p.replace("devops.", "detect.", 1)):
+                                    if dep.startswith(("devops.", "posture.")):
+                                        stale_set.add(dep)
 
-                        # For each stale detect node, include its
-                        # downstream devops and posture counterparts.
-                        stale_downstream: list[str] = []
-                        for d in stale_detect:
-                            dependents = mediator.tree.dependents(d)
-                            for dep in dependents:
-                                if dep.startswith(("devops.", "posture.")):
-                                    stale_downstream.append(dep)
+                    tier2_paths = [p for p in tier2_paths if p in stale_set]
+                    tier3_paths = [p for p in tier3_paths if p in stale_set]
+                    tier4_paths = [p for p in tier4_paths if p in stale_set]
+                    # Tier 5 always runs if any downstream changed
+                    if not stale_set:
+                        tier5_paths = []
 
-                        all_dispatch = (
-                            stale_detect
-                            + stale_downstream
-                            + slow_paths
+                    logger.info(
+                        "[IndexWatcher] smart dispatch: classify unchanged, "
+                        "stale nodes: %s",
+                        ", ".join(sorted(stale_set)) or "(none)",
+                    )
+
+                # ── Define tiers with priorities ─────────────────
+                tiers: list[tuple[str, list[str], int]] = [
+                    ("T1:instant",   tier1_paths, Priority.HIGH),
+                    ("T2:light",     tier2_paths, Priority.NORMAL),
+                    ("T3:medium",    tier3_paths, Priority.NORMAL),
+                    ("T4:heavy",     tier4_paths, Priority.LOW),
+                    ("T5:aggregate", tier5_paths, Priority.IDLE),
+                ]
+
+                # Filter out empty tiers
+                tiers = [
+                    (name, paths, pri)
+                    for name, paths, pri in tiers
+                    if paths
+                ]
+
+                total_dispatched = [0]
+
+                if not tiers:
+                    logger.debug(
+                        "[IndexWatcher] no tiers to dispatch",
+                    )
+                else:
+                    # ── Chain tiers via on_complete callbacks ─────
+                    # Each tier's on_complete dispatches the next tier.
+                    # This creates a sequential pipeline:
+                    #   T1 complete → dispatch T2
+                    #   T2 complete → dispatch T3
+                    #   ... etc.
+
+                    def _make_tier_dispatcher(
+                        remaining_tiers: list[tuple[str, list[str], int]],
+                    ) -> None:
+                        """Dispatch the first tier in the list, chain the rest."""
+                        if not remaining_tiers:
+                            _publish_progress("index:tiers:done", {
+                                "total_dispatched": total_dispatched[0],
+                            })
+                            return
+
+                        tier_name, tier_paths, tier_priority = (
+                            remaining_tiers[0]
                         )
-                        # Deduplicate while preserving order
-                        seen: set[str] = set()
-                        deduped: list[str] = []
-                        for p in all_dispatch:
-                            if p not in seen:
-                                seen.add(p)
-                                deduped.append(p)
-                        all_dispatch = deduped
+                        rest = remaining_tiers[1:]
 
-                        if len(stale_detect) < len(bg_paths):
+                        _publish_progress("index:tier:start", {
+                            "tier": tier_name,
+                            "paths": tier_paths,
+                            "count": len(tier_paths),
+                        })
+
+                        logger.info(
+                            "[IndexWatcher] dispatching %s: %d paths "
+                            "(priority=%d)",
+                            tier_name, len(tier_paths), tier_priority,
+                        )
+
+                        def _on_tier_complete() -> None:
+                            _publish_progress("index:tier:done", {
+                                "tier": tier_name,
+                                "count": len(tier_paths),
+                            })
                             logger.info(
-                                "[IndexWatcher] smart dispatch: classify "
-                                "unchanged, dispatching %d/%d detect nodes "
-                                "(mtime stale: %s)",
-                                len(stale_detect),
-                                sum(1 for p in bg_paths
-                                    if p.startswith("detect.")),
-                                ", ".join(stale_detect) or "(none)",
+                                "[IndexWatcher] %s complete (%d paths), "
+                                "dispatching next tier",
+                                tier_name, len(tier_paths),
                             )
+                            # Dispatch next tier
+                            _make_tier_dispatcher(rest)
 
-                if all_dispatch:
-                    mediator.dispatch(*all_dispatch)
+                        total_dispatched[0] += len(tier_paths)
+
+                        mediator.dispatch(
+                            *tier_paths,
+                            priority=tier_priority,
+                            on_complete=_on_tier_complete,
+                        )
+
+                    # Start the chain with all tiers
+                    _make_tier_dispatcher(tiers)
+
                     _publish_progress("index:dispatch", {
-                        "phase": "all",
-                        "paths": all_dispatch,
-                        "count": len(all_dispatch),
+                        "phase": "tiered",
+                        "tiers": [
+                            {"name": n, "count": len(p)}
+                            for n, p, _ in tiers
+                        ],
+                        "total": total_dispatched[0],
                     })
                     logger.info(
-                        "[IndexWatcher] dispatched %d nodes to background",
-                        len(all_dispatch),
+                        "[IndexWatcher] dispatched %d nodes across %d tiers",
+                        total_dispatched[0], len(tiers),
                     )
+
             except Exception as exc:
                 logger.warning(
-                    "[IndexWatcher] background dispatch failed: %s", exc,
+                    "[IndexWatcher] tiered dispatch failed: %s", exc,
                 )
 
             # Cold path cycle summary (warm path already published its own)
@@ -482,7 +551,7 @@ def _poll_loop(
                     "[IndexWatcher] cycle done: fast %d/%d in %.0fms, "
                     "%d nodes dispatched to background",
                     fast_ok, len(_FAST_INDEX), fast_elapsed * 1000,
-                    len(all_dispatch) if 'all_dispatch' in dir() else 0,
+                    total_dispatched[0] if isinstance(total_dispatched, list) else 0,
                 )
 
         except Exception as e:

@@ -46,7 +46,7 @@ class TestAllDomainsRegistered:
     ) -> None:
         """Should have 61 registered nodes (9 index + 14 detect + 14 devops + 6 posture + 3 github + 11 audit + 4 catalog)."""
         paths = mediator_startup.tree.all_paths()
-        assert len(paths) == 61, (
+        assert len(paths) == 62, (
             f"Expected 61 nodes, got {len(paths)}: {sorted(paths)}"
         )
 
@@ -225,7 +225,7 @@ class TestDiagAfterStartup:
     ) -> None:
         """diag() should show 61 registered nodes."""
         info = mediator_startup.diag()
-        assert info["tree"]["registered"] == 61
+        assert info["tree"]["registered"] == 62
 
     def test_diag_node_detail(
         self, mediator_startup: QueryMediator

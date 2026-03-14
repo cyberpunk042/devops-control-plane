@@ -56,26 +56,38 @@ def docker_status(project_root: Path) -> dict:
     if (project_root / "Dockerfile").is_file():
         dockerfiles.append("Dockerfile")
 
-    # Walk project tree for additional Dockerfiles, pruning heavy dirs
-    import os
-    _skip = frozenset({
-        ".git", ".venv", "venv", "node_modules", "__pycache__",
-        ".terraform", "dist", "build", ".pages",
-    })
-    for dirpath, dirnames, filenames in os.walk(project_root):
-        dirnames[:] = [
-            d for d in dirnames
-            if d not in _skip and not d.startswith(".")
-        ]
-        for fname in filenames:
-            if fname.startswith("Dockerfile"):
-                rel = str(Path(dirpath, fname).relative_to(project_root))
-                if rel not in dockerfiles:
-                    dockerfiles.append(rel)
-                    if len(dockerfiles) >= 20:
-                        break
-        if len(dockerfiles) >= 20:
-            break
+    # Find additional Dockerfiles via ScanView or os.walk
+    from src.core.services.mediator.registrations.index import get_scan_view
+    view = get_scan_view()
+
+    if view is not None:
+        # ScanView: check common Dockerfile names
+        for name in ("Dockerfile", "Dockerfile.dev", "Dockerfile.prod",
+                      "Dockerfile.test", "Dockerfile.ci"):
+            for f in view.files_named(name):
+                if f not in dockerfiles and len(dockerfiles) < 20:
+                    dockerfiles.append(f)
+    else:
+        # Fallback: walk project tree for additional Dockerfiles
+        import os
+        _skip = frozenset({
+            ".git", ".venv", "venv", "node_modules", "__pycache__",
+            ".terraform", "dist", "build", ".pages",
+        })
+        for dirpath, dirnames, filenames in os.walk(project_root):
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in _skip and not d.startswith(".")
+            ]
+            for fname in filenames:
+                if fname.startswith("Dockerfile"):
+                    rel = str(Path(dirpath, fname).relative_to(project_root))
+                    if rel not in dockerfiles:
+                        dockerfiles.append(rel)
+                        if len(dockerfiles) >= 20:
+                            break
+            if len(dockerfiles) >= 20:
+                break
 
     # Parse Dockerfile content
     dockerfile_details: list[dict] = []

@@ -55,6 +55,18 @@ def scan_secrets(
         except (OSError, UnicodeDecodeError):
             continue
 
+        # ── Yield checkpoint — release GIL for web requests ──
+        if files_scanned % 10 == 0:
+            try:
+                from src.core.services.mediator.work_queue import (
+                    current_yield_check,
+                )
+                if current_yield_check():
+                    import time as _time
+                    _time.sleep(0.01)
+            except ImportError:
+                pass
+
         rel_path = str(path.relative_to(project_root))
 
         for line_num, line in enumerate(content.splitlines(), 1):
@@ -104,9 +116,17 @@ def scan_secrets(
 def _iter_files(root: Path, max_count: int) -> list[Path]:
     """Iterate files under root, respecting max count.
 
-    Uses os.walk with directory pruning instead of rglob to avoid
-    traversing .git, node_modules, .venv, etc.
+    Uses ScanView when available (O(1) lookup).  Falls back to
+    os.walk with directory pruning.
     """
+    from src.core.services.mediator.registrations.index import get_scan_view
+    view = get_scan_view()
+
+    if view is not None:
+        # ScanView path: all files already indexed
+        all_paths = list(view._scan.keys())[:max_count]
+        return [root / p for p in all_paths]
+
     import os
 
     result: list[Path] = []
@@ -158,20 +178,39 @@ def detect_sensitive_files(project_root: Path) -> dict:
         except OSError:
             pass
 
-    # Collect all project files once (with pruning) for pattern matching
-    import os
-    all_files: list[tuple[Path, str]] = []  # (path, rel_path)
-    for dirpath, dirnames, filenames in os.walk(project_root):
-        dirnames[:] = [
-            d for d in dirnames
-            if d not in _SKIP_DIRS and not d.startswith(".")
-        ]
-        for fname in filenames:
-            fpath = Path(dirpath) / fname
-            rel = str(fpath.relative_to(project_root))
-            all_files.append((fpath, rel))
+    # Collect all project files once for pattern matching
+    from src.core.services.mediator.registrations.index import get_scan_view
+    view = get_scan_view()
 
-    for pattern, description in _sensitive_patterns():
+    all_files: list[tuple[Path, str]] = []  # (path, rel_path)
+    if view is not None:
+        for rel in view._scan:
+            all_files.append((project_root / rel, rel))
+    else:
+        import os
+        for dirpath, dirnames, filenames in os.walk(project_root):
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in _SKIP_DIRS and not d.startswith(".")
+            ]
+            for fname in filenames:
+                fpath = Path(dirpath) / fname
+                rel = str(fpath.relative_to(project_root))
+                all_files.append((fpath, rel))
+
+    for pattern_idx, (pattern, description) in enumerate(_sensitive_patterns()):
+        # ── Yield checkpoint — release GIL for web requests ──
+        if pattern_idx % 20 == 0 and pattern_idx > 0:
+            try:
+                from src.core.services.mediator.work_queue import (
+                    current_yield_check,
+                )
+                if current_yield_check():
+                    import time as _time
+                    _time.sleep(0.01)
+            except ImportError:
+                pass
+
         for match, rel in all_files:
             if fnmatch.fnmatch(match.name, pattern) or fnmatch.fnmatch(rel, pattern):
                 # Simple gitignore check (not fully spec-compliant, but practical)

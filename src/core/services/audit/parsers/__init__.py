@@ -169,6 +169,7 @@ class ParserRegistry:
         cache_hits = 0
         cache_misses = 0
         seen_paths: set[str] = set()
+        file_count = 0
 
         for file_path in sorted(project_root.rglob("*")):
             # Skip directories
@@ -187,6 +188,19 @@ class ParserRegistry:
 
             rel_path = str(file_path.relative_to(project_root))
             seen_paths.add(rel_path)
+
+            # ── Yield checkpoint — release GIL for web requests ──
+            file_count += 1
+            if file_count % 10 == 0:
+                try:
+                    from src.core.services.mediator.work_queue import (
+                        current_yield_check,
+                    )
+                    if current_yield_check():
+                        import time as _time
+                        _time.sleep(0.01)
+                except ImportError:
+                    pass
 
             # ── Per-file mtime cache check ──
             if use_cache:

@@ -80,10 +80,33 @@ def docs_status(project_root: Path) -> dict:
 
     # Doc directories
     import os
+    from src.core.services.mediator.registrations.index import get_scan_view
+    view = get_scan_view()
+
     doc_dirs: list[dict] = []
     for dir_name in _DOC_DIRS:
         dir_path = project_root / dir_name
-        if dir_path.is_dir():
+        if view is not None:
+            if not view.dir_exists(dir_name):
+                continue
+            dir_files = view.files_in_dir(dir_name, recursive=True)
+            doc_files = [
+                f for f in dir_files
+                if "." + f.rsplit(".", 1)[-1] in _DOC_EXTENSIONS
+            ] if dir_files else []
+            # Compute sizes from disk (ScanView doesn't store size reliably)
+            total_size = sum(
+                (project_root / f).stat().st_size
+                for f in dir_files
+                if (project_root / f).is_file()
+            )
+            doc_dirs.append({
+                "name": dir_name,
+                "file_count": len(dir_files),
+                "doc_count": len(doc_files),
+                "total_size": total_size,
+            })
+        elif dir_path.is_dir():
             all_files: list[Path] = []
             for dirpath, dirnames, filenames in os.walk(dir_path):
                 dirnames[:] = [
@@ -92,12 +115,12 @@ def docs_status(project_root: Path) -> dict:
                 ]
                 for fname in filenames:
                     all_files.append(Path(dirpath) / fname)
-            doc_files = [f for f in all_files if f.suffix.lower() in _DOC_EXTENSIONS]
+            doc_files_p = [f for f in all_files if f.suffix.lower() in _DOC_EXTENSIONS]
             total_size = sum(f.stat().st_size for f in all_files)
             doc_dirs.append({
                 "name": dir_name,
                 "file_count": len(all_files),
-                "doc_count": len(doc_files),
+                "doc_count": len(doc_files_p),
                 "total_size": total_size,
             })
     result["doc_dirs"] = doc_dirs
@@ -228,7 +251,16 @@ def docs_coverage(project_root: Path) -> dict:
 
             # Count doc files in module directory
             doc_count = 0
-            if mod_path.is_dir():
+            from src.core.services.mediator.registrations.index import get_scan_view
+            view = get_scan_view()
+
+            if view is not None and module.path != ".":
+                mod_files = view.files_in_dir(module.path, recursive=True)
+                doc_count = sum(
+                    1 for f in mod_files
+                    if "." + f.rsplit(".", 1)[-1] in _DOC_EXTENSIONS
+                )
+            elif mod_path.is_dir():
                 import os
                 for dirpath, dirnames, filenames in os.walk(mod_path):
                     dirnames[:] = [
@@ -386,6 +418,13 @@ def _heading_to_anchor(text: str) -> str:
 
 def _collect_md_files(project_root: Path) -> list[Path]:
     """Collect all markdown files, respecting skip dirs."""
+    from src.core.services.mediator.registrations.index import get_scan_view
+    view = get_scan_view()
+
+    if view is not None:
+        md_paths = view.files_with_ext("md")
+        return [project_root / p for p in md_paths[:100]]
+
     import os
 
     files: list[Path] = []

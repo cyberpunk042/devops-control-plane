@@ -127,22 +127,22 @@ def register_devops(mediator: QueryMediator) -> None:
     # queries only.  Dispatch only sends devops.* to avoid duplication.
 
     _nodes = [
-        ("devops.docker",    lambda: docker_ops.docker_status(root)),
-        ("devops.k8s",       lambda: k8s_ops.k8s_status(root)),
-        ("devops.git",       lambda: git_ops.git_status(root)),
-        ("devops.github",    lambda: git_ops.gh_status(root)),
-        ("devops.ci",        lambda: ci_ops.ci_status(root)),
-        ("devops.terraform", lambda: terraform_ops.terraform_status(root)),
-        ("devops.env",       lambda: env_ops.env_card_status(root)),
-        ("devops.security",  _compute_security),
-        ("devops.packages",  lambda: package_ops.package_status_enriched(root)),
-        ("devops.quality",   lambda: quality_ops.quality_status(root)),
-        ("devops.testing",   lambda: testing_ops.testing_status(root)),
-        ("devops.docs",      lambda: docs_ops.docs_status(root)),
-        ("devops.dns",       lambda: dns_cdn_ops.dns_cdn_status(root)),
+        ("devops.docker",    lambda: docker_ops.docker_status(root),    2),
+        ("devops.k8s",       lambda: k8s_ops.k8s_status(root),          2),
+        ("devops.git",       lambda: git_ops.git_status(root),           1),
+        ("devops.github",    lambda: git_ops.gh_status(root),            2),
+        ("devops.ci",        lambda: ci_ops.ci_status(root),             1),
+        ("devops.terraform", lambda: terraform_ops.terraform_status(root), 2),
+        ("devops.env",       lambda: env_ops.env_card_status(root),      2),
+        ("devops.security",  _compute_security,                          3),
+        ("devops.packages",  lambda: package_ops.package_status_enriched(root), 1),
+        ("devops.quality",   lambda: quality_ops.quality_status(root),   1),
+        ("devops.testing",   lambda: testing_ops.testing_status(root),   2),
+        ("devops.docs",      lambda: docs_ops.docs_status(root),         1),
+        ("devops.dns",       lambda: dns_cdn_ops.dns_cdn_status(root),   1),
     ]
 
-    for mediator_path, compute_fn in _nodes:
+    for mediator_path, compute_fn, node_size in _nodes:
         # Base dependency: the corresponding detect.* node
         detect_dep = mediator_path.replace("devops.", "detect.", 1)
         deps = [detect_dep]
@@ -156,6 +156,7 @@ def register_devops(mediator: QueryMediator) -> None:
             ttl=None,
             persist=True,
             depends_on=deps,
+            size=node_size,
         ))
 
 

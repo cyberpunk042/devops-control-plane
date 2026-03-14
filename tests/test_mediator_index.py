@@ -406,7 +406,7 @@ class TestIndexMediator:
         diag = mediator.diag()
         entries = diag["entries"]
         index_nodes = [p for p in entries if p.startswith("index.")]
-        assert len(index_nodes) == 9
+        assert len(index_nodes) == 10
 
 
 # ── ScanDelta property tests ───────────────────────────────────

@@ -44,6 +44,10 @@ from typing import Any
 
 from .tree import DataTree, TreeNode
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .work_queue import WorkQueue
+
 logger = logging.getLogger(__name__)
 
 
@@ -173,6 +177,7 @@ class QueryMediator:
         *,
         on_stale: Callable[[str], None] | None = None,
         executor: Executor | None = None,
+        work_queue: WorkQueue | None = None,
     ) -> None:
         self._tree = tree
         self._project_root = project_root
@@ -193,9 +198,12 @@ class QueryMediator:
         self._subscriptions: dict[str, _Subscription] = {}
         self._sub_counter: int = 0
 
-        # Phase 6B: executor + dispatch
+        # Phase 6B: executor + dispatch (legacy)
         self._executor = executor
         self._dispatch_counter: int = 0
+
+        # Phase 7: priority work queue
+        self._work_queue = work_queue
 
     # ── Properties ─────────────────────────────────────────────
 
@@ -1203,17 +1211,31 @@ class QueryMediator:
             cascade_depth=cascade_depth, notify=notify,
         )
 
-    def dispatch(self, *paths: str) -> dict[str, Any]:
+    def dispatch(
+        self,
+        *paths: str,
+        priority: int | None = None,
+        on_complete: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
         """Submit paths for background recompute.  Returns immediately.
 
-        Uses the executor (if available) or the ``on_stale`` hook for
-        background execution.  If neither is configured, paths are
-        marked as dispatched but no background work occurs.
+        Uses the work queue (if available), executor (legacy), or
+        the ``on_stale`` hook for background execution.  If none
+        is configured, paths are marked as dispatched but no
+        background work occurs.
 
         Parameters
         ----------
         *paths : str
             Paths to recompute in the background.
+        priority : int | None
+            Priority level for the work queue (see ``Priority``
+            enum in ``work_queue.py``).  ``None`` uses LOW (3)
+            as default.  Ignored when using legacy executor.
+        on_complete : Callable | None
+            Called when ALL paths in this dispatch have completed.
+            Used for tiered dispatch gating.  Only works with
+            the work queue.
 
         Returns
         -------
@@ -1231,14 +1253,53 @@ class QueryMediator:
                 self.mark_refreshing(p)
 
         if not valid_paths:
+            # Fire on_complete immediately for empty dispatch
+            if on_complete is not None:
+                try:
+                    on_complete()
+                except Exception:
+                    logger.exception(
+                        "dispatch %s: on_complete failed (empty)", task_id,
+                    )
             return {
                 "task_id": task_id,
                 "paths": [],
                 "status": "empty",
             }
 
-        if self._executor is not None:
-            # Submit each path as its own task for true parallelism
+        if self._work_queue is not None:
+            # ── Work queue path (priority-aware) ─────────────
+            from .work_queue import Priority, WorkItem
+
+            default_priority = (
+                priority if priority is not None else Priority.LOW
+            )
+
+            items: list[WorkItem] = []
+            for p in valid_paths:
+                node = self._tree.resolve(p)
+                item_size = node.size if node is not None else 1
+
+                items.append(WorkItem(
+                    priority=default_priority,
+                    size=item_size,
+                    path=p,
+                    resolver=lambda p=p: self._dispatch_worker(
+                        task_id, [p],
+                    ),
+                    callback=None,
+                    error_callback=lambda exc, p=p: logger.exception(
+                        "dispatch %s: work_queue failed for %s",
+                        task_id, p,
+                    ),
+                ))
+
+            self._work_queue.submit_batch(
+                items, on_complete=on_complete,
+            )
+
+        elif self._executor is not None:
+            # ── Legacy executor path ─────────────────────────
             for p in valid_paths:
                 self._executor.submit(
                     self._dispatch_worker, task_id, [p],
@@ -1253,7 +1314,8 @@ class QueryMediator:
                     )
         else:
             logger.debug(
-                "dispatch %s: no executor or on_stale hook", task_id,
+                "dispatch %s: no work_queue, executor, or on_stale hook",
+                task_id,
             )
 
         return {

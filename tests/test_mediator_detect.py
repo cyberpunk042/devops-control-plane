@@ -211,7 +211,7 @@ class TestCombinedTree:
     ) -> None:
         """Combined tree should have 29 registered nodes (6 posture + 9 index + 14 detect)."""
         paths = mediator_full.tree.all_paths()
-        assert len(paths) == 29
+        assert len(paths) == 30
 
     def test_three_top_level_branches(
         self, mediator_full: QueryMediator
@@ -248,7 +248,7 @@ class TestDetectDiag:
     ) -> None:
         """diag() should show 29 registered nodes (6 posture + 9 index + 14 detect)."""
         info = mediator_full.diag()
-        assert info["tree"]["registered"] == 29
+        assert info["tree"]["registered"] == 30
 
     def test_diag_detect_branch(
         self, mediator_full: QueryMediator

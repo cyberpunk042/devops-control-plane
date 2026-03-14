@@ -91,6 +91,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: docker_ops.docker_status(root),
         ttl=120,
         persist=True,
+        size=2,
         mtime_paths=[
             "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
             ".dockerignore",
@@ -102,6 +103,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: k8s_ops.k8s_status(root),
         ttl=120,
         persist=True,
+        size=2,
         mtime_paths=[
             "k8s/", "kubernetes/", "deploy/", "charts/",
             "kustomization.yaml", "kustomization.yml",
@@ -113,6 +115,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: terraform_ops.terraform_status(root),
         ttl=120,
         persist=True,
+        size=2,
         mtime_paths=[
             "terraform/", "infra/",
             "main.tf", "variables.tf", "outputs.tf",
@@ -165,6 +168,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=_compute_security,
         ttl=120,
         persist=True,
+        size=3,
         mtime_paths=[".gitignore", ".gitignore.global", "src/"],
     ))
 
@@ -198,6 +202,7 @@ def register_detect(mediator: QueryMediator) -> None:
         resolver=lambda: testing_ops.testing_status(root),
         ttl=120,
         persist=True,
+        size=2,
         mtime_paths=[
             "tests/", "pyproject.toml", "package.json", "setup.cfg",
         ],

@@ -130,33 +130,54 @@ def dns_cdn_status(project_root: Path) -> dict:
         except OSError:
             pass
 
-    # Single os.walk pass for DNS zone files + SSL certificates
-    # (replaces 7 separate rglob calls)
+    # Single pass for DNS zone files + SSL certificates
+    # ScanView path: O(1) lookup by extension
+    # Fallback: os.walk with directory pruning
     _dns_exts = frozenset({".zone", ".dns"})
     _ssl_exts = frozenset({".pem", ".crt", ".cert", ".key"})
 
-    for dirpath, dirnames, filenames in os.walk(project_root):
-        # Prune skip directories IN-PLACE
-        dirnames[:] = [
-            d for d in dirnames
-            if d not in _SKIP_DIRS and not d.startswith(".")
-        ]
+    from src.core.services.mediator.registrations.index import get_scan_view
+    view = get_scan_view()
 
-        for fname in filenames:
-            fpath = Path(dirpath) / fname
-            ext = fpath.suffix
-            rel = str(fpath.relative_to(project_root))
-
-            # DNS zone files: *.zone, *.dns, db.*
-            if ext in _dns_exts or fname.startswith("db."):
-                dns_files.append(rel)
-            # SSL certificate files: *.pem, *.crt, *.cert, *.key
-            elif ext in _ssl_exts:
-                cert_type = "private_key" if ext == ".key" else "certificate"
+    if view is not None:
+        # Use ScanView for fast lookups
+        for ext in ("zone", "dns"):
+            dns_files.extend(view.files_with_ext(ext))
+        # Also check db.* files
+        for f in view.files_named("db.zone") + view.files_named("db.local"):
+            if f not in dns_files:
+                dns_files.append(f)
+        # SSL cert lookups
+        for ext in ("pem", "crt", "cert", "key"):
+            for f in view.files_with_ext(ext):
+                cert_type = "private_key" if ext == "key" else "certificate"
                 ssl_certs.append({
-                    "path": rel,
+                    "path": f,
                     "type": cert_type,
                 })
+    else:
+        for dirpath, dirnames, filenames in os.walk(project_root):
+            # Prune skip directories IN-PLACE
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in _SKIP_DIRS and not d.startswith(".")
+            ]
+
+            for fname in filenames:
+                fpath = Path(dirpath) / fname
+                ext = fpath.suffix
+                rel = str(fpath.relative_to(project_root))
+
+                # DNS zone files: *.zone, *.dns, db.*
+                if ext in _dns_exts or fname.startswith("db."):
+                    dns_files.append(rel)
+                # SSL certificate files: *.pem, *.crt, *.cert, *.key
+                elif ext in _ssl_exts:
+                    cert_type = "private_key" if ext == ".key" else "certificate"
+                    ssl_certs.append({
+                        "path": rel,
+                        "type": cert_type,
+                    })
 
     from src.core.services.tool_requirements import check_required_tools
 

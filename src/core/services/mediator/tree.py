@@ -72,6 +72,7 @@ class TreeRegistration:
     mtime_paths: list[str] | None = None
     persist: bool = False
     depends_on: list[str] | None = None
+    size: int = 1  # capacity units: 1=light, 2=medium, 3=heavy
 
 
 @dataclass
@@ -88,6 +89,7 @@ class TreeNode:
     mtime_paths: list[str] | None = None
     persist: bool = False
     depends_on: list[str] = field(default_factory=list)
+    size: int = 1  # capacity units: 1=light, 2=medium, 3=heavy
     dependents: list[str] = field(default_factory=list)
     children: dict[str, TreeNode] = field(default_factory=dict)
     parent: str | None = None
@@ -198,6 +200,7 @@ class DataTree:
             existing.mtime_paths = reg.mtime_paths
             existing.persist = reg.persist
             existing.depends_on = list(reg.depends_on or [])
+            existing.size = reg.size
             existing.is_registered = True
             node = existing
         else:
@@ -208,6 +211,7 @@ class DataTree:
                 mtime_paths=reg.mtime_paths,
                 persist=reg.persist,
                 depends_on=list(reg.depends_on or []),
+                size=reg.size,
                 parent=parent_path,
                 is_registered=True,
             )

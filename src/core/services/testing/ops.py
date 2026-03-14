@@ -256,12 +256,9 @@ def _detect_coverage_tool(
 def _count_tests(project_root: Path, frameworks: list[dict]) -> dict:
     """Count test files, functions, and classes.
 
-    Uses a single os.walk pass (with directory pruning) instead of
-    multiple rglob calls.  This avoids traversing node_modules, .venv,
-    .git, etc. five separate times.
+    Uses ScanView when available (O(1) extension lookup).
+    Falls back to os.walk with directory pruning.
     """
-    import os
-
     test_files = 0
     test_functions = 0
     test_classes = 0
@@ -269,21 +266,31 @@ def _count_tests(project_root: Path, frameworks: list[dict]) -> dict:
     test_file_paths: list[str] = []
 
     _source_exts = frozenset({".py", ".js", ".ts", ".go", ".rs"})
+    _source_ext_names = frozenset({"py", "js", "ts", "go", "rs"})
 
-    for dirpath, dirnames, filenames in os.walk(project_root):
-        # Prune skip directories IN-PLACE — os.walk won't descend
-        dirnames[:] = [
-            d for d in dirnames
-            if d not in _SKIP_DIRS and not d.startswith(".")
-        ]
+    from src.core.services.mediator.registrations.index import get_scan_view
+    view = get_scan_view()
 
-        for fname in filenames:
-            fpath = Path(dirpath) / fname
-            ext = fpath.suffix
-            if ext not in _source_exts:
-                continue
+    if view is not None:
+        # ScanView path: collect all source files by extension
+        all_source_paths: list[str] = []
+        for ext in _source_ext_names:
+            all_source_paths.extend(view.files_with_ext(ext))
 
-            rel = str(fpath.relative_to(project_root))
+        for file_idx, rel in enumerate(all_source_paths):
+            # ── Yield checkpoint — release GIL for web requests ──
+            if file_idx % 20 == 0 and file_idx > 0:
+                try:
+                    from src.core.services.mediator.work_queue import (
+                        current_yield_check,
+                    )
+                    if current_yield_check():
+                        import time as _time
+                        _time.sleep(0.01)
+                except ImportError:
+                    pass
+
+            fname = rel.rsplit("/", 1)[-1] if "/" in rel else rel
 
             # Determine if this is a test file
             is_test = False
@@ -301,7 +308,9 @@ def _count_tests(project_root: Path, frameworks: list[dict]) -> dict:
 
                 # Count test functions/methods
                 try:
-                    content = fpath.read_text(encoding="utf-8", errors="ignore")
+                    content = (project_root / rel).read_text(
+                        encoding="utf-8", errors="ignore",
+                    )
                     for fw in frameworks:
                         marker = _FRAMEWORK_MARKERS.get(fw["name"], {})
                         func_pattern = marker.get("function_pattern")
@@ -316,6 +325,62 @@ def _count_tests(project_root: Path, frameworks: list[dict]) -> dict:
                     pass
             else:
                 source_files += 1
+    else:
+        # Fallback: os.walk with directory pruning
+        import os
+
+        for dirpath, dirnames, filenames in os.walk(project_root):
+            # Prune skip directories IN-PLACE — os.walk won't descend
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in _SKIP_DIRS and not d.startswith(".")
+            ]
+
+            for fname in filenames:
+                fpath = Path(dirpath) / fname
+                ext = fpath.suffix
+                if ext not in _source_exts:
+                    continue
+
+                rel = str(fpath.relative_to(project_root))
+
+                # Determine if this is a test file
+                is_test = False
+                for fw in frameworks:
+                    marker = _FRAMEWORK_MARKERS.get(fw["name"], {})
+                    pattern = marker.get("test_pattern")
+                    if pattern and pattern.match(fname):
+                        is_test = True
+                        break
+
+                if is_test:
+                    test_files += 1
+                    if len(test_file_paths) < 500:
+                        test_file_paths.append(rel)
+
+                    # Count test functions/methods
+                    try:
+                        content = fpath.read_text(
+                            encoding="utf-8", errors="ignore",
+                        )
+                        for fw in frameworks:
+                            marker = _FRAMEWORK_MARKERS.get(fw["name"], {})
+                            func_pattern = marker.get("function_pattern")
+                            class_pattern = marker.get("class_pattern")
+
+                            if func_pattern:
+                                test_functions += len(
+                                    func_pattern.findall(content),
+                                )
+                            if class_pattern:
+                                test_classes += len(
+                                    class_pattern.findall(content),
+                                )
+                            break  # Don't double-count
+                    except OSError:
+                        pass
+                else:
+                    source_files += 1
 
     test_ratio = test_files / source_files if source_files > 0 else 0
 

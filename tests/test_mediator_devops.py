@@ -68,7 +68,7 @@ class TestDevopsRegistration:
     ) -> None:
         """9 index + 14 detect + 14 devops = 37 total."""
         paths = set(mediator_devops_only.tree.all_paths())
-        assert len(paths) == 37
+        assert len(paths) == 38
         assert EXPECTED_DEVOPS_NODES.issubset(paths)
 
     def test_devops_branch_exists(
@@ -245,7 +245,7 @@ class TestCombinedTree:
     ) -> None:
         """Combined tree should have 43 registered nodes (6 posture + 9 index + 14 detect + 14 devops)."""
         paths = mediator_full.tree.all_paths()
-        assert len(paths) == 43
+        assert len(paths) == 44
 
     def test_four_top_level_branches(
         self, mediator_full: QueryMediator
@@ -282,7 +282,7 @@ class TestDevopsDiag:
     ) -> None:
         """diag() should show 43 registered nodes."""
         info = mediator_full.diag()
-        assert info["tree"]["registered"] == 43
+        assert info["tree"]["registered"] == 44
 
     def test_diag_devops_branch(
         self, mediator_full: QueryMediator

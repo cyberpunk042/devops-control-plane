@@ -263,6 +263,20 @@ def _collect_yaml_files(
     project_root: Path, manifest_dirs: list[str]
 ) -> list[Path]:
     """Collect YAML files from manifest dirs (not full project tree)."""
+    from src.core.services.mediator.registrations.index import get_scan_view
+    view = get_scan_view()
+
+    if view is not None:
+        # ScanView path: get all yaml/yml files, filter by manifest dirs
+        yaml_paths = view.files_with_ext("yaml") + view.files_with_ext("yml")
+        if manifest_dirs:
+            prefixes = tuple(d + "/" for d in manifest_dirs)
+            yaml_paths = [
+                p for p in yaml_paths
+                if p.startswith(prefixes) or p in manifest_dirs
+            ]
+        return [project_root / p for p in yaml_paths[:50]]
+
     import os
 
     files: list[Path] = []

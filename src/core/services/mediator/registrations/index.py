@@ -150,6 +150,230 @@ class ScanDelta:
         return len(self.added) + len(self.removed) + len(self.modified)
 
 
+# ── ScanView — materialized view over scan data ────────────────
+
+
+class ScanView:
+    """Query interface over ``scan_project()`` output.
+
+    Pre-builds indexes for O(1) lookups by extension, filename,
+    and directory.  Built once from scan data (~5ms for ~5000 files),
+    then all queries are O(1) or O(K) where K is the result count.
+
+    Ops functions use this instead of doing their own ``os.walk``.
+    If the scan data changes (FS trigger), the mediator recomputes
+    ``index.view`` which creates a fresh ScanView.
+
+    Parameters
+    ----------
+    scan : dict[str, FileEntry]
+        Output of ``scan_project()`` — maps relative paths to
+        ``FileEntry(mtime, size, ext)``.
+    """
+
+    __slots__ = ("_scan", "_by_ext", "_by_name", "_by_dir", "_dir_set")
+
+    def __init__(self, scan: dict[str, FileEntry]) -> None:
+        self._scan = scan
+
+        # Index by extension: {"py": ["src/foo.py", ...], ...}
+        by_ext: dict[str, list[str]] = {}
+        # Index by filename: {"Dockerfile": ["./Dockerfile", ...], ...}
+        by_name: dict[str, list[str]] = {}
+        # Index by parent directory: {"src/core": ["src/core/foo.py", ...], ...}
+        by_dir: dict[str, list[str]] = {}
+        # Set of all directory paths that contain files
+        dir_set: set[str] = set()
+
+        for rel_path, entry in scan.items():
+            # Extension index
+            if entry.ext:
+                by_ext.setdefault(entry.ext, []).append(rel_path)
+
+            # Filename index
+            sep_idx = rel_path.rfind(os.sep)
+            if sep_idx < 0:
+                # Check forward slash too (cross-platform)
+                sep_idx = rel_path.rfind("/")
+            fname = rel_path[sep_idx + 1:] if sep_idx >= 0 else rel_path
+            by_name.setdefault(fname, []).append(rel_path)
+
+            # Parent directory index
+            if sep_idx >= 0:
+                parent = rel_path[:sep_idx]
+            else:
+                parent = "."
+            by_dir.setdefault(parent, []).append(rel_path)
+
+            # Directory set — all ancestor dirs
+            parts = rel_path.replace("\\", "/").split("/")
+            for i in range(1, len(parts)):
+                dir_set.add("/".join(parts[:i]))
+
+        self._by_ext = by_ext
+        self._by_name = by_name
+        self._by_dir = by_dir
+        self._dir_set = dir_set
+
+    # ── Query methods ──────────────────────────────────────────
+
+    def files_with_ext(self, ext: str) -> list[str]:
+        """All relative paths with the given extension.
+
+        Parameters
+        ----------
+        ext : str
+            Extension WITHOUT leading dot (e.g. ``"py"``, ``"md"``).
+
+        Returns
+        -------
+        list[str]
+            Relative paths.  Empty list if no matches.
+        """
+        return list(self._by_ext.get(ext, []))
+
+    def files_named(self, name: str) -> list[str]:
+        """All relative paths whose filename matches exactly.
+
+        Parameters
+        ----------
+        name : str
+            Exact filename (e.g. ``"Dockerfile"``, ``"Chart.yaml"``).
+
+        Returns
+        -------
+        list[str]
+            Relative paths.  Empty list if no matches.
+        """
+        return list(self._by_name.get(name, []))
+
+    def files_in_dir(
+        self, dir_path: str, *, recursive: bool = True,
+    ) -> list[str]:
+        """All files in a directory.
+
+        Parameters
+        ----------
+        dir_path : str
+            Relative directory path (e.g. ``"src/core"``, ``"tests"``).
+        recursive : bool
+            If ``True``, includes files in subdirectories.
+            If ``False``, only direct children.
+
+        Returns
+        -------
+        list[str]
+            Relative file paths.
+        """
+        # Normalise separators
+        dir_path = dir_path.rstrip("/").rstrip(os.sep)
+
+        if not recursive:
+            return list(self._by_dir.get(dir_path, []))
+
+        # Recursive: match all paths that start with dir_path/
+        prefix = dir_path + "/"
+        return [
+            p for p in self._scan
+            if p.startswith(prefix) or p.replace("\\", "/").startswith(prefix)
+        ]
+
+    def dir_exists(self, dir_path: str) -> bool:
+        """Check if a directory exists (has any files under it).
+
+        Parameters
+        ----------
+        dir_path : str
+            Relative directory path.
+
+        Returns
+        -------
+        bool
+        """
+        dir_path = dir_path.rstrip("/").rstrip(os.sep)
+        return dir_path in self._dir_set
+
+    def has_file(self, rel_path: str) -> bool:
+        """Check if a specific file exists in the scan.
+
+        Parameters
+        ----------
+        rel_path : str
+            Relative path to the file.
+
+        Returns
+        -------
+        bool
+        """
+        return rel_path in self._scan
+
+    def file_entry(self, rel_path: str) -> FileEntry | None:
+        """Get the FileEntry for a specific file.
+
+        Parameters
+        ----------
+        rel_path : str
+            Relative path to the file.
+
+        Returns
+        -------
+        FileEntry | None
+            The entry, or ``None`` if not found.
+        """
+        return self._scan.get(rel_path)
+
+    @property
+    def file_count(self) -> int:
+        """Total number of files in the scan."""
+        return len(self._scan)
+
+    @property
+    def extensions(self) -> list[str]:
+        """All extensions present in the scan."""
+        return list(self._by_ext.keys())
+
+    def __repr__(self) -> str:
+        return (
+            f"ScanView(files={len(self._scan)}, "
+            f"extensions={len(self._by_ext)}, "
+            f"dirs={len(self._dir_set)})"
+        )
+
+
+# ── ScanView accessor ──────────────────────────────────────────
+
+
+def get_scan_view() -> ScanView | None:
+    """Get the current ScanView from the mediator cache.
+
+    Uses ``peek()`` — never triggers computation.  Returns ``None``
+    if the mediator isn't initialized or the scan hasn't been
+    computed yet.
+
+    This is safe to call from anywhere:
+    - CLI mode (no mediator): returns ``None``
+    - Tests (no mediator): returns ``None``
+    - Web server before first scan: returns ``None``
+    - Web server after first scan: returns the ``ScanView``
+
+    Ops functions should check the return value and fall back to
+    their own ``os.walk`` if ``None``.
+
+    Returns
+    -------
+    ScanView | None
+    """
+    try:
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        result = m.peek("index.view")
+        if result is not None:
+            return result["data"]
+    except (RuntimeError, KeyError, Exception):
+        pass
+    return None
+
+
 # ── Core functions ──────────────────────────────────────────────
 
 def scan_project(project_root: Path) -> dict[str, FileEntry]:
@@ -399,7 +623,18 @@ def incremental_symbols(
     ]
     parsed_count = 0
     new_entries = 0
-    for rel_path in parse_targets:
+    for idx, rel_path in enumerate(parse_targets):
+        # ── Yield checkpoint — release GIL for web requests ──
+        if idx % 10 == 0 and idx > 0:
+            try:
+                from src.core.services.mediator.work_queue import (
+                    current_yield_check,
+                )
+                if current_yield_check():
+                    time.sleep(0.01)
+            except ImportError:
+                pass
+
         abs_path = project_root / rel_path
         if not abs_path.is_file():
             continue
@@ -848,6 +1083,14 @@ def register_index(mediator: QueryMediator) -> None:
         ttl=None,
     ))
 
+    # ── index.view (ScanView — materialized view) ──────────
+    tree.register(TreeRegistration(
+        path="index.view",
+        resolver=lambda: ScanView(mediator.get("index.scan")["data"]),
+        ttl=None,
+        depends_on=["index.scan"],
+    ))
+
     # ── index.delta ────────────────────────────────────────
     def _compute_delta() -> ScanDelta:
         curr_scan = mediator.get("index.scan")["data"]
@@ -978,6 +1221,7 @@ def register_index(mediator: QueryMediator) -> None:
         path="index.symbols",
         resolver=_persisting("index.symbols", _resolve_symbols),
         ttl=None,
+        size=3,
         depends_on=["index.delta"],
     ))
 
@@ -995,7 +1239,8 @@ def register_index(mediator: QueryMediator) -> None:
         path="index.peek",
         resolver=_persisting("index.peek", _resolve_peek),
         ttl=None,
+        size=2,
         depends_on=["index.delta", "index.symbols", "index.scan"],
     ))
 
-    logger.debug("registered index.* nodes (9 total)")
+    logger.debug("registered index.* nodes (10 total)")
