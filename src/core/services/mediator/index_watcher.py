@@ -52,6 +52,17 @@ logger = logging.getLogger(__name__)
 POLL_INTERVAL_S = 5.0
 """Seconds between poll cycles."""
 
+# ── Runtime-mutable watcher state ───────────────────────────────
+# Read by the poll loop each iteration so config changes take effect
+# without restarting the thread.
+watcher_state: dict[str, object] = {
+    "poll_interval": POLL_INTERVAL_S,
+    "smart_dispatch": True,
+    "enabled": True,
+    "last_scan_ts": None,
+    "changed_dirs_count": 0,
+}
+
 # Same skip rules as the index scanner — don't poll these directories
 _SKIP_DIRS = frozenset({
     ".git", ".hg", ".svn",
@@ -189,7 +200,13 @@ def _poll_loop(
         logger.warning("[IndexWatcher] initial scan failed: %s", e)
 
     while True:
-        time.sleep(poll_interval)
+        # Read runtime config each cycle
+        _interval = float(watcher_state.get("poll_interval", poll_interval))
+        time.sleep(_interval)
+
+        # Skip cycle if watcher is disabled
+        if not watcher_state.get("enabled", True):
+            continue
 
         try:
             current_dir_mtimes = scan_dir_mtimes(project_root)
@@ -204,6 +221,10 @@ def _poll_loop(
             for d in last_dir_mtimes:
                 if d not in current_dir_mtimes:
                     changed_dirs.append(d)
+
+            # Update watcher state with scan info
+            watcher_state["last_scan_ts"] = time.time()
+            watcher_state["changed_dirs_count"] = len(changed_dirs)
 
             if not changed_dirs and not first_cycle:
                 continue  # nothing changed, sleep again
@@ -338,7 +359,7 @@ def _poll_loop(
                     fast_ok, len(_FAST_INDEX), fast_elapsed * 1000,
                 )
 
-            # ── Phase 2: Tiered background dispatch ──────────────────
+             # ── Phase 2: Tiered background dispatch ──────────────────
             # Instead of submitting all paths at once, dispatch them
             # in graduated tiers.  Each tier waits for the previous
             # to complete before starting.  This ensures:
@@ -347,55 +368,100 @@ def _poll_loop(
             #   - Aggregates run last (they depend on card data)
             #
             # Tier definitions:
-            #   T1 (instant)  — slow index nodes (symbols, peek, stats)
-            #   T2 (light)    — fast devops (git, ci, packages, quality, docs)
-            #   T3 (medium)   — infrastructure detection (docker, k8s, terraform, env)
-            #   T4 (heavy)    — heavy scans (security, testing) + github
-            #   T5 (aggregate)— devops.status, posture.* (need card data)
+            #   T1 (instant)  — light devops + catalog (user-visible first)
+            #   T2 (medium)   — infrastructure devops + github
+            #   T3 (heavy)    — heavy scans (security, testing)
+            #   T4 (index)    — slow index nodes (symbols, peek, stats)
+            #                   These are background metadata — heavy but
+            #                   NOT user-visible on page load.
+            #                   On warm start: index.delta/stats/view
+            #   T5 (aggregate)— devops.status + posture.* + audit L0/L1
+            #   T6 (deep)     — audit L2 + enriched (heavy, TTL=600s)
+            #
+            # NOTE: detect.* nodes are intentionally NOT dispatched.
+            # They use the same compute functions as devops.* and exist
+            # solely for cascade invalidation.  Dispatching both would
+            # duplicate work.
             try:
                 from .work_queue import Priority
 
                 # ── Build tier path lists ────────────────────────────
-                _T2_PATHS = frozenset({
+                _T1_PATHS = frozenset({
                     "devops.git", "devops.ci", "devops.packages",
                     "devops.quality", "devops.docs", "devops.dns",
                 })
-                _T3_PATHS = frozenset({
+                _T2_PATHS = frozenset({
                     "devops.docker", "devops.k8s", "devops.terraform",
                     "devops.env", "devops.github",
                 })
-                _T4_PATHS = frozenset({
+                _T3_PATHS = frozenset({
                     "devops.security", "devops.testing",
                 })
                 _T5_PATHS = frozenset({
                     "devops.status",
+                })
+                # Audit L0/L1 (fast, TTL=300s)
+                _AUDIT_L0L1 = frozenset({
+                    "audit.scores", "audit.system", "audit.deps",
+                    "audit.structure", "audit.clients",
+                })
+                # Audit L2 + enriched (heavy, TTL=600s)
+                _AUDIT_L2 = frozenset({
+                    "audit.system_deep", "audit.l2_structure",
+                    "audit.l2_quality", "audit.l2_repo",
+                    "audit.l2_risks", "audit.scores_enriched",
                 })
 
                 all_paths = mediator.tree.all_paths()
                 posture_paths = [
                     p for p in all_paths if p.startswith("posture.")
                 ]
+                catalog_paths = [
+                    p for p in all_paths if p.startswith("catalog.")
+                ]
+                github_paths = [
+                    p for p in all_paths if p.startswith("github.")
+                ]
 
+                # T1: user-visible devops data (light, fast)
+                tier1_paths = (
+                    [p for p in all_paths if p in _T1_PATHS]
+                    + catalog_paths
+                )
+                # T2: infrastructure devops + github
+                tier2_paths = (
+                    [p for p in all_paths if p in _T2_PATHS]
+                    + github_paths
+                )
+                # T3: heavy scans
+                tier3_paths = [p for p in all_paths if p in _T3_PATHS]
+
+                # T4: slow index nodes (background metadata)
                 if _warm:
                     # Warm start: index nodes already cached from disk.
-                    # Only dispatch devops/posture tiers.
-                    tier1_paths: list[str] = []
+                    # Still dispatch delta/stats/view — content may
+                    # differ from persisted shards.
+                    tier4_paths: list[str] = [
+                        "index.delta", "index.stats", "index.view",
+                    ]
                 else:
-                    # Cold start: T1 = slow index nodes
-                    tier1_paths = list(_SLOW_INDEX) + ["index.view"]
+                    # Cold start: slow index nodes
+                    tier4_paths = list(_SLOW_INDEX) + ["index.view"]
 
-                tier2_paths = [p for p in all_paths if p in _T2_PATHS]
-                tier3_paths = [p for p in all_paths if p in _T3_PATHS]
-                tier4_paths = [p for p in all_paths if p in _T4_PATHS]
+                # T5: aggregates
                 tier5_paths = (
                     [p for p in all_paths if p in _T5_PATHS]
                     + posture_paths
+                    + [p for p in all_paths if p in _AUDIT_L0L1]
                 )
+                # T6: deep audit
+                tier6_paths = [p for p in all_paths if p in _AUDIT_L2]
 
                 # ── Smart dispatch: filter by classify change ──
                 # If classify didn't change, narrow dispatch scope.
+                # Skip smart dispatch entirely if disabled in config.
                 _classify_changed = True
-                if changed_dirs and _prev_classify is not None:
+                if watcher_state.get("smart_dispatch", True) and changed_dirs and _prev_classify is not None:
                     try:
                         new_classify = mediator.peek("index.classify")
                         if (
@@ -412,7 +478,7 @@ def _poll_loop(
                     cycle_ts = time.time() - poll_interval
                     stale_set: set[str] = set()
 
-                    for tier_list in (tier2_paths, tier3_paths, tier4_paths):
+                    for tier_list in (tier1_paths, tier2_paths, tier3_paths):
                         for p in tier_list:
                             node = mediator.tree.resolve(p)
                             if node is None or not node.mtime_paths:
@@ -426,12 +492,13 @@ def _poll_loop(
                                     if dep.startswith(("devops.", "posture.")):
                                         stale_set.add(dep)
 
+                    tier1_paths = [p for p in tier1_paths if p in stale_set]
                     tier2_paths = [p for p in tier2_paths if p in stale_set]
                     tier3_paths = [p for p in tier3_paths if p in stale_set]
-                    tier4_paths = [p for p in tier4_paths if p in stale_set]
-                    # Tier 5 always runs if any downstream changed
+                    # Tier 5/6 always run if any downstream changed
                     if not stale_set:
                         tier5_paths = []
+                        tier6_paths = []
 
                     logger.info(
                         "[IndexWatcher] smart dispatch: classify unchanged, "
@@ -441,11 +508,12 @@ def _poll_loop(
 
                 # ── Define tiers with priorities ─────────────────
                 tiers: list[tuple[str, list[str], int]] = [
-                    ("T1:instant",   tier1_paths, Priority.HIGH),
-                    ("T2:light",     tier2_paths, Priority.NORMAL),
-                    ("T3:medium",    tier3_paths, Priority.NORMAL),
-                    ("T4:heavy",     tier4_paths, Priority.LOW),
+                    ("T1:visible",   tier1_paths, Priority.HIGH),
+                    ("T2:infra",     tier2_paths, Priority.NORMAL),
+                    ("T3:heavy",     tier3_paths, Priority.NORMAL),
+                    ("T4:index",     tier4_paths, Priority.LOW),
                     ("T5:aggregate", tier5_paths, Priority.IDLE),
+                    ("T6:deep",      tier6_paths, Priority.IDLE),
                 ]
 
                 # Filter out empty tiers

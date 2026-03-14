@@ -76,9 +76,32 @@
 
         parts.push(`<span style="color:var(--text-muted)">${data.subscriptions || 0} subs</span>`);
 
-        const execIcon = data.has_executor ? '✓' : '✗';
-        const execColor = data.has_executor ? 'var(--success)' : 'var(--text-muted)';
-        parts.push(`<span style="color:${execColor}">executor: ${execIcon}</span>`);
+        // WorkQueue status
+        const wq = data.work_queue;
+        if (wq && !wq.error) {
+            const capPct = wq.semaphore_capacity > 0
+                ? Math.round((wq.semaphore_used / wq.semaphore_capacity) * 100)
+                : 0;
+            const capColor = capPct >= 80 ? '#ef4444' : capPct >= 50 ? '#f59e0b' : '#34d399';
+            const yieldBadge = wq.yield_flag
+                ? '<span style="color:#f59e0b;font-weight:500" title="Background workers yielding for web requests">⏸ yield</span>'
+                : '';
+            const webBadge = wq.web_requests_active > 0
+                ? `<span style="background:rgba(99,102,241,0.12);color:#6366f1;padding:1px 6px;border-radius:8px;font-size:0.68rem" title="Web requests in flight">${wq.web_requests_active} web</span>`
+                : '';
+
+            parts.push(`<span style="color:var(--success)" title="WorkQueue: ${wq.workers} workers, capacity ${wq.semaphore_used}/${wq.semaphore_capacity}">⚙ WQ</span>`);
+            if (wq.pending > 0) {
+                parts.push(`<span style="background:rgba(99,102,241,0.12);color:#6366f1;padding:1px 6px;border-radius:8px;font-size:0.68rem">${wq.pending} queued</span>`);
+            }
+            parts.push(`<span style="font-size:0.68rem;color:var(--text-muted)" title="Capacity: ${wq.semaphore_used}/${wq.semaphore_capacity} units used"><span style="color:${capColor}">▮</span> ${wq.semaphore_used}/${wq.semaphore_capacity}</span>`);
+            if (webBadge) parts.push(webBadge);
+            if (yieldBadge) parts.push(yieldBadge);
+        } else if (data.has_executor) {
+            parts.push(`<span style="color:var(--success)">executor: ✓</span>`);
+        } else {
+            parts.push(`<span style="color:var(--text-muted)">executor: ✗</span>`);
+        }
 
         el.innerHTML = parts.join('<span style="color:var(--border-subtle);margin:0 4px">│</span>');
     }
@@ -274,11 +297,26 @@
                 <span style="color:#d97706"><strong>${stale}</strong> stale</span>
                 <span style="color:var(--text-muted)"><strong>${cold}</strong> cold</span>`;
         if (refr > 0) html += `<span style="color:#6366f1"><strong>${refr}</strong> refreshing</span>`;
-        html += `<span>seq <strong>#${data.seq || 0}</strong></span>
-                <span>executor: ${data.has_executor ? '<span style="color:var(--success)">✓</span>' : '<span style="color:var(--text-muted)">✗</span>'}</span>
-            </div>
+        html += `<span>seq <strong>#${data.seq || 0}</strong></span>`;
 
-            <table style="width:100%;font-size:0.72rem;border-collapse:collapse">
+        // WorkQueue or executor status
+        const wq = data.work_queue;
+        if (wq && !wq.error) {
+            const capPct = wq.semaphore_capacity > 0
+                ? Math.round((wq.semaphore_used / wq.semaphore_capacity) * 100)
+                : 0;
+            const capColor = capPct >= 80 ? '#ef4444' : capPct >= 50 ? '#f59e0b' : 'var(--success)';
+            html += `<span style="color:var(--success)">⚙ WQ</span>
+                <span>${wq.workers} workers</span>
+                <span style="color:${capColor}">${wq.semaphore_used}/${wq.semaphore_capacity} cap</span>`;
+            if (wq.pending > 0) html += `<span style="color:#818cf8">${wq.pending} queued</span>`;
+            if (wq.yield_flag) html += `<span style="color:#f59e0b">⏸ yield</span>`;
+        } else {
+            html += `<span>executor: ${data.has_executor ? '<span style="color:var(--success)">✓</span>' : '<span style="color:var(--text-muted)">✗</span>'}</span>`;
+        }
+        html += `</div>`;
+
+        html += `<table style="width:100%;font-size:0.72rem;border-collapse:collapse">
                 <tr style="color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
                     <td style="padding:4px 8px 4px 0;font-weight:600">Branch</td>
                     <td style="padding:4px 8px;text-align:center">Nodes</td>
@@ -356,10 +394,12 @@
             <tr style="color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
                 <td style="padding:4px 8px 4px 0">Node</td>
                 <td style="padding:4px 8px;text-align:center">Status</td>
+                <td style="padding:4px 4px;text-align:center">Wt</td>
                 <td style="padding:4px 8px;text-align:right">Age</td>
                 <td style="padding:4px 8px;text-align:right">TTL</td>
             </tr>`;
 
+        const _szColors = { 1: 'var(--text-muted)', 2: '#f59e0b', 3: '#ef4444' };
         for (const p of paths) {
             const e = entries[p];
             const isRefr = refreshing.includes(p);
@@ -373,10 +413,13 @@
 
             const age = (e && e.age_s !== undefined) ? _mediatorFormatAge(e.age_s) : '—';
             const ttl = e ? (e.ttl === null ? '∞' : (e.ttl === 0 ? '∞' : e.ttl + 's')) : '—';
+            const nSz = (e && e.size) || 1;
+            const szColor = _szColors[nSz] || 'var(--text-muted)';
 
             html += `<tr onclick="_mediatorSelectNode('${esc(p)}')" style="cursor:pointer;border-bottom:1px solid var(--border-subtle)" onmouseover="this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.background=''">
                 <td style="padding:3px 8px 3px 0"><a href="javascript:void(0)" style="color:var(--accent);text-decoration:none">${esc(shortName)}</a></td>
                 <td style="padding:3px 8px;text-align:center">${statusIcon}</td>
+                <td style="padding:3px 4px;text-align:center;color:${szColor}">${nSz}</td>
                 <td style="padding:3px 8px;text-align:right;color:var(--text-muted)">${age}</td>
                 <td style="padding:3px 8px;text-align:right;color:var(--text-muted)">${ttl}</td>
             </tr>`;
@@ -489,6 +532,13 @@
 
         html += _detailRow('Persist', data.persist ? '<span style="color:var(--success)">✓ file-backed</span>' : '<span style="color:var(--text-muted)">✗ memory only</span>');
         html += _detailRow('Refreshing', data.refreshing ? '<span style="color:#6366f1">🔄 yes</span>' : '<span style="color:var(--text-muted)">✗</span>');
+
+        // Size (capacity weight)
+        const sizeLabels = { 1: '1 — light', 2: '2 — medium', 3: '3 — heavy' };
+        const sizeColors = { 1: 'var(--success)', 2: '#f59e0b', 3: '#ef4444' };
+        const sz = data.size || 1;
+        html += _detailRow('Size', `<span style="color:${sizeColors[sz] || 'var(--text-muted)'}">${sizeLabels[sz] || sz}</span>`);
+
         html += `</table>`;
 
         // Dependencies section
@@ -1046,12 +1096,21 @@
     let _statusListener = null;
     let _statusCycleInfo = null;  // { phase, total, startTs }
     let _statusVisible = false;
+    let _statusTiers = {};  // { tierName: { status, paths, count, elapsed_ms } }
+    let _statusWorkers = {};  // { worker_id: { path, priority, size, startTs } | null }
+    let _statusWorkerLog = [];  // [{ worker_id, path, priority, size, elapsed_ms, ts, ok }]
+    const _WORKER_LOG_MAX = 40;
 
     function _statusSeedFromDiag(data) {
         if (!data || !data.entries) return;
         const entries = data.entries;
         const refreshing = data.refreshing || [];
         for (const [path, entry] of Object.entries(entries)) {
+            // detect.* nodes are intentionally never dispatched (same
+            // compute as devops.*, exist for cascade invalidation only).
+            // Don't show them as "pending" in the status panel.
+            if (path.startsWith('detect.')) continue;
+
             if (refreshing.includes(path)) {
                 _statusNodes[path] = { status: 'computing', elapsed_ms: null, entries: null, error: null, ts: Date.now() };
             } else if (entry.cached) {
@@ -1064,6 +1123,21 @@
                 };
             } else {
                 _statusNodes[path] = { status: 'pending', elapsed_ms: null, entries: null, error: null, ts: Date.now() };
+            }
+        }
+        // Seed worker activity from diag
+        if (data.work_queue && data.work_queue.workers_activity) {
+            for (const [wid, info] of Object.entries(data.work_queue.workers_activity)) {
+                if (info) {
+                    _statusWorkers[wid] = {
+                        path: info.path,
+                        priority: info.priority,
+                        size: info.size,
+                        startTs: Date.now() - (info.elapsed_ms || 0),
+                    };
+                } else {
+                    _statusWorkers[wid] = null;
+                }
             }
         }
     }
@@ -1093,6 +1167,7 @@
 
             if (type === 'cycle:start') {
                 _statusCycleInfo = { phase: evt.trigger, total: evt.total, startTs: Date.now(), ok: 0, failed: 0 };
+                _statusTiers = {};  // Reset tier tracking for new cycle
                 // Reset all nodes to pending
                 for (const p of (evt.paths || [])) {
                     _statusNodes[p] = { status: 'pending', elapsed_ms: null, entries: null, error: null, ts: Date.now() };
@@ -1125,13 +1200,55 @@
                         _statusNodes[p].ts = Date.now();
                     }
                 }
+            } else if (type === 'tier:start') {
+                const tier = evt.tier;
+                if (tier) _statusTiers[tier] = { status: 'running', paths: evt.paths || [], count: evt.count || 0, elapsed_ms: null };
+            } else if (type === 'tier:done') {
+                const tier = evt.tier;
+                if (tier && _statusTiers[tier]) {
+                    _statusTiers[tier].status = 'done';
+                    _statusTiers[tier].elapsed_ms = evt.elapsed_ms;
+                }
+            } else if (type === 'tiers:done') {
+                // All tiers finished — keep state for display
+            } else if (type === 'wq:worker:start') {
+                const wid = String(evt.worker_id);
+                _statusWorkers[wid] = {
+                    path: evt.path,
+                    priority: evt.priority,
+                    size: evt.size,
+                    startTs: Date.now(),
+                };
+            } else if (type === 'wq:worker:done' || type === 'wq:worker:failed') {
+                const wid = String(evt.worker_id);
+                // Record to history log
+                _statusWorkerLog.push({
+                    worker_id: wid,
+                    path: evt.path,
+                    priority: evt.priority,
+                    size: evt.size,
+                    elapsed_ms: evt.elapsed_ms,
+                    ts: Date.now(),
+                    ok: type === 'wq:worker:done',
+                });
+                if (_statusWorkerLog.length > _WORKER_LOG_MAX) _statusWorkerLog.shift();
+                _statusWorkers[wid] = null;
             }
 
-            // Re-render
-            const container = document.getElementById('debug-mediator-status');
-            if (container && _statusVisible) _statusRender(container);
+            // Throttled re-render (max once per 500ms)
+            _statusScheduleRender();
         };
         document.addEventListener('mediator:event', _statusListener);
+    }
+
+    let _statusRenderTimer = null;
+    function _statusScheduleRender() {
+        if (_statusRenderTimer) return;  // already scheduled
+        _statusRenderTimer = setTimeout(() => {
+            _statusRenderTimer = null;
+            const container = document.getElementById('debug-mediator-status');
+            if (container && _statusVisible) _statusRender(container);
+        }, 500);
     }
 
     function _statusStopListening() {
@@ -1142,6 +1259,10 @@
     }
 
     function _statusRender(container) {
+        // Skip render if user has text selected inside this panel
+        const sel = window.getSelection();
+        if (sel && sel.toString().length > 0 && container.contains(sel.anchorNode)) return;
+
         const allPaths = Object.keys(_statusNodes).sort();
         const counts = { pending: 0, computing: 0, done: 0, failed: 0 };
         for (const n of Object.values(_statusNodes)) counts[n.status]++;
@@ -1173,6 +1294,183 @@
         if (counts.failed > 0) html += '<span style="color:#ef4444">❌ ' + counts.failed + ' failed</span>';
         html += '<span style="color:var(--text-muted)">' + pct + '%</span>';
         html += '</div>';
+
+        // ── WorkQueue Dashboard Card ─────────────────────────
+        const wq = _mediatorDiagData && _mediatorDiagData.work_queue;
+        if (wq && !wq.error) {
+            const capPct = wq.semaphore_capacity > 0
+                ? Math.round((wq.semaphore_used / wq.semaphore_capacity) * 100)
+                : 0;
+            const capBarColor = capPct >= 80 ? '#ef4444' : capPct >= 50 ? '#f59e0b' : '#818cf8';
+
+            html += '<div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:12px">';
+            html += '<div style="font-weight:600;font-size:0.74rem;color:var(--text-primary);margin-bottom:8px">⚙ WorkQueue</div>';
+
+            // Stats row
+            html += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px;font-size:0.7rem">';
+            html += '<span style="color:var(--text-muted)">' + wq.workers + ' workers</span>';
+            html += '<span style="color:var(--text-muted)">capacity: <span style="color:' + capBarColor + '">' + wq.semaphore_used + '/' + wq.semaphore_capacity + '</span></span>';
+            if (wq.pending > 0) html += '<span style="color:#818cf8">' + wq.pending + ' queued</span>';
+            if (wq.web_requests_active > 0) html += '<span style="color:#6366f1;font-weight:500">' + wq.web_requests_active + ' web req</span>';
+            if (wq.yield_flag) html += '<span style="color:#f59e0b;font-weight:500">⏸ yielding</span>';
+            html += '</div>';
+
+            // Capacity gauge bar
+            html += '<div style="height:4px;background:var(--bg-tertiary,#2a2a3e);border-radius:2px;overflow:hidden;margin-bottom:8px">';
+            html += '<div style="height:100%;width:' + capPct + '%;background:' + capBarColor + ';border-radius:2px;transition:width 0.3s"></div>';
+            html += '</div>';
+
+            // Active batch groups
+            const groups = wq.active_groups || {};
+            const groupKeys = Object.keys(groups);
+            if (groupKeys.length > 0) {
+                html += '<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:4px">Active Batches:</div>';
+                for (const gid of groupKeys) {
+                    const g = groups[gid];
+                    const gPct = g.total > 0 ? Math.round(((g.completed + g.failed) / g.total) * 100) : 0;
+                    const gColor = g.failed > 0 ? '#ef4444' : '#34d399';
+                    html += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:0.68rem">';
+                    html += '<span style="color:var(--text-secondary);flex:1">' + gid + '</span>';
+                    html += '<span style="color:' + gColor + '">' + (g.completed + g.failed) + '/' + g.total + '</span>';
+                    if (g.failed > 0) html += '<span style="color:#ef4444">' + g.failed + ' err</span>';
+                    html += '<div style="width:60px;height:3px;background:var(--bg-tertiary,#2a2a3e);border-radius:2px;overflow:hidden">';
+                    html += '<div style="height:100%;width:' + gPct + '%;background:' + gColor + ';border-radius:2px"></div>';
+                    html += '</div>';
+                    html += '</div>';
+                }
+            }
+
+            html += '</div>';
+        }
+
+        // ── Per-Worker Activity ──────────────────────────────
+        const workerIds = Object.keys(_statusWorkers).sort((a, b) => Number(a) - Number(b));
+        const hasWorkers = workerIds.length > 0;
+        const hasLog = _statusWorkerLog.length > 0;
+
+        if (hasWorkers || hasLog) {
+            const now = Date.now();
+            const priNames = {0: 'CRIT', 1: 'HIGH', 2: 'NORM', 3: 'LOW', 4: 'IDLE'};
+            const priColors = {0: '#ef4444', 1: '#f59e0b', 2: '#818cf8', 3: '#64748b', 4: '#475569'};
+
+            html += '<div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:12px">';
+
+            // Header with task count
+            const totalTasks = _statusWorkerLog.length;
+            html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+            html += '<span style="font-weight:600;font-size:0.74rem;color:var(--text-primary)">🔧 Workers</span>';
+            if (totalTasks > 0) {
+                html += '<span style="font-size:0.64rem;color:var(--text-muted)">' + totalTasks + ' tasks completed</span>';
+            }
+            html += '</div>';
+
+            // Live worker status row
+            let anyActive = false;
+            if (hasWorkers) {
+                html += '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">';
+                for (const wid of workerIds) {
+                    const info = _statusWorkers[wid];
+                    const isActive = info != null;
+                    if (isActive) anyActive = true;
+
+                    if (isActive) {
+                        const elMs = now - info.startTs;
+                        const elS = (elMs / 1000).toFixed(1);
+                        const elColor = elMs > 5000 ? '#ef4444' : elMs > 2000 ? '#f59e0b' : '#34d399';
+                        const priName = priNames[info.priority] || 'P' + info.priority;
+                        const priColor = priColors[info.priority] || 'var(--text-muted)';
+
+                        html += '<div style="background:rgba(129,140,248,0.08);border:1px solid rgba(129,140,248,0.2);border-radius:6px;padding:4px 8px;font-size:0.66rem;display:flex;align-items:center;gap:5px">';
+                        html += '<span style="font-weight:700;color:#818cf8">W' + wid + '</span>';
+                        html += '<span style="color:#e2e8f0;font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + info.path + '</span>';
+                        html += '<span style="padding:0 3px;border-radius:3px;background:' + priColor + '22;color:' + priColor + ';font-weight:600;font-size:0.56rem">' + priName + '</span>';
+                        html += '<span style="color:' + elColor + ';font-weight:600">' + elS + 's</span>';
+                        html += '</div>';
+                    } else {
+                        html += '<div style="background:var(--bg-tertiary,rgba(148,163,184,0.05));border:1px solid var(--border-subtle,rgba(148,163,184,0.08));border-radius:6px;padding:4px 8px;font-size:0.66rem;display:flex;align-items:center;gap:5px">';
+                        html += '<span style="font-weight:600;color:var(--text-muted)">W' + wid + '</span>';
+                        html += '<span style="color:var(--text-muted);font-style:italic">idle</span>';
+                        html += '</div>';
+                    }
+                }
+                html += '</div>';
+            }
+
+            // Recent activity log (scrollable)
+            if (hasLog) {
+                html += '<div style="font-size:0.64rem;color:var(--text-muted);margin-bottom:4px">Recent activity:</div>';
+                html += '<div id="status-worker-log" style="max-height:180px;overflow-y:auto;border:1px solid var(--border-subtle,rgba(148,163,184,0.08));border-radius:4px">';
+
+                // Show newest first
+                const logReversed = [..._statusWorkerLog].reverse();
+                for (const entry of logReversed) {
+                    const ok = entry.ok;
+                    const icon = ok ? '✓' : '✗';
+                    const iconColor = ok ? '#34d399' : '#ef4444';
+                    const priName = priNames[entry.priority] || 'P' + entry.priority;
+                    const priColor = priColors[entry.priority] || 'var(--text-muted)';
+                    const elapsed = entry.elapsed_ms != null ? entry.elapsed_ms + 'ms' : '—';
+                    const elColor = (entry.elapsed_ms || 0) > 5000 ? '#ef4444' : (entry.elapsed_ms || 0) > 1000 ? '#f59e0b' : '#34d399';
+                    const szC = entry.size === 3 ? '#ef4444' : entry.size === 2 ? '#f59e0b' : 'var(--text-muted)';
+                    const ago = Math.round((now - entry.ts) / 1000);
+                    const agoStr = ago < 60 ? ago + 's ago' : Math.round(ago / 60) + 'm ago';
+
+                    html += '<div style="display:flex;align-items:center;gap:6px;padding:3px 8px;border-bottom:1px solid var(--border-subtle,rgba(148,163,184,0.04));font-size:0.64rem">';
+                    html += '<span style="color:' + iconColor + ';font-weight:600;min-width:12px">' + icon + '</span>';
+                    html += '<span style="font-weight:600;color:#818cf8;min-width:18px">W' + entry.worker_id + '</span>';
+                    html += '<span style="flex:1;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + entry.path + '</span>';
+                    html += '<span style="padding:0 3px;border-radius:3px;background:' + priColor + '18;color:' + priColor + ';font-weight:500;font-size:0.56rem">' + priName + '</span>';
+                    html += '<span style="color:' + szC + ';font-size:0.56rem">' + entry.size + 'u</span>';
+                    html += '<span style="min-width:42px;text-align:right;color:' + elColor + ';font-weight:500">' + elapsed + '</span>';
+                    html += '<span style="min-width:38px;text-align:right;color:var(--text-muted);font-size:0.58rem">' + agoStr + '</span>';
+                    html += '</div>';
+                }
+
+                html += '</div>';
+            }
+
+            html += '</div>';
+
+            // Auto-refresh timer for live elapsed updates when workers active
+            if (anyActive && _statusVisible) {
+                if (!_statusRender._workerTimer) {
+                    _statusRender._workerTimer = setInterval(() => {
+                        const c = document.getElementById('debug-mediator-status');
+                        if (c && _statusVisible) _statusRender(c);
+                        else { clearInterval(_statusRender._workerTimer); _statusRender._workerTimer = null; }
+                    }, 500);
+                }
+            } else if (_statusRender._workerTimer) {
+                clearInterval(_statusRender._workerTimer);
+                _statusRender._workerTimer = null;
+            }
+        }
+
+        // ── Tier Pipeline ────────────────────────────────────
+        const tierKeys = Object.keys(_statusTiers);
+        if (tierKeys.length > 0) {
+            html += '<div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:12px">';
+            html += '<div style="font-weight:600;font-size:0.74rem;color:var(--text-primary);margin-bottom:8px">🏗 Dispatch Tiers</div>';
+            html += '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">';
+            for (const tk of tierKeys) {
+                const t = _statusTiers[tk];
+                const tDone = t.status === 'done';
+                const tRunning = t.status === 'running';
+                const bgColor = tDone ? 'rgba(52,211,153,0.12)' : tRunning ? 'rgba(129,140,248,0.12)' : 'rgba(148,163,184,0.08)';
+                const fgColor = tDone ? '#34d399' : tRunning ? '#818cf8' : 'var(--text-muted)';
+                const icon = tDone ? '✓' : tRunning ? '⏳' : '○';
+                const elapsed = tDone && t.elapsed_ms ? ' · ' + t.elapsed_ms + 'ms' : '';
+                html += '<div style="background:' + bgColor + ';color:' + fgColor + ';padding:3px 10px;border-radius:8px;font-size:0.68rem;font-weight:500">';
+                html += icon + ' ' + tk + ' (' + t.count + ')' + elapsed;
+                html += '</div>';
+                // Arrow between tiers
+                if (tk !== tierKeys[tierKeys.length - 1]) {
+                    html += '<span style="color:var(--text-muted);font-size:0.6rem">→</span>';
+                }
+            }
+            html += '</div>';
+            html += '</div>';
+        }
 
         // Per-node rows grouped by domain
         const domains = {};
@@ -1213,9 +1511,14 @@
                         icon = '⬜'; color = 'var(--text-muted)'; detail = 'pending';
                 }
 
+                const diagEntry = _mediatorDiagData && _mediatorDiagData.entries && _mediatorDiagData.entries[p];
+                const nSz = (diagEntry && diagEntry.size) || 1;
+                const szC = nSz === 3 ? '#ef4444' : nSz === 2 ? '#f59e0b' : 'var(--text-muted)';
+
                 html += '<div style="display:flex;align-items:center;gap:8px;padding:2px 8px;border-bottom:1px solid var(--border-subtle)">';
                 html += '<span style="min-width:16px">' + icon + '</span>';
                 html += '<span style="flex:1;color:' + color + '">' + name + '</span>';
+                html += '<span style="color:' + szC + ';font-size:0.62rem;min-width:14px;text-align:center" title="weight ' + nSz + '">' + nSz + '</span>';
                 html += '<span style="color:var(--text-muted);font-size:0.64rem;text-align:right">' + detail + '</span>';
                 html += '</div>';
             }
@@ -1223,11 +1526,630 @@
         }
 
         html += '</div>';
+
+        // Save scroll position of worker log before replacing DOM
+        const logEl = container.querySelector('#status-worker-log');
+        const savedScroll = logEl ? logEl.scrollTop : 0;
+
         container.innerHTML = html;
+
+        // Restore scroll position
+        const newLogEl = container.querySelector('#status-worker-log');
+        if (newLogEl && savedScroll > 0) newLogEl.scrollTop = savedScroll;
     }
 
     // Start capturing events immediately at page load.
     // Data accumulates silently; renders only when views are active.
     _statusStartListening();
     _mediatorStartListening();
+
+    // ── Config Panel ─────────────────────────────────────────────
+
+    let _configVisible = false;
+    let _configTimer = null;
+    let _configData = null;
+    let _configNeedsRestart = false;  // persists across re-renders
+    let _configPeakUsed = 0;       // track peak semaphore usage this session
+    let _configUsedSamples = [];   // for avg capacity calc
+
+    async function _mediatorShowConfig() {
+        _configVisible = true;
+        const container = document.getElementById('debug-mediator-config');
+        if (!container) return;
+
+        try {
+            _configData = await api('/mediator/config');
+        } catch (e) {
+            container.innerHTML = '<div style="padding:20px;color:var(--danger)">Failed to load config: ' + esc(e.message) + '</div>';
+            return;
+        }
+
+        _configRender(container);
+
+        if (!_configTimer) {
+            _configTimer = setInterval(() => {
+                const c = document.getElementById('debug-mediator-config');
+                if (c && _configVisible) {
+                    const sel = window.getSelection();
+                    if (sel && sel.toString().length > 0 && c.contains(sel.anchorNode)) return;
+                    _configRenderLive(c);
+                } else {
+                    clearInterval(_configTimer);
+                    _configTimer = null;
+                }
+            }, 2000);
+        }
+    }
+
+    async function _configSave(patch) {
+        try {
+            const resp = await fetch('/api/mediator/config', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(patch),
+            });
+            const result = await resp.json();
+            _configData = result.config || _configData;
+            if (result.needs_restart) _configNeedsRestart = true;
+            const c = document.getElementById('debug-mediator-config');
+            if (c) _configRender(c);
+        } catch (e) {
+            console.error('[Config] save failed:', e);
+        }
+    }
+
+    async function _configRestart() {
+        // Show restarting overlay
+        const banner = document.getElementById('config-restart-banner');
+        if (banner) banner.innerHTML = '<span style="color:#f59e0b;font-weight:600">⟳ Restarting server... page will reload automatically.</span>';
+
+        try { await fetch('/api/server/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); } catch (e) { /* expected — server is dying */ }
+
+        // Poll until server is back, then reload
+        _configNeedsRestart = false;
+        const poll = setInterval(async () => {
+            try {
+                const r = await fetch('/api/mediator/config', { signal: AbortSignal.timeout(2000) });
+                if (r.ok) {
+                    clearInterval(poll);
+                    window.location.reload();
+                }
+            } catch (e) { /* still down, keep polling */ }
+        }, 1000);
+    }
+
+    async function _configDispatchTier(tierName) {
+        // Dispatch all paths for a tier — use mediator dispatch
+        const tierData = _statusTiers || {};
+        const tier = tierData[tierName];
+        if (!tier || !tier.paths || tier.paths.length === 0) return;
+        try {
+            await fetch('/api/mediator/dispatch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paths: tier.paths }),
+            });
+        } catch (e) { console.error('[Config] dispatch failed:', e); }
+    }
+
+    async function _configDispatchAll() {
+        try {
+            await fetch('/api/mediator/dispatch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paths: [] }),  // empty = all
+            });
+        } catch (e) { console.error('[Config] dispatch all failed:', e); }
+    }
+
+    async function _configForceRescan() {
+        try {
+            await fetch('/api/mediator/index/rescan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        } catch (e) { console.error('[Config] rescan failed:', e); }
+    }
+
+    async function _configForceCycle() {
+        try {
+            await fetch('/api/mediator/index/rescan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        } catch (e) { console.error('[Config] force cycle failed:', e); }
+    }
+
+    // ── Shared style constants ──────────────────────────────────
+    const _cfgMono = 'font-family:var(--font-mono,Consolas,Monaco,monospace)';
+    const _cfgCard = 'background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:8px;padding:14px 16px;margin-bottom:14px';
+    const _cfgHead = 'font-weight:700;font-size:0.82rem;margin-bottom:10px;display:flex;align-items:center;gap:6px';
+    const _cfgLabel = 'color:var(--text-muted);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.03em';
+    const _cfgVal = 'font-weight:600;font-size:0.78rem;color:var(--text-primary)';
+    const _cfgMuted = 'color:var(--text-muted);font-size:0.68rem';
+    const _cfgSelect = 'background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 6px;font-size:0.72rem;font-family:inherit;cursor:pointer';
+    const _cfgBtnOn = 'background:#22c55e;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:0.68rem;font-weight:600;cursor:pointer';
+    const _cfgBtnOff = 'background:var(--bg-tertiary,#374151);color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 10px;font-size:0.68rem;font-weight:600;cursor:pointer';
+    const _cfgAction = 'background:var(--bg-tertiary,#374151);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 10px;font-size:0.66rem;font-weight:600;cursor:pointer';
+    const _priLabels = { 0: 'CRIT', 1: 'HIGH', 2: 'NORM', 3: 'LOW', 4: 'IDLE' };
+    const _priColors = { 0: '#ef4444', 1: '#f59e0b', 2: '#3b82f6', 3: '#6b7280', 4: '#374151' };
+
+    // ── Performance profiles ─────────────────────────────────────
+    const _cfgProfiles = {
+        low:    { label: '\ud83d\udc22 Low',    workers: { num_workers: 2, capacity: 4, yield_to_web: true },  watcher: { poll_interval: 10, smart_dispatch: true, enabled: true } },
+        medium: { label: '\u26a1 Medium', workers: { num_workers: 4, capacity: 6, yield_to_web: true },  watcher: { poll_interval: 5,  smart_dispatch: true, enabled: true } },
+        high:   { label: '\ud83d\ude80 High',   workers: { num_workers: 8, capacity: 12, yield_to_web: false }, watcher: { poll_interval: 2,  smart_dispatch: true, enabled: true } },
+    };
+
+    function _configApplyProfile(key) {
+        const p = _cfgProfiles[key];
+        if (!p) return;
+        _configSave({ workers: p.workers, watcher: p.watcher });
+    }
+
+    // ── Tier seeding from diag ─────────────────────────────────
+    // Mirrors the backend tier path definitions so we can show
+    // node counts even before a dispatch cycle fires SSE events.
+    const _cfgTierPathDefs = {
+        'T1:visible': new Set([
+            'devops.git', 'devops.ci', 'devops.packages',
+            'devops.quality', 'devops.docs', 'devops.dns',
+        ]),
+        'T2:infra': new Set([
+            'devops.docker', 'devops.k8s', 'devops.terraform',
+            'devops.env', 'devops.github',
+        ]),
+        'T3:heavy': new Set([
+            'devops.security', 'devops.testing',
+        ]),
+        'T4:index': new Set([
+            'index.symbols', 'index.peek', 'index.delta',
+            'index.stats', 'index.view', 'index.classify',
+        ]),
+        'T5:aggregate': new Set([
+            'devops.status',
+        ]),
+        'T6:deep': new Set([
+            'audit.system_deep', 'audit.l2_structure',
+            'audit.l2_quality', 'audit.l2_repo',
+            'audit.l2_risks', 'audit.scores_enriched',
+        ]),
+    };
+    // Dynamic prefix tiers: T1 also gets catalog.*, T2 gets github.*,
+    // T5 gets posture.* and audit L0/L1
+    const _cfgTierPrefixes = {
+        'T1:visible': ['catalog.'],
+        'T2:infra': ['github.'],
+        'T5:aggregate': ['posture.', 'audit.scores', 'audit.system', 'audit.deps', 'audit.structure', 'audit.clients'],
+    };
+
+    function _configSeedTiers() {
+        // Only seed if _statusTiers is empty (no SSE cycle has fired yet)
+        if (Object.keys(_statusTiers).length > 0) return;
+        const diag = _mediatorDiagData;
+        if (!diag || !diag.entries) return;
+        const allPaths = Object.keys(diag.entries);
+        const assigned = new Set();
+
+        for (const [tierKey, pathSet] of Object.entries(_cfgTierPathDefs)) {
+            const paths = [];
+            for (const p of allPaths) {
+                if (pathSet.has(p)) { paths.push(p); assigned.add(p); continue; }
+                // Check prefixes
+                const prefixes = _cfgTierPrefixes[tierKey] || [];
+                for (const pfx of prefixes) {
+                    if (p.startsWith(pfx)) { paths.push(p); assigned.add(p); break; }
+                }
+            }
+            if (paths.length > 0 || pathSet.size > 0) {
+                _statusTiers[tierKey] = {
+                    status: 'idle',
+                    paths: paths,
+                    count: paths.length,
+                    elapsed_ms: null,
+                };
+            }
+        }
+    }
+
+    function _configRender(container) {
+        _configSeedTiers();
+
+        const cfg = _configData || {};
+        const w = cfg.workers || {};
+        const wt = cfg.watcher || {};
+        const tiers = cfg.tiers || {};
+        const wLive = cfg.watcher_live || {};
+        const diag = _mediatorDiagData;
+        const wq = diag && diag.work_queue;
+
+        let html = '<div style="padding:12px 16px;font-size:0.73rem;' + _cfgMono + '">';
+
+        // Restart banner (shown when _configNeedsRestart is true)
+        html += '<div id="config-restart-banner" style="' + (_configNeedsRestart ? '' : 'display:none;') + 'padding:10px 14px;margin-bottom:12px;border-radius:6px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2)">';
+        html += '<span style="color:#ef4444;font-weight:600">⚠ Worker count changed — restart required.</span> ';
+        html += '<button onclick="_configRestart()" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:4px 12px;font-size:0.7rem;font-weight:600;cursor:pointer;margin-left:8px">🔄 Restart Server</button>';
+        html += '</div>';
+
+        // ── Performance Profile Bar ──────────────────────────────
+
+        // Auto-detect suggested profile from system info
+        const sys = cfg.system || {};
+        const cpus = sys.cpu_count || 4;
+        const memGb = sys.memory_gb;
+        let suggested = 'medium';
+        if (cpus <= 2 || (memGb && memGb < 4)) {
+            suggested = 'low';
+        } else if (cpus >= 8 && (!memGb || memGb >= 8)) {
+            suggested = 'high';
+        }
+
+        // Detect which profile is currently active (exact match)
+        let activeProfile = null;
+        for (const [key, prof] of Object.entries(_cfgProfiles)) {
+            const pw = prof.workers;
+            const pwt = prof.watcher;
+            if ((w.num_workers || 4) === pw.num_workers
+                && (w.capacity || 6) === pw.capacity
+                && (w.yield_to_web !== false) === pw.yield_to_web
+                && (wt.poll_interval || 5) === pwt.poll_interval) {
+                activeProfile = key;
+                break;
+            }
+        }
+
+        html += '<div style="' + _cfgCard + ';padding:10px 16px">';
+        html += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+        html += '<span style="' + _cfgLabel + ';min-width:50px">Profile</span>';
+
+        for (const [key, prof] of Object.entries(_cfgProfiles)) {
+            const isActive = key === activeProfile;
+            const isSuggested = key === suggested;
+            const btnStyle = isActive
+                ? 'background:#3b82f6;color:#fff;border:1px solid #3b82f6'
+                : 'background:var(--bg-tertiary,#374151);color:var(--text-primary);border:1px solid var(--border-subtle)';
+            const star = isSuggested ? ' \u2605' : '';
+
+            html += '<button style="' + btnStyle + ';border-radius:4px;padding:5px 14px;font-size:0.7rem;font-weight:600;cursor:pointer"'
+                  + ' title="' + prof.label.slice(2) + ' profile'
+                  + (isSuggested ? ' (recommended for ' + cpus + ' CPUs' + (memGb ? ', ' + memGb + 'GB RAM' : '') + ')' : '')
+                  + ': ' + prof.workers.num_workers + ' threads, ' + prof.workers.capacity + ' capacity, yield '
+                  + (prof.workers.yield_to_web ? 'ON' : 'OFF') + ', ' + prof.watcher.poll_interval + 's poll"'
+                  + ' onclick="_configApplyProfile(\'' + key + '\')">' 
+                  + prof.label + star
+                  + '</button>';
+        }
+
+        // System info hint
+        html += '<span style="' + _cfgMuted + ';margin-left:auto" title="Detected system resources">'
+              + cpus + ' CPUs' + (memGb ? ' \u00b7 ' + memGb + 'GB RAM' : '') + '</span>';
+
+        html += '</div>';
+        html += '</div>';
+
+        // ══════════════════════════════════════════════════════════
+        // 1. 🔧 Worker Pool
+        // ══════════════════════════════════════════════════════════
+        html += '<div style="' + _cfgCard + '">';
+        html += '<div style="' + _cfgHead + ';justify-content:space-between">'
+             + '<span>🔧 Worker Pool</span>'
+             + '<button style="' + _cfgAction + ';font-size:0.6rem" title="Reset to defaults: 4 threads, 6 capacity, yield ON" onclick="_configSave({workers:{num_workers:4,capacity:6,yield_to_web:true}})">↺ Reset</button>'
+             + '</div>';
+
+        // Controls row
+        html += '<div style="display:flex;gap:20px;align-items:center;margin-bottom:12px;flex-wrap:wrap">';
+
+        // Threads dropdown
+        html += '<div title="Number of concurrent worker threads. Requires server restart to take effect. More threads = more parallelism, but higher CPU/memory usage."><span style="' + _cfgLabel + '">Threads</span> ';
+        html += '<select style="' + _cfgSelect + '" onchange="_configSave({workers:{num_workers:+this.value}})">';
+        for (const v of [1, 2, 4, 6, 8]) {
+            html += '<option value="' + v + '"' + (v === (w.num_workers || 4) ? ' selected' : '') + '>' + v + '</option>';
+        }
+        html += '</select></div>';
+
+        // Capacity dropdown
+        html += '<div title="Max semaphore capacity (weight units). Controls how many tasks run simultaneously based on node weight. Higher = more concurrency but risk of resource contention."><span style="' + _cfgLabel + '">Capacity</span> ';
+        html += '<select style="' + _cfgSelect + '" onchange="_configSave({workers:{capacity:+this.value}})">';
+        for (const v of [2, 4, 6, 8, 12, 16]) {
+            html += '<option value="' + v + '"' + (v === (w.capacity || 6) ? ' selected' : '') + '>' + v + '</option>';
+        }
+        html += '</select></div>';
+
+        // Yield Web toggle
+        const yieldOn = w.yield_to_web !== false;
+        html += '<div title="When ON, background tasks pause at yield points to let web API requests run first. Keeps the UI responsive during heavy computation. Turn OFF only for max throughput when UI responsiveness is not needed."><span style="' + _cfgLabel + '">Yield Web</span> ';
+        html += '<button style="' + (yieldOn ? _cfgBtnOn : _cfgBtnOff) + '" onclick="_configSave({workers:{yield_to_web:' + (!yieldOn) + '}})">';
+        html += yieldOn ? '■ ON' : '□ OFF';
+        html += '</button></div>';
+
+        html += '</div>';
+
+        // Per-worker live rows (populated by _configRenderLive)
+        html += '<div id="config-workers-live"></div>';
+
+        // Semaphore, Queue, Web, Actions (populated by _configRenderLive)
+        html += '<div id="config-workers-stats"></div>';
+
+        // Action buttons
+        html += '<div style="display:flex;gap:8px;margin-top:12px">';
+        html += '<button style="' + _cfgAction + '" title="Set yield flag — background tasks will pause at the next yield point" onclick="_configSave({workers:{yield_to_web:true}})">⏸ Pause All</button>';
+        html += '<button style="' + _cfgAction + '" title="Clear yield flag — background tasks resume normal execution" onclick="_configSave({workers:{yield_to_web:false}})">▶ Resume</button>';
+        html += '<button style="' + _cfgAction + '" title="Gracefully drain all queued tasks, then restart the server to apply thread count changes" onclick="_configRestart()">🔄 Drain & Restart</button>';
+        html += '</div>';
+
+        html += '</div>';
+
+        // ══════════════════════════════════════════════════════════
+        // 2. 📡 Watcher
+        // ══════════════════════════════════════════════════════════
+        html += '<div style="' + _cfgCard + '">';
+        html += '<div style="' + _cfgHead + ';justify-content:space-between">'
+             + '<span>📡 Watcher</span>'
+             + '<button style="' + _cfgAction + ';font-size:0.6rem" title="Reset to defaults: 5s poll, smart dispatch ON" onclick="_configSave({watcher:{poll_interval:5,smart_dispatch:true,enabled:true}})">↺ Reset</button>'
+             + '</div>';
+        html += '<div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:10px">';
+
+        // Poll Interval dropdown
+        html += '<div title="How often the filesystem watcher checks for changed directories. Lower = faster detection but more CPU. Higher = less overhead but slower reaction."><span style="' + _cfgLabel + '">Poll Interval</span> ';
+        html += '<select style="' + _cfgSelect + '" onchange="_configSave({watcher:{poll_interval:+this.value}})">';
+        for (const v of [1, 2, 3, 5, 10, 15, 30, 60]) {
+            html += '<option value="' + v + '"' + (v === (wt.poll_interval || 5) ? ' selected' : '') + '>' + v + 's</option>';
+        }
+        html += '</select></div>';
+
+        // Smart Dispatch toggle
+        const smartOn = wt.smart_dispatch !== false;
+        html += '<div title="When ON, the watcher skips re-dispatching tiers whose classify output has not changed — saves CPU on unchanged projects. When OFF, every poll that detects file changes dispatches all tiers."><span style="' + _cfgLabel + '">Smart Dispatch</span> ';
+        html += '<button style="' + (smartOn ? _cfgBtnOn : _cfgBtnOff) + '" onclick="_configSave({watcher:{smart_dispatch:' + (!smartOn) + '}})">';
+        html += smartOn ? '■ ON' : '□ OFF';
+        html += '</button></div>';
+
+        html += '</div>';
+
+        // Last Scan and Changed Dirs
+        html += '<div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:10px">';
+
+        const lastTs = wLive.last_scan_ts;
+        let lastScanStr = '—';
+        if (lastTs) {
+            const ago = Math.round((Date.now() / 1000) - lastTs);
+            lastScanStr = ago < 60 ? ago + 's ago' : Math.round(ago / 60) + 'm ago';
+        }
+        html += '<div title="Time since the watcher last scanned the filesystem for changes"><span style="' + _cfgLabel + '">Last Scan</span> <span style="' + _cfgVal + '">' + lastScanStr + '</span></div>';
+        html += '<div title="Number of directories that had file changes detected in the last scan"><span style="' + _cfgLabel + '">Changed Dirs</span> <span style="' + _cfgVal + '">' + (wLive.changed_dirs_count || 0) + '</span></div>';
+
+        html += '</div>';
+
+        html += '<div><button style="' + _cfgAction + '" title="Immediately trigger a filesystem scan and dispatch cycle, regardless of poll interval" onclick="_configForceRescan()">⟳ Force Scan Now</button></div>';
+
+        html += '</div>';
+
+        // ══════════════════════════════════════════════════════════
+        // 3. 🏗 Tier Dispatch
+        // ══════════════════════════════════════════════════════════
+        html += '<div style="' + _cfgCard + '">';
+        html += '<div style="' + _cfgHead + ';justify-content:space-between">'
+             + '<span>🏗 Tier Dispatch</span>'
+             + '<button style="' + _cfgAction + ';font-size:0.6rem" title="Reset all tier priorities to defaults: T1=HIGH, T2/T3=NORM, T4=LOW, T5/T6=IDLE" onclick="_configSave({tiers:{\'T1:visible\':{priority:1},\'T2:infra\':{priority:2},\'T3:heavy\':{priority:2},\'T4:index\':{priority:3},\'T5:aggregate\':{priority:4},\'T6:deep\':{priority:4}}})">↺ Reset</button>'
+             + '</div>';
+
+        // Table header
+        html += '<div style="display:grid;grid-template-columns:130px 60px 80px 1fr 100px;gap:4px;padding:4px 8px;border-bottom:1px solid var(--border-subtle);margin-bottom:4px">';
+        html += '<span style="' + _cfgLabel + '">Tier</span>';
+        html += '<span style="' + _cfgLabel + '" title="Number of mediator nodes assigned to this tier">Nodes</span>';
+        html += '<span style="' + _cfgLabel + '" title="Queue priority — CRIT runs first (web requests), then HIGH, NORM, LOW, IDLE">Pri</span>';
+        html += '<span style="' + _cfgLabel + '" title="Current dispatch status for this tier">Status</span>';
+        html += '<span style="' + _cfgLabel + '">Action</span>';
+        html += '</div>';
+
+        const tierDefs = [
+            { key: 'T1:visible',   name: 'T1:visible',   defaultPri: 1, tip: 'User-visible devops data (git, ci, packages, docs, dns) + catalog nodes. Fast, lightweight.' },
+            { key: 'T2:infra',     name: 'T2:infra',     defaultPri: 2, tip: 'Infrastructure nodes (docker, k8s, terraform, env) + github. Medium weight.' },
+            { key: 'T3:heavy',     name: 'T3:heavy',     defaultPri: 2, tip: 'Heavy scans (security, testing). CPU-intensive, may take several seconds.' },
+            { key: 'T4:index',     name: 'T4:index',     defaultPri: 3, tip: 'Index nodes (symbols, peek, delta, stats). Slow on large codebases. Background priority.' },
+            { key: 'T5:aggregate', name: 'T5:aggregate', defaultPri: 4, tip: 'Aggregate nodes (status, posture, audit L0/L1). Depends on earlier tiers completing first.' },
+            { key: 'T6:deep',      name: 'T6:deep',      defaultPri: 4, tip: 'Deep audit (L2 structure, quality, repo, risks, enriched scores). Heaviest, runs last.' },
+        ];
+
+        const tierData = _statusTiers || {};
+
+        for (const td of tierDefs) {
+            const tierCfg = tiers[td.key] || {};
+            const currentPri = tierCfg.priority != null ? tierCfg.priority : td.defaultPri;
+            const tier = tierData[td.name] || {};
+            const count = tier.count || tier.paths_count || '—';
+
+            let statusBadge = '<span style="color:var(--text-muted)">—</span>';
+            let elapsed = '';
+            if (tier.status === 'running') {
+                statusBadge = '<span style="color:#f59e0b">⟳ running</span>';
+            } else if (tier.status === 'done') {
+                elapsed = tier.elapsed_ms != null ? ' ' + (tier.elapsed_ms / 1000).toFixed(0) + 's' : '';
+                statusBadge = '<span style="color:#22c55e">✓ done' + elapsed + '</span>';
+            } else if (tier.status === 'waiting') {
+                statusBadge = '<span style="color:var(--text-muted)">○ waiting</span>';
+            } else if (tier.status === 'idle') {
+                statusBadge = '<span style="color:var(--text-muted)">○ idle</span>';
+            }
+
+            // Action button depends on status
+            let actionBtn = '<button style="' + _cfgAction + '" title="Dispatch all nodes in this tier now" onclick="_configDispatchTier(\'' + td.name + '\')">▶ Dispatch</button>';
+            if (tier.status === 'running') {
+                actionBtn = '<button style="' + _cfgAction + ';color:#ef4444" title="Cancel running tasks for this tier" onclick="_configDispatchTier(\'' + td.name + '\')">⏹ Cancel</button>';
+            } else if (tier.status === 'done') {
+                actionBtn = '<button style="' + _cfgAction + '" title="Re-dispatch this tier (force re-computation)" onclick="_configDispatchTier(\'' + td.name + '\')">▶ Redispatch</button>';
+            }
+
+            html += '<div style="display:grid;grid-template-columns:130px 60px 80px 1fr 100px;gap:4px;padding:4px 8px;align-items:center;border-bottom:1px solid rgba(148,163,184,0.05)" title="' + td.tip + '">';
+            html += '<span style="color:var(--text-primary);font-weight:600;font-size:0.72rem">' + td.name + '</span>';
+            html += '<span style="' + _cfgVal + ';font-size:0.72rem">' + count + '</span>';
+
+            // Priority dropdown
+            html += '<select title="Queue priority for this tier. CRIT = immediate (web), HIGH = first background, NORM = standard, LOW = deferred, IDLE = last" style="' + _cfgSelect + ';font-size:0.66rem" onchange="(function(v,k){var t={};t[k]={priority:+v};_configSave({tiers:t})})(this.value,\'' + td.key + '\')">'; 
+            for (let p = 0; p <= 4; p++) {
+                html += '<option value="' + p + '"' + (p === currentPri ? ' selected' : '') + '>' + _priLabels[p] + '</option>';
+            }
+            html += '</select>';
+
+            html += '<span style="font-size:0.68rem">' + statusBadge + '</span>';
+            html += '<span>' + actionBtn + '</span>';
+            html += '</div>';
+        }
+
+        // Bulk actions
+        html += '<div style="display:flex;gap:8px;margin-top:10px">';
+        html += '<button style="' + _cfgAction + '" title="Dispatch all tiers in sequence (T1→T6)" onclick="_configDispatchAll()">▶ Dispatch All</button>';
+        html += '<button style="' + _cfgAction + '" title="Force a full filesystem scan + dispatch cycle, bypassing smart dispatch" onclick="_configForceCycle()">⟳ Force Full Cycle</button>';
+        html += '</div>';
+
+        html += '</div>';
+
+        // ══════════════════════════════════════════════════════════
+        // 4. 📦 Node Weights
+        // ══════════════════════════════════════════════════════════
+        html += '<div style="' + _cfgCard + '">';
+        html += '<div style="' + _cfgHead + '">📦 Node Weights (size = capacity units consumed)</div>';
+
+        // Group nodes by size from diag data
+        const entries = diag && diag.entries ? diag.entries : {};
+        const sizeGroups = {};
+        for (const [path, info] of Object.entries(entries)) {
+            const sz = info.size || 1;
+            if (!sizeGroups[sz]) sizeGroups[sz] = [];
+            sizeGroups[sz].push(path);
+        }
+
+        const sortedSizes = Object.keys(sizeGroups).map(Number).sort((a, b) => b - a);
+        const barChars = { 3: '██████', 2: '████', 1: '██' };
+
+        for (const sz of sortedSizes) {
+            const paths = sizeGroups[sz].sort();
+            const bar = barChars[sz] || '█'.repeat(Math.min(sz * 2, 10));
+            const barColor = sz >= 3 ? '#ef4444' : sz >= 2 ? '#f59e0b' : '#3b82f6';
+
+            // Show up to 6 names inline, then count
+            let nameStr = '';
+            if (paths.length <= 6) {
+                nameStr = paths.join(', ');
+            } else {
+                nameStr = paths.slice(0, 5).join(', ') + '   (' + paths.length + ')';
+            }
+
+            html += '<div style="display:flex;align-items:baseline;gap:8px;padding:2px 0;font-size:0.7rem">';
+            html += '<span style="min-width:24px;font-weight:700;color:var(--text-primary)">' + sz + 'u</span>';
+            html += '<span style="color:' + barColor + ';font-family:monospace;letter-spacing:-1px">' + bar + '</span>';
+            html += '<span style="color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + nameStr + '</span>';
+            html += '</div>';
+        }
+
+        if (sortedSizes.length === 0) {
+            html += '<div style="' + _cfgMuted + '">No node data. Load mediator diag first.</div>';
+        }
+
+        html += '</div>';
+
+        html += '</div>';
+        container.innerHTML = html;
+
+        // Render live data immediately
+        _configRenderLive(container);
+    }
+
+    function _configRenderLive(container) {
+        const diag = _mediatorDiagData;
+        const wq = diag && diag.work_queue;
+
+        // ── 1. Per-worker rows ──────────────────────────────────
+        const liveEl = container.querySelector('#config-workers-live');
+        if (liveEl && wq) {
+            const nw = wq.workers || 4;
+            const wa = wq.workers_activity || {};
+            let whtml = '';
+
+            // Compute per-worker aggregate stats from log
+            const workerStats = {};
+            for (const e of (_statusWorkerLog || [])) {
+                const wid = e.worker_id != null ? e.worker_id : '?';
+                if (!workerStats[wid]) workerStats[wid] = { tasks: 0, totalMs: 0, ok: 0 };
+                workerStats[wid].tasks++;
+                workerStats[wid].totalMs += (e.elapsed_ms || 0);
+                if (e.ok) workerStats[wid].ok++;
+            }
+
+            for (let i = 0; i < nw; i++) {
+                const wInfo = wa[String(i)];
+                const active = wInfo && wInfo.path;
+                const dot = active ? '🟢' : '⚪';
+                const statusStr = active ? wInfo.path : 'idle';
+                const ws = workerStats[i] || { tasks: 0, totalMs: 0, ok: 0 };
+                const avgMs = ws.tasks > 0 ? Math.round(ws.totalMs / ws.tasks) : 0;
+                const okPct = ws.tasks > 0 ? Math.round((ws.ok / ws.tasks) * 100) : 100;
+
+                whtml += '<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;border-bottom:1px solid rgba(148,163,184,0.04);font-size:0.7rem">';
+                whtml += '<span style="min-width:28px;font-weight:600">W' + i + '</span>';
+                whtml += '<span>' + dot + ' alive</span>';
+                whtml += '<span style="flex:1;color:' + (active ? 'var(--text-primary)' : 'var(--text-muted)') + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (active ? wInfo.path : '') + '">' + statusStr + '</span>';
+                whtml += '<span style="' + _cfgMuted + ';min-width:60px">tasks: ' + ws.tasks + '</span>';
+                whtml += '<span style="' + _cfgMuted + ';min-width:60px">avg: ' + avgMs + 'ms</span>';
+                whtml += '<span style="color:' + (okPct === 100 ? '#22c55e' : '#ef4444') + ';font-weight:600;min-width:50px">ok: ' + okPct + '%</span>';
+                whtml += '</div>';
+            }
+
+            liveEl.innerHTML = whtml;
+        } else if (liveEl) {
+            liveEl.innerHTML = '<div style="' + _cfgMuted + '">Waiting for work queue data...</div>';
+        }
+
+        // ── 1b. Semaphore + Queue + Web Reqs stats ──────────────
+        const statsEl = container.querySelector('#config-workers-stats');
+        if (statsEl && wq) {
+            const cap = wq.semaphore_capacity || 6;
+            const used = wq.semaphore_used || 0;
+            const avail = wq.semaphore_available || 0;
+            const pending = wq.pending || 0;
+            const webActive = wq.web_requests_active || 0;
+            const yieldFlag = wq.yield_flag;
+
+            // Track peak
+            if (used > _configPeakUsed) _configPeakUsed = used;
+            _configUsedSamples.push(used);
+            if (_configUsedSamples.length > 100) _configUsedSamples.shift();
+            const avgUsed = _configUsedSamples.length > 0
+                ? (_configUsedSamples.reduce((a, b) => a + b, 0) / _configUsedSamples.length).toFixed(1)
+                : '0';
+
+            let shtml = '';
+
+            // Semaphore bar
+            const pct = cap > 0 ? Math.round((used / cap) * 100) : 0;
+            const barColor = pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#22c55e';
+            shtml += '<div style="margin:10px 0 8px">';
+            shtml += '<div style="display:flex;justify-content:space-between;margin-bottom:3px">';
+            shtml += '<span style="' + _cfgLabel + '">Semaphore</span>';
+            shtml += '<span style="' + _cfgMuted + '">' + used + '/' + cap + ' used</span>';
+            shtml += '</div>';
+            shtml += '<div style="height:8px;background:rgba(148,163,184,0.1);border-radius:4px;overflow:hidden">';
+            shtml += '<div style="width:' + pct + '%;height:100%;background:' + barColor + ';border-radius:4px;transition:width 0.3s"></div>';
+            shtml += '</div></div>';
+
+            // Queue depth — count by priority if possible
+            // We get total pending from wq, breakdown from log of pending items
+            shtml += '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:6px">';
+            shtml += '<span style="' + _cfgLabel + '">Queue Depth</span>';
+            shtml += '<span style="' + _cfgVal + '">' + pending + ' pending</span>';
+
+            // Priority breakdown from worker activity
+            const priCounts = { 0: 0, 1: 0, 2: 0, 3: 0 };
+            // Can't get exact queue breakdown from diag — show as 0 when idle
+            shtml += '<span style="' + _cfgMuted + '">';
+            shtml += priCounts[0] + ' CRIT  ' + priCounts[1] + ' HIGH  ' + priCounts[2] + ' NORM  ' + priCounts[3] + ' LOW';
+            shtml += '</span>';
+            shtml += '</div>';
+
+            // Web reqs + yield
+            shtml += '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">';
+            shtml += '<span style="' + _cfgLabel + '">Web Reqs</span>';
+            shtml += '<span style="' + _cfgVal + '">' + webActive + ' active</span>';
+            shtml += '<span style="' + _cfgMuted + '">yield flag: ' + (yieldFlag ? 'on' : 'off') + '</span>';
+            shtml += '</div>';
+
+            statsEl.innerHTML = shtml;
+        }
+
+    }
+
 </script>

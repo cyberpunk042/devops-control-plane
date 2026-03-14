@@ -689,6 +689,7 @@ class QueryMediator:
                 "has_resolver": node.resolver is not None,
                 "ttl": None if (node.ttl is not None and node.ttl == math.inf) else node.ttl,
                 "persist": node.persist,
+                "size": node.size,
                 "depends_on": node.depends_on,
                 "dependents": node.dependents,
                 "is_branch": node.is_branch,
@@ -733,6 +734,7 @@ class QueryMediator:
             entry_info: dict[str, Any] = {
                 "depends_on": node.depends_on,
                 "dependents": node.dependents,
+                "size": node.size,
             }
             if node_path in cache_keys:
                 entry = self._get_cached(node_path)
@@ -755,6 +757,14 @@ class QueryMediator:
 
             entries[node_path] = entry_info
 
+        # WorkQueue diagnostics
+        wq_diag = None
+        if self._work_queue is not None:
+            try:
+                wq_diag = self._work_queue.diag()
+            except Exception:
+                wq_diag = {"error": "unavailable"}
+
         return {
             "tree": tree_stats,
             "seq": self._seq,
@@ -764,6 +774,8 @@ class QueryMediator:
             "subscriptions": len(self._subscriptions),
             "refreshing": sorted(self._refreshing),
             "has_executor": self._executor is not None,
+            "has_work_queue": self._work_queue is not None,
+            "work_queue": wq_diag,
             "entries": entries,
         }
 
@@ -1352,6 +1364,7 @@ class QueryMediator:
                                 "(age=%.1fs, ttl=%s), skipping",
                                 task_id, p, age, node.ttl,
                             )
+                            self._publish_dispatch_skip(p, entry)
                             continue
                     elif node is not None and node.ttl is None:
                         # No TTL = event-driven invalidation.
@@ -1362,6 +1375,7 @@ class QueryMediator:
                             "event-driven), skipping",
                             task_id, p,
                         )
+                        self._publish_dispatch_skip(p, entry)
                         continue
                 self.get(p, force=True)
             except Exception:
@@ -1370,4 +1384,31 @@ class QueryMediator:
                 )
             finally:
                 self.clear_refreshing(p)
+
+    def _publish_dispatch_skip(self, path: str, entry: object) -> None:
+        """Publish an index:node:done event for a skipped dispatch node.
+
+        When the dispatch worker skips a node because it's still fresh,
+        the status panel needs to know it's "done" — otherwise it stays
+        permanently "pending" in the UI.
+        """
+        try:
+            from src.core.services.event_bus import bus
+
+            elapsed_ms = 0
+            if hasattr(entry, 'elapsed_s') and entry.elapsed_s is not None:
+                elapsed_ms = round(entry.elapsed_s * 1000)
+
+            bus.publish(
+                "index:node:done",
+                key=path,
+                data={
+                    "timestamp": time.time(),
+                    "path": path,
+                    "elapsed_ms": elapsed_ms,
+                    "skipped": True,
+                },
+            )
+        except Exception:
+            pass  # observability must never crash dispatch
 

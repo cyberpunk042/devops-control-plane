@@ -26,7 +26,11 @@ initialized (server startup not complete), routes return 503.
 
 from __future__ import annotations
 
+import logging
+
 from flask import Blueprint, jsonify, request
+
+logger = logging.getLogger(__name__)
 
 mediator_bp = Blueprint("mediator", __name__)
 
@@ -422,4 +426,143 @@ def mediator_events_recent():  # type: ignore[no-untyped-def]
     # Most recent first, capped
     events = list(reversed(events))[:limit]
     return jsonify({"events": events, "total": len(events)})
+
+
+# ── Mediator config (runtime settings) ────────────────────────────
+
+
+@mediator_bp.route("/mediator/config", methods=["GET"])
+def mediator_config_get():  # type: ignore[no-untyped-def]
+    """Return current mediator configuration.
+
+    Returns the merged config (defaults + saved overrides).
+    """
+    from flask import current_app
+
+    from src.core.services.mediator.config import load_config
+    from src.core.services.mediator.index_watcher import watcher_state
+
+    root = current_app.config["PROJECT_ROOT"]
+    cfg = load_config(root)
+
+    # Attach live watcher state info
+    cfg["watcher_live"] = {
+        "last_scan_ts": watcher_state.get("last_scan_ts"),
+        "changed_dirs_count": watcher_state.get("changed_dirs_count", 0),
+    }
+
+    # Attach system info for profile auto-detection
+    import os
+    try:
+        import psutil
+        mem_gb = round(psutil.virtual_memory().total / (1024 ** 3), 1)
+    except Exception:
+        mem_gb = None
+    cfg["system"] = {
+        "cpu_count": os.cpu_count() or 4,
+        "memory_gb": mem_gb,
+    }
+
+    return jsonify(cfg)
+
+
+@mediator_bp.route("/mediator/config", methods=["PUT"])
+def mediator_config_put():  # type: ignore[no-untyped-def]
+    """Update mediator configuration.
+
+    JSON body: partial dict of settings to update.
+    Returns the full merged config after save, plus
+    ``needs_restart`` if ``num_workers`` changed.
+
+    Changes are applied live where possible (capacity,
+    yield_to_web, poll_interval, smart_dispatch, enabled,
+    tier priorities).  ``num_workers`` requires a restart.
+    """
+    from flask import current_app
+
+    from src.core.services.mediator.config import load_config, save_config
+
+    root = current_app.config["PROJECT_ROOT"]
+    data = request.get_json(silent=True) or {}
+
+    old = load_config(root)
+
+    # Deep merge incoming data into current config
+    from src.core.services.mediator.config import _deep_merge
+    import copy
+    merged = _deep_merge(copy.deepcopy(old), data)
+    saved = save_config(root, merged)
+
+    # Detect if num_workers changed (requires restart)
+    old_nw = old.get("workers", {}).get("num_workers", 4)
+    new_nw = saved.get("workers", {}).get("num_workers", 4)
+    needs_restart = old_nw != new_nw
+
+    # Apply live changes
+    _apply_config_live(saved, old)
+
+    return jsonify({
+        "config": saved,
+        "needs_restart": needs_restart,
+    })
+
+
+def _apply_config_live(
+    config: dict,
+    old_config: dict,
+) -> None:
+    """Push config changes to live WorkQueue and IndexWatcher."""
+    from flask import current_app
+
+    mediator = current_app.config.get("mediator")
+    if not mediator:
+        return
+
+    w = config.get("workers", {})
+    old_w = old_config.get("workers", {})
+
+    # Capacity — resize the semaphore
+    new_cap = w.get("capacity", 6)
+    old_cap = old_w.get("capacity", 6)
+    if new_cap != old_cap and hasattr(mediator, "_work_queue") and mediator._work_queue:
+        wq = mediator._work_queue
+        if hasattr(wq, '_semaphore'):
+            wq._semaphore._capacity = new_cap
+            logger.info("WorkQueue capacity changed: %d → %d", old_cap, new_cap)
+
+    # Yield to web
+    new_yield = w.get("yield_to_web", True)
+    old_yield = old_w.get("yield_to_web", True)
+    if new_yield != old_yield and hasattr(mediator, "_work_queue") and mediator._work_queue:
+        wq = mediator._work_queue
+        if new_yield:
+            wq._yield_flag.set()
+        else:
+            wq._yield_flag.clear()
+        logger.info("WorkQueue yield_to_web: %s → %s", old_yield, new_yield)
+
+    # Watcher settings — update the module-level watcher_state dict
+    # which the poll loop reads each iteration
+    wt = config.get("watcher", {})
+    old_wt = old_config.get("watcher", {})
+
+    from src.core.services.mediator.index_watcher import watcher_state
+
+    new_poll = wt.get("poll_interval", 5.0)
+    old_poll = old_wt.get("poll_interval", 5.0)
+    if new_poll != old_poll:
+        watcher_state["poll_interval"] = new_poll
+        logger.info("IndexWatcher poll_interval: %s → %s", old_poll, new_poll)
+
+    new_smart = wt.get("smart_dispatch", True)
+    old_smart = old_wt.get("smart_dispatch", True)
+    if new_smart != old_smart:
+        watcher_state["smart_dispatch"] = new_smart
+        logger.info("IndexWatcher smart_dispatch: %s → %s", old_smart, new_smart)
+
+    new_enabled = wt.get("enabled", True)
+    old_enabled = old_wt.get("enabled", True)
+    if new_enabled != old_enabled:
+        watcher_state["enabled"] = new_enabled
+        logger.info("IndexWatcher enabled: %s → %s", old_enabled, new_enabled)
 

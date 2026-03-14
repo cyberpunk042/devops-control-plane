@@ -94,6 +94,8 @@
             'index:cycle:start', 'index:node:start', 'index:node:done',
             'index:node:failed', 'index:cycle:done', 'index:dispatch',
             'index:watcher:change',
+            'index:tier:start', 'index:tier:done', 'index:tiers:done',
+            'wq:worker:start', 'wq:worker:done', 'wq:worker:failed',
         ],
 
         /** Open the SSE connection. Safe to call multiple times. */
@@ -199,6 +201,9 @@
                 case 'index:node:failed':
                 case 'index:cycle:done':
                 case 'index:dispatch':
+                case 'index:tier:start':
+                case 'index:tier:done':
+                case 'index:tiers:done':
                 case 'index:watcher:change': {
                     const iData = payload.data || {};
                     const iType = type.replace('index:', '');
@@ -217,6 +222,28 @@
                             ok: iData.ok,
                             count: iData.count,
                             empty: iData.empty,
+                            tier: iData.tier,
+                        }
+                    }));
+                    break;
+                }
+
+                // WorkQueue worker activity events
+                case 'wq:worker:start':
+                case 'wq:worker:done':
+                case 'wq:worker:failed': {
+                    const wData = payload.data || {};
+                    document.dispatchEvent(new CustomEvent('mediator:event', {
+                        detail: {
+                            type: type,
+                            worker_id: wData.worker_id,
+                            path: wData.path,
+                            paths: wData.path ? [wData.path] : [],
+                            priority: wData.priority,
+                            size: wData.size,
+                            elapsed_ms: wData.elapsed_ms,
+                            group_id: wData.group_id,
+                            ts: Date.now(),
                         }
                     }));
                     break;

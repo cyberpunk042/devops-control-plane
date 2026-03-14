@@ -102,16 +102,26 @@
     const previewEl = document.getElementById(`debug-${panel}-preview`);
     const editorEl = document.getElementById(`debug-${panel}-editor`);
     const statusEl = document.getElementById(`debug-${panel}-status`);
+    const configEl = document.getElementById(`debug-${panel}-config`);
 
     // Hide all view containers first
     if (previewEl) previewEl.style.display = 'none';
     if (editorEl) editorEl.style.display = 'none';
     if (statusEl) statusEl.style.display = 'none';
+    if (configEl) configEl.style.display = 'none';
 
         // Stop status listener when leaving mediator status mode
         if (panel === 'mediator' && mode !== 'status' && typeof _statusStopListening === 'function') {
             _statusStopListening();
             _statusVisible = false;
+        }
+        // Stop config timer when leaving config mode
+        if (panel === 'mediator' && mode !== 'config') {
+            if (typeof _configVisible !== 'undefined') _configVisible = false;
+            if (typeof _configTimer !== 'undefined' && _configTimer) {
+                clearInterval(_configTimer);
+                _configTimer = null;
+            }
         }
 
         if (mode === 'source') {
@@ -153,6 +163,11 @@
             if (typeof _mediatorShowStatus === 'function') {
                 _statusVisible = true;
                 _mediatorShowStatus();
+            }
+        } else if (mode === 'config' && configEl) {
+            configEl.style.display = '';
+            if (typeof _mediatorShowConfig === 'function') {
+                _mediatorShowConfig();
             }
         } else {
             // Preview mode — restore the original display value

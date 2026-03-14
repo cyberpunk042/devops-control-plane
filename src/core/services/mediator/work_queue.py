@@ -387,11 +387,18 @@ class WorkQueue:
         self._shutdown = False
         self._shutdown_event = threading.Event()
 
+        # Per-worker activity tracking
+        # Maps worker_id (int) → { path, priority, size, started_at } or None
+        self._worker_activity: dict[int, dict | None] = {}
+        self._worker_activity_lock = threading.Lock()
+
         # Start worker threads
         self._workers: list[threading.Thread] = []
         for i in range(num_workers):
+            self._worker_activity[i] = None
             t = threading.Thread(
                 target=self._worker_loop,
+                args=(i,),
                 name=f"{thread_name_prefix}-{i}",
                 daemon=True,
             )
@@ -619,6 +626,19 @@ class WorkQueue:
                     "failed": g.failed,
                 }
 
+        # Per-worker activity snapshot
+        now = time.monotonic()
+        workers_activity: dict[str, dict | None] = {}
+        with self._worker_activity_lock:
+            for wid, info in self._worker_activity.items():
+                if info is not None:
+                    workers_activity[str(wid)] = {
+                        **info,
+                        "elapsed_ms": round((now - info["started_at"]) * 1000),
+                    }
+                else:
+                    workers_activity[str(wid)] = None
+
         return {
             "pending": self.pending,
             "semaphore_capacity": self._semaphore.capacity,
@@ -629,6 +649,7 @@ class WorkQueue:
             "workers": self._num_workers,
             "shutdown": self._shutdown,
             "active_groups": active_groups,
+            "workers_activity": workers_activity,
         }
 
     # ── Shutdown ───────────────────────────────────────────────
@@ -669,7 +690,7 @@ class WorkQueue:
 
     # ── Worker loop (private) ──────────────────────────────────
 
-    def _worker_loop(self) -> None:
+    def _worker_loop(self, worker_id: int) -> None:
         """Main loop for each worker thread.
 
         1. Pull highest-priority item from queue
@@ -706,17 +727,29 @@ class WorkQueue:
             # ── Set thread-local yield check ───────────────────
             _tls.yield_check = self.should_yield
 
+            # ── Record worker activity ─────────────────────────
+            t0 = time.monotonic()
+            with self._worker_activity_lock:
+                self._worker_activity[worker_id] = {
+                    "path": item.path,
+                    "priority": item.priority,
+                    "size": item.size,
+                    "started_at": t0,
+                    "group_id": item.group_id,
+                }
+            self._publish_worker_event("wq:worker:start", worker_id, item)
+
             result = None
             success = True
 
             try:
-                t0 = time.monotonic()
                 result = item.resolver()
                 elapsed = time.monotonic() - t0
 
                 logger.debug(
-                    "[WorkQueue] %s completed in %.1fms "
+                    "[WorkQueue] W%d %s completed in %.1fms "
                     "(priority=%d, size=%d)",
+                    worker_id,
                     item.path,
                     elapsed * 1000,
                     item.priority,
@@ -747,6 +780,16 @@ class WorkQueue:
                         )
 
             finally:
+                elapsed_ms = round((time.monotonic() - t0) * 1000)
+
+                # ── Clear worker activity ──────────────────────
+                with self._worker_activity_lock:
+                    self._worker_activity[worker_id] = None
+                self._publish_worker_event(
+                    "wq:worker:done" if success else "wq:worker:failed",
+                    worker_id, item, elapsed_ms=elapsed_ms,
+                )
+
                 # ── Release capacity ───────────────────────────
                 self._semaphore.release(item.size)
 
@@ -760,6 +803,34 @@ class WorkQueue:
                     )
 
                 self._queue.task_done()
+
+    def _publish_worker_event(
+        self,
+        event_type: str,
+        worker_id: int,
+        item: WorkItem,
+        *,
+        elapsed_ms: int | None = None,
+    ) -> None:
+        """Publish a worker activity event on the EventBus."""
+        try:
+            from src.core.services.event_bus import bus
+
+            data: dict[str, Any] = {
+                "timestamp": time.time(),
+                "worker_id": worker_id,
+                "path": item.path,
+                "priority": item.priority,
+                "size": item.size,
+            }
+            if elapsed_ms is not None:
+                data["elapsed_ms"] = elapsed_ms
+            if item.group_id:
+                data["group_id"] = item.group_id
+
+            bus.publish(event_type, key=item.path, data=data)
+        except Exception:
+            pass  # observability must never crash workers
 
     def _record_group_completion(
         self, group_id: str, success: bool,
