@@ -3,15 +3,14 @@
 // ── System Posture — nav badge + detail modal ─────────────────────
 // ═══════════════════════════════════════════════════════════════════
 //
-// Polls /api/posture/summary every 60s to update the nav badge.
+// Fetches /api/posture/summary once on load, then subscribes
+// to SSE cache:done events for live updates via the mediator.
 // Clicking the badge opens a modal with full pillar details.
 
 (function() {
     'use strict';
 
     // ── Constants ──────────────────────────────────────────────
-    const POLL_INTERVAL = 60000;
-    let _pollTimer = null;
     let _lastPosture = null;
 
     // ── Rank → CSS class mapping ─────────────────────────────
@@ -64,7 +63,7 @@
         badge.title = summary.summary || 'System Posture — click for details';
     }
 
-    // ── Summary poll ──────────────────────────────────────────
+    // ── Summary fetch (one-time on load) ──────────────────────
     async function fetchSummary() {
         try {
             const resp = await fetch('/api/posture/summary');
@@ -77,10 +76,17 @@
         }
     }
 
-    function startPolling() {
+    function initPosture() {
+        // One-time fetch for initial badge state
         fetchSummary();
-        if (_pollTimer) clearInterval(_pollTimer);
-        _pollTimer = setInterval(fetchSummary, POLL_INTERVAL);
+
+        // Subscribe to SSE for live updates (replaces polling)
+        if (typeof storeRegister === 'function') {
+            storeRegister('posture:summary', function(data) {
+                _lastPosture = data;
+                updateBadge(data);
+            });
+        }
     }
 
     // ── Modal ─────────────────────────────────────────────────
@@ -699,9 +705,9 @@
 
     // ── Start on page load ────────────────────────────────────
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', startPolling);
+        document.addEventListener('DOMContentLoaded', initPosture);
     } else {
-        startPolling();
+        initPosture();
     }
 })();
 </script>

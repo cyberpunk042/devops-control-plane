@@ -60,3 +60,12 @@ After you announce the truncation:
 4. You follow the user's direction — you do NOT lead
 
 This is not optional. This is not a suggestion. This is a HARD STOP.
+
+## Cross-References
+
+- **POST-CHECKPOINT-QUARANTINE**: `.agent/rules/POST-CHECKPOINT-QUARANTINE--checkpoint-is-reference-NOT-direction.md`
+  — After the user re-orients you, apply quarantine: checkpoint = reference only, user's words = direction.
+- **ECHO-FIRST**: `.agent/rules/ECHO-FIRST--state-the-users-request-before-acting.md`
+  — Before acting on the user's re-orientation, ECHO it back to confirm you parsed it correctly.
+- **CORRECTION-ESCALATION**: `.agent/rules/CORRECTION-ESCALATION--3-corrections-means-CORRUPTED.md`
+  — If after re-orientation the user corrects you 3+ times, trigger `/reset-corruption`.

@@ -76,8 +76,8 @@ TTLS: dict[str, float] = {
     "toolchain": 300,          # 5 minutes
     "project": 60,             # 1 minute (underlying data is mtime-cached)
     "runtime": 0,              # Always fresh (in-memory state)
-    "full": 60,                # Full posture assembly
-    "summary": 30,             # Nav badge summary
+    "full": 1200,              # 20 min — cascade handles real changes
+    "summary": 600,            # 10 min — cascade handles real changes
 }
 
 # Keys whose data is a model object (needs to_dict/from_dict).

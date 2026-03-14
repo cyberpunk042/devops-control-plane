@@ -123,7 +123,7 @@ def register_posture(mediator: QueryMediator) -> None:
     tree.register(TreeRegistration(
         path="posture.full",
         resolver=_resolve_full,
-        ttl=60,              # 1 minute
+        ttl=1200,            # 20 min — cascade handles real changes
         persist=True,
         depends_on=[
             "posture.platform",
@@ -141,7 +141,7 @@ def register_posture(mediator: QueryMediator) -> None:
     tree.register(TreeRegistration(
         path="posture.summary",
         resolver=_resolve_summary,
-        ttl=30,              # 30 seconds
+        ttl=600,             # 10 min — cascade handles real changes
         persist=True,
         depends_on=["posture.full"],
     ))

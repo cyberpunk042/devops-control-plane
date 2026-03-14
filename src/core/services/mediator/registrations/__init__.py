@@ -38,6 +38,8 @@ def register_all(mediator: QueryMediator) -> None:
     from .audit import register_audit
     from .catalog import register_catalog
 
+    from .tabmesh import register_tabmesh
+
     register_index(mediator)    # root of the tree — everything depends on this
     register_detect(mediator)   # detect.* depends on index.classify
     register_devops(mediator)   # devops.* depends on detect.*
@@ -45,6 +47,7 @@ def register_all(mediator: QueryMediator) -> None:
     register_github(mediator)   # github.* — leaf, no cascade deps
     register_audit(mediator)    # audit.* — leaf, no cascade deps
     register_catalog(mediator)  # catalog.* — leaf, no cascade deps
+    register_tabmesh(mediator)  # tabmesh.* — CDP status, leaf, no cascade deps
 
     # ── Subscribers (after all domains) ────────────────────────
     from src.core.services.mediator.subscribers.activity import (

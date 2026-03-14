@@ -347,7 +347,7 @@ def evict_port(port: int) -> None:
 # ── Boot / warm ───────────────────────────────────────────────
 
 
-def warm(port: int = _DEFAULT_PORT) -> dict:
+def warm(port: int = _DEFAULT_PORT, *, silent: bool = False) -> dict:
     """Warm the CDP infrastructure.
 
     Called at server startup or when the user opens the CDP test
@@ -379,7 +379,8 @@ def warm(port: int = _DEFAULT_PORT) -> dict:
         logger.debug("Channel lifecycle check failed: %s", exc)
 
     # If WSL2 NAT mode and no fast channel, notify the user
-    if router.needs_tunnel(port):
+    # (skip notification during silent startup warm-up)
+    if router.needs_tunnel(port) and not silent:
         logger.info(
             "No fast channel for port %d — creating setup notification",
             port,

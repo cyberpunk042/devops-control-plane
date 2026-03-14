@@ -501,6 +501,57 @@ def _check_wsl_firewall_rule() -> bool:
         status["rule_exists"] and status["rule_enabled"]
     )
 
+# ── Tab lifecycle beacon endpoints ────────────────────────────
+# These receive navigator.sendBeacon() payloads when tabs close,
+# are killed, or when CDP failure is detected.  They always return
+# 204 — sendBeacon must never fail.
+
+
+@tab_mesh_bp.route("/tab-mesh/leave", methods=["POST"])
+def tab_mesh_leave():
+    """Handle tab departure beacon.
+
+    Receives sendBeacon payload when a tab closes, is killed,
+    or the browser exits.  Removes the tab's chromeTargetId
+    from the active target index.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        tab_id = data.get("tabId")
+        target_id = data.get("chromeTargetId")
+
+        if tab_id and target_id:
+            logger.debug(
+                "Tab %s leaving, releasing target %s",
+                tab_id, target_id,
+            )
+            # Future: maintain a server-side target index
+            # For now, log for observability
+    except Exception:
+        pass  # sendBeacon — never fail
+
+    return "", 204
+
+
+@tab_mesh_bp.route("/tab-mesh/cdp-invalidate", methods=["POST"])
+def tab_mesh_cdp_invalidate():
+    """Invalidate cached CDP status.
+
+    Called via sendBeacon when a CDP operation fails,
+    indicating Chrome may have crashed or become unreachable.
+    Invalidates the mediator node → SSE pushes to all tabs.
+    """
+    try:
+        from src.core.services.mediator import get_mediator
+
+        m = get_mediator()
+        m.put("tabmesh.cdp_status", cascade=False)
+        logger.info("CDP status invalidated via tab-mesh beacon")
+    except Exception as exc:
+        logger.debug("CDP invalidation failed: %s", exc)
+
+    return "", 204
+
 
 @tab_mesh_bp.route("/tab-mesh/cdp-status")
 def cdp_status():

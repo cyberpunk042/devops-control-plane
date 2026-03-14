@@ -27,9 +27,17 @@
     // ── Tab identity ───────────────────────────────────────────────────
 
     function _meshGenerateId() {
-        if (_meshCaps.cryptoUUID) return crypto.randomUUID();
-        return 'tab-' + Math.random().toString(36).substring(2, 10) +
-               '-' + Date.now().toString(36);
+        // Persist tab ID in sessionStorage so the same browser tab keeps
+        // the same mesh ID across full-page navigations (Flask reloads).
+        // sessionStorage is per-tab — new tabs get a new ID automatically.
+        var stored = sessionStorage.getItem('mesh_tab_id');
+        if (stored) return stored;
+        var id = _meshCaps.cryptoUUID
+            ? crypto.randomUUID()
+            : 'tab-' + Math.random().toString(36).substring(2, 10) +
+              '-' + Date.now().toString(36);
+        sessionStorage.setItem('mesh_tab_id', id);
+        return id;
     }
 
     function _meshDetectTabType() {
@@ -227,6 +235,38 @@
             id:   _meshIdentity.id,
             ts:   Date.now(),
         });
+
+        // Notify backend (fire-and-forget, survives page unload)
+        try {
+            navigator.sendBeacon('/api/tab-mesh/leave', JSON.stringify({
+                tabId: _meshTabId,
+                chromeTargetId: _meshIdentity.chromeTargetId || null,
+            }));
+        } catch (_) {}
+    }
+
+    /**
+     * Propagate CDP failure to all tabs + backend.
+     * Called when any CDP operation fails due to connection/network error,
+     * indicating Chrome may have crashed or become unreachable.
+     */
+    function _meshCDPFailure() {
+        _meshCDPAvailable = false;
+        _meshIdentity.chromeTargetId = null;
+        sessionStorage.removeItem('cdp_status');
+        sessionStorage.removeItem('chrome_target_' + _meshTabId);
+
+        // Horizontal channel: tell all sibling tabs
+        _meshBroadcast({
+            type: 'cdp_lost',
+            id:   _meshTabId,
+            ts:   Date.now(),
+        });
+
+        // Vertical channel: tell backend to invalidate mediator node
+        try {
+            navigator.sendBeacon('/api/tab-mesh/cdp-invalidate');
+        } catch (_) {}
     }
 
     // ── BC message handler ─────────────────────────────────────────────
@@ -300,6 +340,14 @@
             case 'dump':
                 // Inspect response — emit custom event for debug panel
                 window.dispatchEvent(new CustomEvent('tab-mesh:dump', { detail: msg }));
+                break;
+
+            case 'cdp_lost':
+                // Chrome crashed — invalidate local CDP state
+                _meshCDPAvailable = false;
+                _meshIdentity.chromeTargetId = null;
+                sessionStorage.removeItem('cdp_status');
+                sessionStorage.removeItem('chrome_target_' + _meshTabId);
                 break;
         }
     }
@@ -398,6 +446,18 @@
         if (_meshHeartbeatInterval) {
             clearInterval(_meshHeartbeatInterval);
             _meshHeartbeatInterval = null;
+        }
+
+        // Clean up CDP state for this tab
+        if (_meshIdentity.chromeTargetId) {
+            try {
+                navigator.sendBeacon('/api/tab-mesh/leave', JSON.stringify({
+                    tabId: _meshTabId,
+                    chromeTargetId: _meshIdentity.chromeTargetId,
+                }));
+            } catch (_) {}
+            _meshIdentity.chromeTargetId = null;
+            sessionStorage.removeItem('chrome_target_' + _meshTabId);
         }
 
         // Send leave and close channel
@@ -596,6 +656,15 @@
      * window.__meshTabId via CDP on candidate targets.
      */
     async function _meshDiscoverTarget() {
+        // Check sessionStorage cache first
+        var cached = sessionStorage.getItem('chrome_target_' + _meshTabId);
+        if (cached) {
+            _meshIdentity.chromeTargetId = cached;
+            console.log('[TabMesh] Chrome target ID from cache:', cached);
+            _meshSendPing();  // broadcast to siblings
+            return;
+        }
+
         try {
             var resp = await fetch('/api/tab-mesh/discover-target', {
                 method: 'POST',
@@ -608,6 +677,11 @@
             var data = await resp.json();
             if (data.chromeTargetId) {
                 _meshIdentity.chromeTargetId = data.chromeTargetId;
+                // Persist to sessionStorage
+                sessionStorage.setItem(
+                    'chrome_target_' + _meshTabId,
+                    data.chromeTargetId
+                );
                 console.log('[TabMesh] Chrome target ID discovered:', data.chromeTargetId);
                 // Re-broadcast so other tabs learn our target ID
                 _meshSendPing();
@@ -616,6 +690,8 @@
             }
         } catch (err) {
             console.warn('[TabMesh] Chrome target discovery error:', err.message);
+            // Network/connection error — Chrome may be down
+            _meshCDPFailure();
         }
     }
 
@@ -870,11 +946,56 @@
             window.name = 'devops-site-' + _meshIdentity.siteName;
         }
 
-        // Leave on unload (best-effort)
-        window.addEventListener('beforeunload', _meshSendLeave);
+        // With persistent tab IDs (sessionStorage), we do NOT send leave
+        // on page navigation.  Flask does full-page reloads on every click,
+        // and the new page sends join with the SAME id — seamless handoff.
+        // Truly dead tabs are cleaned by the 15s prune timeout.
+        // The explicit _meshSendLeave() is still called from _meshHandleKill()
+        // for remote kill operations.
 
-        // Check CDP availability
-        _meshCheckCDP();
+        // ── CDP status: double cache (sessionStorage + mediator SSE) ──
+        // 1. Check if sibling tabs already proved CDP is available
+        var _siblingWithCDP = null;
+        _meshRegistry.forEach(function(entry) {
+            if (entry.chromeTargetId && entry.alive) {
+                _siblingWithCDP = entry;
+            }
+        });
+
+        if (_siblingWithCDP) {
+            // Sibling already has CDP — skip the 5-7s status check
+            _meshCDPAvailable = true;
+            sessionStorage.setItem('cdp_status', JSON.stringify({
+                available: true, ts: Date.now(),
+            }));
+            console.log('[TabMesh] CDP available (from sibling registry)');
+            _meshDiscoverTarget();
+        } else {
+            // 2. Check sessionStorage
+            var _cachedCDP = sessionStorage.getItem('cdp_status');
+            if (_cachedCDP) {
+                try {
+                    var _parsed = JSON.parse(_cachedCDP);
+                    _meshCDPAvailable = _parsed.available;
+                    console.log('[TabMesh] CDP status from sessionStorage:', _parsed.available);
+                    if (_parsed.available) {
+                        _meshDiscoverTarget();
+                    }
+                } catch (_) {}
+            }
+
+            // 3. Subscribe to SSE for boot task result + future updates
+            if (typeof storeRegister === 'function') {
+                storeRegister('tabmesh:cdp_status', function(data) {
+                    _meshCDPAvailable = data.available;
+                    sessionStorage.setItem('cdp_status', JSON.stringify(data));
+                    console.log('[TabMesh] CDP status via SSE:', data.available);
+                    if (data.available && !_meshIdentity.chromeTargetId) {
+                        _meshDiscoverTarget();
+                    }
+                });
+            }
+        }
 
         // Expose public API
         window.TabMesh = {

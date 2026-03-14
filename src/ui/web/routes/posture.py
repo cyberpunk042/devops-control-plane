@@ -235,7 +235,13 @@ def posture_summary():  # type: ignore[no-untyped-def]
     via = request.args.get("via", "")
 
     try:
-        if via == "mediator":
+        if via == "standalone":
+            from src.core.services.system_posture import get_summary
+
+            summary = get_summary(force=force)
+            return jsonify(summary)
+        else:
+            # Default: use mediator (persisted, no TTL discard on load)
             from src.core.services.mediator import get_mediator
 
             m = get_mediator()
@@ -243,11 +249,6 @@ def posture_summary():  # type: ignore[no-untyped-def]
                 m.put("posture.summary", cascade=False)
             r = m.get("posture.summary", force=force)
             return jsonify(r["data"])
-        else:
-            from src.core.services.system_posture import get_summary
-
-            summary = get_summary(force=force)
-            return jsonify(summary)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -262,17 +263,7 @@ def posture_rescan():  # type: ignore[no-untyped-def]
     via = request.args.get("via", "")
 
     try:
-        if via == "mediator":
-            from src.core.services.mediator import get_mediator
-
-            m = get_mediator()
-            inv = m.put("posture.full", cascade=True)
-            r = m.get("posture.full", force=True)
-            posture = r["data"]
-            result = posture.to_dict()
-            _enrich_posture_actions(result)
-            result["cache_invalidated"] = inv["invalidated"]
-        else:
+        if via == "standalone":
             from src.core.services.system_posture import (
                 invalidate_cache,
                 scan_posture,
@@ -284,6 +275,17 @@ def posture_rescan():  # type: ignore[no-untyped-def]
             result = posture.to_dict()
             _enrich_posture_actions(result)
             result["cache_invalidated"] = invalidated
+        else:
+            # Default: use mediator (persisted, cascade invalidation)
+            from src.core.services.mediator import get_mediator
+
+            m = get_mediator()
+            inv = m.put("posture.full", cascade=True)
+            r = m.get("posture.full", force=True)
+            posture = r["data"]
+            result = posture.to_dict()
+            _enrich_posture_actions(result)
+            result["cache_invalidated"] = inv["invalidated"]
 
         return jsonify(result)
     except Exception as exc:
@@ -309,14 +311,7 @@ def posture_rescan_tool():  # type: ignore[no-untyped-def]
     via = request.args.get("via", "")
 
     try:
-        if via == "mediator":
-            from src.core.services.mediator import get_mediator
-
-            m = get_mediator()
-            m.put("posture.toolchain", cascade=True)
-            r = m.get("posture.summary", force=True)
-            return jsonify(r["data"])
-        else:
+        if via == "standalone":
             from src.core.services.system_posture import (
                 get_summary,
                 invalidate_cache,
@@ -326,6 +321,14 @@ def posture_rescan_tool():  # type: ignore[no-untyped-def]
             invalidate_cache("toolchain")
             summary = get_summary(force=True)
             return jsonify(summary)
+        else:
+            # Default: use mediator (cascade invalidation → SSE push)
+            from src.core.services.mediator import get_mediator
+
+            m = get_mediator()
+            m.put("posture.toolchain", cascade=True)
+            r = m.get("posture.summary", force=True)
+            return jsonify(r["data"])
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

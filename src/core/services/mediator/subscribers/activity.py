@@ -65,6 +65,11 @@ _PATH_TO_CARD_KEY: dict[str, str] = {
     "catalog.builders": "builders",
     "catalog.scripts": "scripts",
     "catalog.pages": "pages",
+    # tabmesh domain
+    "tabmesh.cdp_status": "tabmesh:cdp_status",
+    # posture domain
+    "posture.summary": "posture:summary",
+    "posture.full": "posture:full",
 }
 
 

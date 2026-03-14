@@ -291,6 +291,38 @@ def create_app(
     from src.core.services.mediator.index_watcher import start_index_watcher
     start_index_watcher(app.config["PROJECT_ROOT"], mediator_inst)
 
+    # ── CDP transport warm-up (background, silent) ──────────────
+    # Probe all channels and warm the PS bridge BEFORE any CDP
+    # operation attempts.  Priority NORMAL (2) — runs during first
+    # page load, doesn't block server startup.
+    try:
+        from src.ui.web import cdp_client as _cdp_client
+        from src.core.services.mediator.work_queue import WorkItem, Priority
+
+        _wq = mediator_inst._work_queue
+        if _wq is not None:
+            _wq.submit(WorkItem(
+                priority=Priority.NORMAL,
+                size=1,
+                path="boot.transport_warmup",
+                resolver=lambda: _cdp_client.warm(silent=True),
+            ))
+            logger.info("Submitted boot.transport_warmup to work queue (NORMAL)")
+
+            # ── CDP status discovery (background, after warm-up) ──
+            # Uses mediator.dispatch() — the proper public API for
+            # resolving registered nodes in the background.
+            # Priority LOW (3) — runs AFTER the NORMAL (2) warm-up.
+            mediator_inst.dispatch(
+                "tabmesh.cdp_status",
+                priority=Priority.LOW,
+            )
+            logger.info("Dispatched tabmesh.cdp_status to work queue (LOW)")
+        else:
+            logger.debug("No work queue available, skipping CDP boot tasks")
+    except Exception as exc:
+        logger.warning("Could not submit CDP boot tasks: %s", exc)
+
     # Restore file logging if previously enabled
     from src.core.services.server_settings import load_settings, toggle_file_logging
     _startup_settings = load_settings(app.config["PROJECT_ROOT"])

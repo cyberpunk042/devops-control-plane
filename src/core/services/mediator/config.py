@@ -73,7 +73,7 @@ TIER_PATHS: dict[str, frozenset[str]] = {
 # Prefix-based tier classification (paths that match by prefix)
 TIER_PREFIXES: dict[str, list[str]] = {
     "T1:visible":   ["catalog."],
-    "T2:infra":     ["github."],
+    "T2:infra":     ["github.", "tabmesh."],
     "T4:index":     ["index."],
     "T5:aggregate": ["posture."],
 }
