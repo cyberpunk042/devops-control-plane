@@ -66,6 +66,7 @@
         _navDepth++;
     }
 
+    if (mode === 'audit') loadDebugAuditScans();
     if (mode === 'state') loadDebugState();
     if (mode === 'health') loadDebugHealth();
     if (mode === 'config') loadDebugConfig();
@@ -261,7 +262,10 @@
     }
 
     async function loadDebugAuditScans(resetOffset = true) {
-        if (resetOffset) _auditState.offset = 0;
+        if (resetOffset) {
+            _auditState.offset = 0;
+            _auditState.loading = false; // clear any stuck in-flight state
+        }
         _loadAuditPage(false);
     }
 
