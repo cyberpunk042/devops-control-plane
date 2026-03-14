@@ -628,10 +628,10 @@ def incremental_symbols(
         if idx % 10 == 0 and idx > 0:
             try:
                 from src.core.services.mediator.work_queue import (
-                    current_yield_check,
+                    current_yield_check, YIELD_SLEEP,
                 )
                 if current_yield_check():
-                    time.sleep(0.01)
+                    time.sleep(YIELD_SLEEP)
             except ImportError:
                 pass
 

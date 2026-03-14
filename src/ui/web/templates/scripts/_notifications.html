@@ -145,6 +145,7 @@ function _notifIcon(type) {
         'port_fallback': '🔀',
         'config_changed': '⚙️',
         'missing_dep': '📦',
+        'python_optimization': '⚡',
         'wsl_channel_upgrade': '🚀',
         'wsl_channel_setup': '⚡',
         'wsl_hostname_resolution': '🌐',
@@ -187,6 +188,12 @@ function _renderNotifications(notifications) {
         if (n.type === 'port_fallback' && n.meta && n.meta.config_path) {
             actionAttr = ' data-action-type="open-config" data-config-path="' + _esc(n.meta.config_path) + '"';
             actionHint = '<div class="notif-item-action-hint">Click to configure →</div>';
+            cursorStyle = ' style="cursor:pointer"';
+        } else if (n.meta && n.meta.action === 'install_plan' && n.meta.recipe) {
+            actionAttr = ' data-action-type="install-plan"'
+                + ' data-recipe-id="' + _esc(n.meta.recipe) + '"'
+                + ' data-recipe-label="Python (free-threaded / no-GIL)"';
+            actionHint = '<div class="notif-item-action-hint">Click to view upgrade plan →</div>';
             cursorStyle = ' style="cursor:pointer"';
         } else if (n.meta && n.meta.action === 'install_dependency' && n.meta.recipe_id) {
             actionAttr = ' data-action-type="install-dependency"'
@@ -364,6 +371,20 @@ function _notifItemAction(itemEl) {
                 installWithPlan(recipeId, recipeLabel, {
                     onComplete: function() {
                         toast('✅ Dependency installed! Re-record the assertion to see OCR results.', 'success');
+                        if (notifId) _dismissNotif(notifId);
+                    },
+                });
+            }
+            break;
+
+        case 'install-plan':
+            var planRecipeId = itemEl.getAttribute('data-recipe-id');
+            var planRecipeLabel = itemEl.getAttribute('data-recipe-label') || planRecipeId;
+            if (planRecipeId && typeof installWithPlan === 'function') {
+                if (_notifPanelOpen) _toggleNotifPanel();
+                installWithPlan(planRecipeId, planRecipeLabel, {
+                    onComplete: function() {
+                        toast('✅ Free-threaded Python installed! Restart the server to activate.', 'success', 8000);
                         if (notifId) _dismissNotif(notifId);
                     },
                 });

@@ -306,6 +306,86 @@ def create_app(
     # The user activates it from Tab Mesh → WSL Channel UI.
     # When inactive, the system uses curl.exe bridge (the existing path).
 
+    # ── Python runtime optimization notification ────────────────
+    # Detect Python build (GIL vs free-threaded) and notify the
+    # user if a performance upgrade path is available.
+    try:
+        import os
+        import sys
+        from src.core.services.mediator.work_queue import is_free_threaded
+
+        _py_version = sys.version.split()[0]
+        _cpu_count = os.cpu_count() or 1
+
+        if not is_free_threaded() and _cpu_count >= 4:
+            from src.core.services.notifications import create_notification
+
+            # Check if free-threaded build is installed AND deps are ready
+            # (must match manage.sh check — it looks for .venv-ft/bin/flask)
+            _venv_ft = Path(project_root) / ".venv-ft" / "bin" / "flask"
+            _ft_installed = _venv_ft.exists()
+
+            if _ft_installed:
+                # Installed but server running under GIL Python
+                create_notification(
+                    project_root,
+                    notif_type="python_optimization",
+                    title="⚡ Free-threaded Python ready — restart to activate",
+                    message=(
+                        f"Python {_py_version} (GIL) is running but "
+                        f".venv-ft with free-threaded Python is installed. "
+                        f"Restart the server to activate it — "
+                        f"manage.sh will pick it up automatically. "
+                        f"All {_cpu_count} CPUs will run threads in true parallel."
+                    ),
+                    meta={
+                        "current_version": _py_version,
+                        "target_version": "3.14t",
+                        "cpu_count": _cpu_count,
+                        "build": "gil",
+                        "venv_ft_installed": True,
+                    },
+                    dedup=True,
+                )
+                logger.info(
+                    "Python %s (GIL) — free-threaded venv exists at %s, not active",
+                    _py_version, _venv_ft,
+                )
+            else:
+                # Not installed yet — offer install plan
+                create_notification(
+                    project_root,
+                    notif_type="python_optimization",
+                    title="⚡ Free-threaded Python available",
+                    message=(
+                        f"Running Python {_py_version} (GIL) on {_cpu_count} CPUs. "
+                        f"Python 3.14t enables true parallel threading — "
+                        f"mediator dispatch, AST parsing, and audit scans "
+                        f"can run across all cores simultaneously. "
+                        f"Install via: uv python install 3.14t"
+                    ),
+                    meta={
+                        "action": "install_plan",
+                        "recipe": "python3-ft",
+                        "current_version": _py_version,
+                        "target_version": "3.14t",
+                        "cpu_count": _cpu_count,
+                        "build": "gil",
+                    },
+                    dedup=True,
+                )
+                logger.info(
+                    "Python %s (GIL) on %d CPUs — free-threaded upgrade available",
+                    _py_version, _cpu_count,
+                )
+        elif is_free_threaded():
+            logger.info(
+                "Python %s (free-threaded, no-GIL) — true parallel threading active",
+                _py_version,
+            )
+    except Exception as exc:
+        logger.debug("Python runtime check: %s", exc)
+
     logger.info("Web admin app created (root=%s)", project_root)
     return app
 

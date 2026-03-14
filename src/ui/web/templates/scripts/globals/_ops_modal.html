@@ -1400,15 +1400,59 @@
         if (old) old.remove();
 
         var msgs = {
+            'shell':   'Restart your shell or terminal session for PATH changes to take effect.',
+            'server':  'Restart the DevOps Control Plane server to activate the new Python runtime.',
             'session': 'Log out and back in for changes to take effect.',
             'system':  'A system reboot is required for changes to take effect.',
             'service': 'Related services may need restarting.',
         };
-        var icons = { 'session': '🔄', 'system': '🔃', 'service': '⚙️' };
+        var icons = { 'shell': '🔄', 'server': '🔄', 'session': '🔄', 'system': '🔃', 'service': '⚙️' };
 
         var msg = msgs[restartType] || 'A restart may be required.';
         var icon = icons[restartType] || '🔄';
 
+        // Server restart — show a modal with a restart button
+        if (restartType === 'server') {
+            var overlay = document.createElement('div');
+            overlay.id = 'restart-modal-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);animation:fadeIn .15s ease';
+
+            var modal = document.createElement('div');
+            modal.style.cssText = 'background:hsl(220 20% 13%);border:1px solid hsl(220 30% 25%);border-radius:12px;padding:32px;max-width:420px;width:90%;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)';
+
+            modal.innerHTML =
+                '<div style="font-size:2.5rem;margin-bottom:12px">' + icon + '</div>' +
+                '<h3 style="margin:0 0 8px;font-size:1.15rem;color:hsl(220 90% 85%)">Restart Required</h3>' +
+                '<p style="margin:0 0 24px;color:hsl(220 15% 65%);font-size:0.88rem;line-height:1.5">' + esc(msg) + '</p>' +
+                '<div style="display:flex;gap:12px;justify-content:center">' +
+                    '<button id="restart-modal-dismiss" style="padding:10px 20px;border-radius:8px;border:1px solid hsl(220 20% 30%);background:transparent;color:hsl(220 15% 65%);cursor:pointer;font-size:0.85rem">Later</button>' +
+                    '<button id="restart-modal-btn" style="padding:10px 24px;border-radius:8px;border:none;background:hsl(210 100% 50%);color:white;cursor:pointer;font-size:0.85rem;font-weight:600">Restart Now</button>' +
+                '</div>';
+
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+
+            document.getElementById('restart-modal-dismiss').onclick = function() {
+                overlay.remove();
+            };
+            document.getElementById('restart-modal-btn').onclick = function() {
+                var btn = this;
+                btn.disabled = true;
+                btn.textContent = 'Restarting…';
+                fetch('/api/server/restart', { method: 'POST' })
+                    .then(function() {
+                        btn.textContent = '✓ Restarting…';
+                        // Server will die and manage.sh restarts it — page will reconnect
+                    })
+                    .catch(function() {
+                        btn.textContent = 'Restart failed';
+                        btn.disabled = false;
+                    });
+            };
+            return;
+        }
+
+        // Other restart types — toast
         var toast = document.createElement('div');
         toast.id = 'restart-toast';
         toast.className = 'restart-toast';

@@ -458,10 +458,35 @@ def mediator_config_get():  # type: ignore[no-untyped-def]
         mem_gb = round(psutil.virtual_memory().total / (1024 ** 3), 1)
     except Exception:
         mem_gb = None
+    import sys
+    from src.core.services.mediator.work_queue import (
+        is_free_threaded, YIELD_SLEEP,
+    )
     cfg["system"] = {
         "cpu_count": os.cpu_count() or 4,
         "memory_gb": mem_gb,
+        "python_version": sys.version.split()[0],
+        "python_build": "free_threaded" if is_free_threaded() else "gil",
+        "yield_sleep_ms": round(YIELD_SLEEP * 1000, 1),
     }
+
+    # Detect free-threaded venv readiness (must match manage.sh — checks for flask)
+    from pathlib import Path
+    ft_flask = Path(current_app.config["PROJECT_ROOT"]) / ".venv-ft" / "bin" / "flask"
+    ft_python = Path(current_app.config["PROJECT_ROOT"]) / ".venv-ft" / "bin" / "python3"
+    if ft_flask.exists() and not is_free_threaded():
+        cfg["system"]["ft_venv_ready"] = True
+        # Probe the free-threaded Python version
+        try:
+            import subprocess
+            result = subprocess.run(
+                [str(ft_python), "-c", "import sys; print(sys.version.split()[0])"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if result.returncode == 0:
+                cfg["system"]["ft_version"] = result.stdout.strip()
+        except Exception:
+            pass
 
     return jsonify(cfg)
 

@@ -282,11 +282,11 @@ def _count_tests(project_root: Path, frameworks: list[dict]) -> dict:
             if file_idx % 20 == 0 and file_idx > 0:
                 try:
                     from src.core.services.mediator.work_queue import (
-                        current_yield_check,
+                        current_yield_check, YIELD_SLEEP,
                     )
                     if current_yield_check():
                         import time as _time
-                        _time.sleep(0.01)
+                        _time.sleep(YIELD_SLEEP)
                 except ImportError:
                     pass
 

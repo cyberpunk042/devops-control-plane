@@ -59,8 +59,10 @@ VERSION_COMMANDS: dict[str, tuple[list[str], str]] = {
     "podman":       (["podman", "--version"],            r"podman version\s+(\d+\.\d+\.\d+)"),
     "nerdctl":      (["nerdctl", "--version"],           r"nerdctl version\s+(\d+\.\d+\.\d+)"),
     "act":          (["act", "--version"],               r"version\s+(\d+\.\d+\.\d+)"),
+    "python":       (["python3", "--version"],             r"Python\s+(\d+\.\d+\.\d+)"),
     "pip":          (_PIP + ["--version"],               r"pip\s+(\d+\.\d+\.\d+)"),
     "npm":          (["npm", "--version"],               r"(\d+\.\d+\.\d+)"),
+    "uv":           (["uv", "--version"],                 r"uv\s+(\d+\.\d+\.\d+)"),
 }
 
 

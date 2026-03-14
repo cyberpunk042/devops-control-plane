@@ -271,24 +271,50 @@ class WeightedSemaphore:
 _tls = threading.local()
 
 
+# ── Free-threaded Python detection ─────────────────────────────
+#
+# Python 3.13+ can be compiled without the GIL (PEP 703).
+# Detect once at import time.  When free-threaded, the yield sleep
+# is shorter (just backpressure, not GIL contention).
+
+def is_free_threaded() -> bool:
+    """Return True if running on a free-threaded (no-GIL) Python build."""
+    import sys
+    return hasattr(sys, '_is_gil_enabled') and not sys._is_gil_enabled()
+
+
+_FREE_THREADED: bool = is_free_threaded()
+
+# GIL build: 10ms sleep to release the GIL for web threads.
+# Free-threaded build: 1ms — just a lightweight backpressure hint,
+# threads already run in true parallel.
+YIELD_SLEEP: float = 0.001 if _FREE_THREADED else 0.01
+
+
 def current_yield_check() -> bool:
     """Check if the current background thread should yield.
 
     Returns ``True`` if web requests are in flight and the current
-    thread should briefly pause (``time.sleep(0.01)``) to release
-    the GIL.
+    thread should briefly pause to release the GIL (or as a
+    backpressure hint on free-threaded builds).
 
     Returns ``False`` if:
     - No web requests are pending, or
     - The caller is not running inside a WorkQueue worker thread.
 
+    The pause duration adapts automatically:
+    - GIL build: ``time.sleep(0.01)``  — releases GIL for web thread
+    - Free-threaded:  ``time.sleep(0.001)`` — lightweight backpressure
+
     Intended usage in CPU-bound loops::
 
-        from src.core.services.mediator.work_queue import current_yield_check
+        from src.core.services.mediator.work_queue import (
+            current_yield_check, YIELD_SLEEP,
+        )
 
         for i, filepath in enumerate(files):
             if i % 10 == 0 and current_yield_check():
-                time.sleep(0.01)  # release GIL for web request
+                time.sleep(YIELD_SLEEP)
             process(filepath)
     """
     fn = getattr(_tls, "yield_check", None)

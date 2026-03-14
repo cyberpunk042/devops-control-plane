@@ -1746,6 +1746,75 @@
         }
     }
 
+    function _showPythonRuntimeModal(sys) {
+        var isFt = sys.python_build === 'free_threaded';
+        var pyVer = sys.python_version || '?';
+        var cpus = sys.cpu_count || 1;
+        var ftVersion = sys.ft_version || '3.14t';
+
+        var old = document.getElementById('py-runtime-modal-overlay');
+        if (old) old.remove();
+
+        var overlay = document.createElement('div');
+        overlay.id = 'py-runtime-modal-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);animation:fadeIn .15s ease';
+
+        var modal = document.createElement('div');
+        modal.style.cssText = 'background:hsl(220 20% 13%);border:1px solid hsl(220 30% 25%);border-radius:12px;padding:32px;max-width:460px;width:90%;box-shadow:0 16px 48px rgba(0,0,0,.5)';
+
+        var stateIcon = isFt ? '🟢' : '🔵';
+        var stateLabel = isFt ? 'Free-threaded (no-GIL)' : 'Standard (GIL)';
+        var stateColor = isFt ? '#10b981' : '#6b7280';
+
+        var actionLabel, actionDesc, actionRecipe, actionRecipeLabel;
+        if (isFt) {
+            actionLabel = 'Downgrade to GIL Python';
+            actionDesc = 'Remove .venv-ft and revert to the standard Python with GIL. The server will restart under .venv.';
+            actionRecipe = 'python3-ft-remove';
+            actionRecipeLabel = 'Revert to standard Python (GIL)';
+        } else {
+            actionLabel = 'Upgrade to Python ' + ftVersion + ' (no-GIL)';
+            actionDesc = 'Install free-threaded Python and set up .venv-ft with all dependencies. All ' + cpus + ' CPUs will run threads in true parallel.';
+            actionRecipe = 'python3-ft';
+            actionRecipeLabel = 'Python (free-threaded / no-GIL build via uv)';
+        }
+
+        modal.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">' +
+                '<h3 style="margin:0;font-size:1.1rem;color:hsl(220 90% 85%)">Python Runtime</h3>' +
+                '<button id="py-modal-close" style="background:none;border:none;color:hsl(220 15% 50%);cursor:pointer;font-size:1.2rem;padding:4px">✕</button>' +
+            '</div>' +
+            '<div style="background:hsl(220 20% 10%);border:1px solid hsl(220 25% 20%);border-radius:8px;padding:16px;margin-bottom:20px">' +
+                '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+                    '<span style="font-size:1.4rem">' + stateIcon + '</span>' +
+                    '<span style="font-size:1rem;font-weight:600;color:' + stateColor + '">' + stateLabel + '</span>' +
+                '</div>' +
+                '<div style="color:hsl(220 15% 55%);font-size:0.82rem">' +
+                    'Python ' + pyVer + ' · ' + cpus + ' CPUs' +
+                '</div>' +
+            '</div>' +
+            '<p style="color:hsl(220 15% 60%);font-size:0.85rem;line-height:1.5;margin:0 0 20px">' + actionDesc + '</p>' +
+            '<div style="display:flex;gap:12px;justify-content:flex-end">' +
+                '<button id="py-modal-cancel" style="padding:10px 20px;border-radius:8px;border:1px solid hsl(220 20% 30%);background:transparent;color:hsl(220 15% 65%);cursor:pointer;font-size:0.85rem">Cancel</button>' +
+                '<button id="py-modal-action" style="padding:10px 24px;border-radius:8px;border:none;background:hsl(210 100% 50%);color:white;cursor:pointer;font-size:0.85rem;font-weight:600">' + actionLabel + '</button>' +
+            '</div>';
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        document.getElementById('py-modal-close').onclick =
+        document.getElementById('py-modal-cancel').onclick = function() {
+            overlay.remove();
+        };
+
+        document.getElementById('py-modal-action').onclick = function() {
+            overlay.remove();
+            if (typeof installWithPlan === 'function') {
+                installWithPlan(actionRecipe, actionRecipeLabel);
+            }
+        };
+    }
+
     function _configRender(container) {
         _configSeedTiers();
 
@@ -1814,9 +1883,43 @@
                   + '</button>';
         }
 
-        // System info hint
-        html += '<span style="' + _cfgMuted + ';margin-left:auto" title="Detected system resources">'
-              + cpus + ' CPUs' + (memGb ? ' \u00b7 ' + memGb + 'GB RAM' : '') + '</span>';
+        // System info hint (includes Python runtime if available)
+        const pyVer = sys.python_version || '';
+        const pyBuild = sys.python_build || 'gil';
+        const yieldMs = sys.yield_sleep_ms;
+        const isFt = pyBuild === 'free_threaded';
+        const ftReady = sys.ft_venv_ready;
+        const ftVersion = sys.ft_version;
+
+        var pyBadgeColor, pyBadgeLabel, pyBadgeTitle;
+        if (isFt) {
+            pyBadgeColor = '#10b981';
+            pyBadgeLabel = 'no-GIL';
+            pyBadgeTitle = 'Free-threaded Python — true parallel threading active';
+        } else if (ftReady) {
+            pyBadgeColor = '#f59e0b';
+            pyBadgeLabel = 'GIL → ' + (ftVersion || '3.14t') + ' ready';
+            pyBadgeTitle = 'Free-threaded Python ' + (ftVersion || '3.14t') + ' installed in .venv-ft. Restart the server to activate — manage.sh picks it up automatically.';
+        } else if (cpus >= 4) {
+            pyBadgeColor = '#6b7280';
+            pyBadgeLabel = 'GIL';
+            pyBadgeTitle = 'Standard GIL Python — threads share one core. Upgrade to 3.14t for parallel processing.';
+        } else {
+            pyBadgeColor = '#6b7280';
+            pyBadgeLabel = 'GIL';
+            pyBadgeTitle = 'Standard Python with GIL';
+        }
+
+        html += '<span style="' + _cfgMuted + ';margin-left:auto;display:flex;align-items:center;gap:8px" title="Detected system resources">'
+              + cpus + ' CPUs' + (memGb ? ' \u00b7 ' + memGb + 'GB RAM' : '');
+        if (pyVer) {
+            html += ' \u00b7 <span id="py-runtime-badge" style="color:' + pyBadgeColor + ';font-weight:600;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px" title="Click to manage Python runtime">'
+                  + 'Python ' + pyVer + ' (' + pyBadgeLabel + ')</span>';
+        }
+        if (yieldMs != null) {
+            html += ' \u00b7 yield ' + yieldMs + 'ms';
+        }
+        html += '</span>';
 
         html += '</div>';
         html += '</div>';
@@ -2044,6 +2147,14 @@
 
         html += '</div>';
         container.innerHTML = html;
+
+        // Python runtime badge click handler
+        var pyBadge = container.querySelector('#py-runtime-badge');
+        if (pyBadge) {
+            pyBadge.onclick = function() {
+                _showPythonRuntimeModal(sys);
+            };
+        }
 
         // Render live data immediately
         _configRenderLive(container);

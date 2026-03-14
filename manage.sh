@@ -16,7 +16,12 @@ set -euo pipefail
 # ── Config ──────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="${SCRIPT_DIR}/.venv"
+# Prefer free-threaded venv when available AND deps are installed
+if [[ -f "${SCRIPT_DIR}/.venv-ft/bin/flask" ]]; then
+    VENV_DIR="${SCRIPT_DIR}/.venv-ft"
+else
+    VENV_DIR="${SCRIPT_DIR}/.venv"
+fi
 PYTHON="${VENV_DIR}/bin/python"
 CLI_MODULE="src.main"
 
@@ -294,8 +299,15 @@ main() {
                             info "🔄 Restarting in: $NEW_CWD"
                         fi
                     fi
+                    # Re-resolve venv — it may have changed (upgrade/downgrade)
+                    if [[ -f "${SCRIPT_DIR}/.venv-ft/bin/flask" ]]; then
+                        VENV_DIR="${SCRIPT_DIR}/.venv-ft"
+                    else
+                        VENV_DIR="${SCRIPT_DIR}/.venv"
+                    fi
+                    PYTHON="${VENV_DIR}/bin/python"
                     echo ""
-                    info "🔄 Server restarting..."
+                    info "🔄 Server restarting... (${VENV_DIR})"
                     echo ""
                     continue
                 fi

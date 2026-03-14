@@ -121,10 +121,11 @@
         "notes": "Even-numbered releases are LTS. Node 20 LTS until Apr 2026, Node 22 LTS until Apr 2027."
     },
     "python": {
-        "current": "3.13.1",
+        "current": "3.14.1",
         "min_supported": "3.10.0",
         "version_scheme": "semver_minor",
         "eol_versions": {
+            "3.9": "2025-10",
             "3.8": {
                 "eol": "2024-10",
                 "cves": [
@@ -136,7 +137,7 @@
             "3.5": "2020-09",
             "2.7": "2020-01"
         },
-        "notes": "Python supports 5 most recent minor releases. 3.9 EOL Oct 2025."
+        "notes": "Python supports 5 most recent minor releases. 3.14 has supported free-threaded (no-GIL) build via PEP 703. Install via: uv python install 3.14t"
     },
     "minikube": {
         "current": "1.34.0",
@@ -327,5 +328,12 @@
             "1": "2024-09"
         },
         "notes": "nerdctl 2.0 has breaking CLI changes from 1.x."
+    },
+    "uv": {
+        "current": "0.6.6",
+        "min_supported": "0.4.0",
+        "version_scheme": "semver",
+        "eol_versions": {},
+        "notes": "uv is pre-1.0. Rapid release cadence. Required for free-threaded Python installs."
     }
 }

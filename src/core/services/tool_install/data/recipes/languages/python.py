@@ -376,4 +376,81 @@ _PYTHON_RECIPES: dict[str, dict] = {
             "_default": _PIP + ["install", "--upgrade", "hatch"],
         },
     },
+    "python3-ft": {
+        "cli": ".venv-ft/bin/flask",
+        "label": "Python (free-threaded / no-GIL build via uv)",
+        "category": "python",
+        # Free-threaded Python 3.14t — true parallel threading (PEP 703).
+        # Requires uv for installation — uv manages Python builds transparently.
+        # The 't' suffix selects the free-threaded build variant.
+        # Both standard and free-threaded venvs coexist side by side.
+        "install": {
+            "_default": [
+                "bash", "-c",
+                'export PATH="$HOME/.local/bin:$PATH" && '
+                "uv python install 3.14t && "
+                "uv venv --clear -p 3.14t .venv-ft && "
+                "uv pip install -e '.[dev]' --python .venv-ft/bin/python",
+            ],
+        },
+        "needs_sudo": {"_default": False},
+        "install_via": {"_default": "uv"},
+        "requires": {"binaries": ["uv"]},
+        "post_env": 'export PATH="$HOME/.local/bin:$PATH"',
+        "verify": [
+            "bash", "-c",
+            '.venv-ft/bin/python3 -c "'
+            "import sys; "
+            "v = sys.version; "
+            "ft = hasattr(sys, '_is_gil_enabled') and not sys._is_gil_enabled(); "
+            "print(f'Python {v.split()[0]}', '(free-threaded)' if ft else '(GIL)')"
+            '"',
+        ],
+        "risk": "low",
+        "rollback": {
+            "_default": ["rm", "-rf", ".venv-ft"],
+        },
+        "restart_required": "server",
+        "choices": [{
+            "id": "python_version",
+            "label": "Python free-threaded version",
+            "options": [
+                {
+                    "id": "3.14t",
+                    "label": "Python 3.14t (recommended — production-supported, ~5% single-thread overhead)",
+                    "default": True,
+                },
+                {
+                    "id": "3.13t",
+                    "label": "Python 3.13t (experimental — ~40% single-thread overhead)",
+                },
+            ],
+        }],
+    },
+    "python3-ft-remove": {
+        "cli": "__never_match__",  # always "not installed" — we handle gating in the UI
+        "label": "Revert to standard Python (GIL)",
+        "category": "python",
+        # Removes the free-threaded venv and reverts to standard .venv Python.
+        "description": (
+            "Remove the free-threaded Python virtual environment (.venv-ft) "
+            "and revert to the standard GIL-based Python. "
+            "The server will restart under the original .venv."
+        ),
+        "install": {
+            "_default": [
+                "bash", "-c",
+                "rm -rf .venv-ft",
+            ],
+        },
+        "needs_sudo": {"_default": False},
+        "install_via": {"_default": "shell"},
+        "verify": [
+            "bash", "-c",
+            "test ! -d .venv-ft && echo 'Removed .venv-ft successfully'",
+        ],
+        "risk": "low",
+        "restart_required": "server",
+        "choices": [],
+    },
 }

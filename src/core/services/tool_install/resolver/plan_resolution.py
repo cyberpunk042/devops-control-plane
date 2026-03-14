@@ -396,6 +396,10 @@ def resolve_install_plan(
         "steps": steps,
     }
 
+    # Forward restart_required from recipe so frontend can prompt
+    if recipe.get("restart_required"):
+        plan["restart_required"] = recipe["restart_required"]
+
     # Check for risk escalation from user choices
     escalation = _check_risk_escalation(recipe, plan["risk_summary"])
     if escalation:
