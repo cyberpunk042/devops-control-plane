@@ -120,8 +120,8 @@
     const _meshRegistry = new Map();
     const _meshTombstones = [];     // { ...entry, diedAt, reason }
     const _MESH_HEARTBEAT_MS  = 5000;
-    const _MESH_PRUNE_TIMEOUT = 15000;
-    const _MESH_TOMBSTONE_TTL = 60000;
+    const _MESH_PRUNE_TIMEOUT = 90000;   // 90s — survives Chrome's 60s background throttle
+    const _MESH_TOMBSTONE_TTL = 120000;
 
     function _meshPruneRegistry() {
         const now = Date.now();
