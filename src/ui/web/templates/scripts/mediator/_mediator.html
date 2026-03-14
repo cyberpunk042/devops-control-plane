@@ -1672,7 +1672,16 @@
                 body: JSON.stringify(patch),
             });
             const result = await resp.json();
-            _configData = result.config || _configData;
+            if (result.config) {
+                // PUT response only has file-based config.
+                // Preserve live-only fields that the GET handler attaches.
+                result.config.system = result.config.system || _configData.system;
+                result.config.watcher_live = result.config.watcher_live || _configData.watcher_live;
+                if (_configData.peek_symbols_enabled !== undefined && result.config.peek_symbols_enabled === undefined) {
+                    result.config.peek_symbols_enabled = _configData.peek_symbols_enabled;
+                }
+                _configData = result.config;
+            }
             if (result.needs_restart) _configNeedsRestart = true;
             const c = document.getElementById('debug-mediator-config');
             if (c) _configRender(c);

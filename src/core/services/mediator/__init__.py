@@ -76,13 +76,24 @@ def init(project_root: Path) -> QueryMediator:
     """
     global mediator
 
+    from .config import load_config
     from .work_queue import WorkQueue
 
+    config = load_config(project_root)
+    w = config.get("workers", {})
+
     tree = DataTree()
-    _work_queue = WorkQueue(num_workers=4, capacity=6)
+    _work_queue = WorkQueue(
+        num_workers=w.get("num_workers", 4),
+        capacity=w.get("capacity", 6),
+        yield_to_web=w.get("yield_to_web", True),
+    )
     mediator = QueryMediator(tree, project_root, work_queue=_work_queue)
 
-    logger.info("mediator initialized (project_root=%s)", project_root)
+    logger.info(
+        "mediator initialized (project_root=%s, workers=%d, capacity=%d)",
+        project_root, _work_queue._num_workers, _work_queue._semaphore.capacity,
+    )
     return mediator
 
 

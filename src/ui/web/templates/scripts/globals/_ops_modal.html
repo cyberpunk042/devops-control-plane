@@ -1440,14 +1440,19 @@
                 btn.disabled = true;
                 btn.textContent = 'Restarting…';
                 fetch('/api/server/restart', { method: 'POST' })
-                    .then(function() {
-                        btn.textContent = '✓ Restarting…';
-                        // Server will die and manage.sh restarts it — page will reconnect
-                    })
-                    .catch(function() {
-                        btn.textContent = 'Restart failed';
-                        btn.disabled = false;
-                    });
+                    .catch(function() { /* expected — server is dying */ });
+                btn.textContent = '⟳ Waiting for server…';
+                // Poll until server is back, then reload
+                var poll = setInterval(function() {
+                    fetch('/api/mediator/config', { signal: AbortSignal.timeout(2000) })
+                        .then(function(r) {
+                            if (r.ok) {
+                                clearInterval(poll);
+                                window.location.reload();
+                            }
+                        })
+                        .catch(function() { /* still down, keep polling */ });
+                }, 1000);
             };
             return;
         }

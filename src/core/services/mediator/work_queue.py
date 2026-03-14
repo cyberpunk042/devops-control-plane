@@ -396,10 +396,12 @@ class WorkQueue:
         num_workers: int = 4,
         capacity: int = 6,
         thread_name_prefix: str = "wq",
+        yield_to_web: bool = True,
     ) -> None:
         self._queue: queue.PriorityQueue[WorkItem] = queue.PriorityQueue()
         self._semaphore = WeightedSemaphore(capacity)
         self._num_workers = num_workers
+        self._yield_to_web = yield_to_web
 
         # Yield flag — set when web requests are in flight
         self._yield_flag = threading.Event()
@@ -661,7 +663,10 @@ class WorkQueue:
         """Check if background workers should yield for web requests.
 
         Cheap to call (~50ns) — checks a ``threading.Event``.
+        Returns ``False`` unconditionally when ``yield_to_web`` is disabled.
         """
+        if not self._yield_to_web:
+            return False
         return self._yield_flag.is_set()
 
     @property
