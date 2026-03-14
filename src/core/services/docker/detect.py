@@ -158,18 +158,28 @@ def docker_status(project_root: Path) -> dict:
 
     # Version, daemon check, compose — all independent, run in parallel
     from concurrent.futures import ThreadPoolExecutor
+    import subprocess as _sp
 
     def _get_version():
-        r = run_docker("--version", cwd=project_root, timeout=0.5)
-        return r.stdout.strip() if r.returncode == 0 else None
+        try:
+            r = run_docker("--version", cwd=project_root, timeout=0.5)
+            return r.stdout.strip() if r.returncode == 0 else None
+        except _sp.TimeoutExpired:
+            return None
 
     def _get_daemon():
-        r = run_docker("info", "--format", "{{.ServerVersion}}", cwd=project_root, timeout=2)
-        return r.returncode == 0
+        try:
+            r = run_docker("info", "--format", "{{.ServerVersion}}", cwd=project_root, timeout=2)
+            return r.returncode == 0
+        except _sp.TimeoutExpired:
+            return False
 
     def _get_compose():
-        r = run_docker("compose", "version", "--short", cwd=project_root, timeout=0.5)
-        return (r.returncode == 0, r.stdout.strip() if r.returncode == 0 else None)
+        try:
+            r = run_docker("compose", "version", "--short", cwd=project_root, timeout=0.5)
+            return (r.returncode == 0, r.stdout.strip() if r.returncode == 0 else None)
+        except _sp.TimeoutExpired:
+            return (False, None)
 
     with ThreadPoolExecutor(max_workers=3) as pool:
         f_ver = pool.submit(_get_version)

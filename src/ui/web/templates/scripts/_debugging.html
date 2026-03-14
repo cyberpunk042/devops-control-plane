@@ -6,6 +6,7 @@
     let _debugData = {};      // panel → raw JSON data
     let _debugViewMode = {};  // panel → 'preview' | 'source'
     let _debugAuditMode = 'scans'; // 'scans' or 'ops'
+    let _pendingDebugSubView = null; // { panel, view } — deferred sub-view activation
 
     /** Quick test: does this string look like a relative file path? */
     function _debugIsFilePath(s) {
@@ -29,44 +30,46 @@
     }
 
     function debugSwitchMode(mode) {
-        debugCurrentMode = mode;
-        document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => b.classList.remove('active'));
-        event.target.classList.add('active');
+    debugCurrentMode = mode;
+    document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
 
-        // Dispose any active Monaco editors when switching away
-        for (const [key, ed] of Object.entries(_debugEditors)) {
-            if (key !== mode && ed) {
-                try { ed.dispose(); } catch(e) {}
-                _debugEditors[key] = null;
-            }
+    // Dispose any active Monaco editors when switching away
+    for (const [key, ed] of Object.entries(_debugEditors)) {
+        if (key !== mode && ed) {
+            try { ed.dispose(); } catch(e) {}
+            _debugEditors[key] = null;
         }
-
-        // Show/hide panels
-        ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'].forEach(m => {
-            const el = document.getElementById(`debug-${m}`);
-            if (el) el.style.display = m === mode ? '' : 'none';
-        });
-
-        // Cleanup mediator timers/listeners when switching away
-        if (mode !== 'mediator') {
-            if (typeof _mediatorStopAgeTimer === 'function') _mediatorStopAgeTimer();
-            if (typeof _mediatorStopListening === 'function') _mediatorStopListening();
-        }
-
-        // Update URL hash to reflect sub-tab
-        const newHash = `#debugging/${mode}`;
-        if (location.hash !== newHash) {
-            history.pushState({ tab: `debugging/${mode}`, depth: _navDepth }, '', newHash);
-            _navDepth++;
-        }
-
-        if (mode === 'state') loadDebugState();
-        if (mode === 'health') loadDebugHealth();
-        if (mode === 'config') loadDebugConfig();
-        if (mode === 'commands') { if (!capabilitiesLoaded) loadCapabilities(); }
-        if (mode === 'traces') loadDebugTraces();
-        if (mode === 'mediator') { if (typeof loadMediatorDiag === 'function') loadMediatorDiag(); }
     }
+
+    // Show/hide panels
+    ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'].forEach(m => {
+        const el = document.getElementById(`debug-${m}`);
+        if (el) el.style.display = m === mode ? '' : 'none';
+    });
+
+    // Cleanup mediator timers/listeners when switching away
+    if (mode !== 'mediator') {
+        if (typeof _mediatorStopAgeTimer === 'function') _mediatorStopAgeTimer();
+        if (typeof _mediatorStopListening === 'function') _mediatorStopListening();
+    }
+
+    // Update URL hash — include active sub-view if one exists
+    const subView = _debugViewMode[mode];
+    const hashPath = subView && subView !== 'preview' ? `debugging/${mode}/${subView}` : `debugging/${mode}`;
+    const newHash = `#${hashPath}`;
+    if (location.hash !== newHash) {
+        history.pushState({ tab: hashPath, depth: _navDepth }, '', newHash);
+        _navDepth++;
+    }
+
+    if (mode === 'state') loadDebugState();
+    if (mode === 'health') loadDebugHealth();
+    if (mode === 'config') loadDebugConfig();
+    if (mode === 'commands') { if (!capabilitiesLoaded) loadCapabilities(); }
+    if (mode === 'traces') loadDebugTraces();
+    if (mode === 'mediator') { if (typeof loadMediatorDiag === 'function') loadMediatorDiag(); }
+}
 
     function debugAuditToggle(mode) {
         _debugAuditMode = mode;
@@ -81,21 +84,29 @@
     }
 
     function debugToggleView(panel, mode) {
-        _debugViewMode[panel] = mode;
+    _debugViewMode[panel] = mode;
 
-        // Update toggle buttons
-        document.querySelectorAll(`.debug-view-toggle[data-panel="${panel}"]`).forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.mode === mode);
-        });
+    // Update toggle buttons
+    document.querySelectorAll(`.debug-view-toggle[data-panel="${panel}"]`).forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
 
-        const previewEl = document.getElementById(`debug-${panel}-preview`);
-        const editorEl = document.getElementById(`debug-${panel}-editor`);
-        const statusEl = document.getElementById(`debug-${panel}-status`);
+    // Update URL hash to reflect sub-view
+    const hashPath = mode && mode !== 'preview' ? `debugging/${panel}/${mode}` : `debugging/${panel}`;
+    const newHash = `#${hashPath}`;
+    if (location.hash !== newHash) {
+        history.pushState({ tab: hashPath, depth: _navDepth }, '', newHash);
+        _navDepth++;
+    }
 
-        // Hide all view containers first
-        if (previewEl) previewEl.style.display = 'none';
-        if (editorEl) editorEl.style.display = 'none';
-        if (statusEl) statusEl.style.display = 'none';
+    const previewEl = document.getElementById(`debug-${panel}-preview`);
+    const editorEl = document.getElementById(`debug-${panel}-editor`);
+    const statusEl = document.getElementById(`debug-${panel}-status`);
+
+    // Hide all view containers first
+    if (previewEl) previewEl.style.display = 'none';
+    if (editorEl) editorEl.style.display = 'none';
+    if (statusEl) statusEl.style.display = 'none';
 
         // Stop status listener when leaving mediator status mode
         if (panel === 'mediator' && mode !== 'status' && typeof _statusStopListening === 'function') {
@@ -149,36 +160,51 @@
         }
     }
 
-    async function loadDebugTab(subMode) {
-        const validModes = ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'];
-        const mode = (subMode && validModes.includes(subMode)) ? subMode : 'audit';
+    async function loadDebugTab(subMode, subParts) {
+    const validModes = ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'];
+    const mode = (subMode && validModes.includes(subMode)) ? subMode : 'audit';
+    // Second segment = internal sub-view (e.g. 'status', 'source')
+    const subView = (subParts && subParts.length > 1) ? subParts[1] : null;
 
-        // Activate the correct sub-tab button
-        debugCurrentMode = mode;
-        document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => b.classList.remove('active'));
-        const modeLabels = { audit: '📋 Audit Log', state: '📦 State', health: '❤️ Health', config: '⚙️ Config', commands: '⚡ Commands', traces: '📝 Traces', mediator: '🌳 Mediator' };
-        document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => {
-            if (b.textContent.trim() === (modeLabels[mode] || '').trim()) b.classList.add('active');
-        });
+    // Activate the correct sub-tab button
+    debugCurrentMode = mode;
+    document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => b.classList.remove('active'));
+    const modeLabels = { audit: '📋 Audit Log', state: '📦 State', health: '❤️ Health', config: '⚙️ Config', commands: '⚡ Commands', traces: '📝 Traces', mediator: '🌳 Mediator' };
+    document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => {
+        if (b.textContent.trim() === (modeLabels[mode] || '').trim()) b.classList.add('active');
+    });
 
-        // Show/hide panels
-        validModes.forEach(m => {
-            const el = document.getElementById(`debug-${m}`);
-            if (el) el.style.display = m === mode ? '' : 'none';
-        });
+    // Show/hide panels
+    validModes.forEach(m => {
+        const el = document.getElementById(`debug-${m}`);
+        if (el) el.style.display = m === mode ? '' : 'none';
+    });
 
-        // Update hash
-        history.replaceState(null, '', `#debugging/${mode}`);
+    // Update hash — include sub-view if present
+    const hashPath = subView ? `debugging/${mode}/${subView}` : `debugging/${mode}`;
+    history.replaceState(null, '', `#${hashPath}`);
 
-        // Load data for the active mode
-        if (mode === 'audit') loadDebugAuditScans();
-        else if (mode === 'state') loadDebugState();
-        else if (mode === 'health') loadDebugHealth();
-        else if (mode === 'config') loadDebugConfig();
-        else if (mode === 'commands') { if (!capabilitiesLoaded) loadCapabilities(); }
-        else if (mode === 'traces') loadDebugTraces();
-        else if (mode === 'mediator') { if (typeof loadMediatorDiag === 'function') loadMediatorDiag(); }
+    // Load data for the active mode
+    if (mode === 'audit') loadDebugAuditScans();
+    else if (mode === 'state') loadDebugState();
+    else if (mode === 'health') loadDebugHealth();
+    else if (mode === 'config') loadDebugConfig();
+    else if (mode === 'commands') { if (!capabilitiesLoaded) loadCapabilities(); }
+    else if (mode === 'traces') loadDebugTraces();
+    else if (mode === 'mediator') {
+        // Store pending sub-view so loadMediatorDiag can activate it after data arrives
+        if (subView) _pendingDebugSubView = { panel: mode, view: subView };
+        if (typeof loadMediatorDiag === 'function') loadMediatorDiag();
     }
+
+    // Restore internal sub-view for non-async modes
+    if (subView && mode !== 'mediator') {
+        const validSubViews = ['preview', 'source', 'status'];
+        if (validSubViews.includes(subView)) {
+            setTimeout(() => debugToggleView(mode, subView), 100);
+        }
+    }
+}
 
     // ── Audit Scan Activity ───────────────────────────────────────────
 

@@ -386,3 +386,40 @@ def mediator_index_rebuild_peek():  # type: ignore[no-untyped-def]
         return jsonify(result)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+# ── Recent events (past event history) ────────────────────────────
+
+_MEDIATOR_EVENT_PREFIXES = (
+    "mediator:",
+    "index:",
+)
+
+
+@mediator_bp.route("/mediator/events/recent")
+def mediator_events_recent():  # type: ignore[no-untyped-def]
+    """Return recent mediator/index events from the EventBus ring buffer.
+
+    Query params:
+        limit (int): Max events to return (default 100, max 500).
+
+    Returns a list of event dicts, most recent first.
+    """
+    limit = request.args.get("limit", 100, type=int)
+    limit = min(limit, 500)
+
+    try:
+        from src.core.services.event_bus import bus
+
+        with bus._lock:
+            events = [
+                e for e in bus._buffer
+                if e.get("type", "").startswith(_MEDIATOR_EVENT_PREFIXES)
+            ]
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    # Most recent first, capped
+    events = list(reversed(events))[:limit]
+    return jsonify({"events": events, "total": len(events)})
+

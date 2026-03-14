@@ -31,14 +31,22 @@
             _mediatorRenderTree(data);
             _mediatorRenderGraph(data);
             _mediatorRenderEventStream();
+            _mediatorLoadPastEvents();
             _mediatorStartAgeTimer();
             // Show root overview on first load (preserve selection on refresh)
             if (!_mediatorSelectedPath && !_mediatorSelectedBranch) {
                 _mediatorSelectRoot();
             }
+            // Activate pending sub-view (e.g. hash restore to #debugging/mediator/status)
+            if (_pendingDebugSubView && _pendingDebugSubView.panel === 'mediator') {
+                const sv = _pendingDebugSubView.view;
+                _pendingDebugSubView = null;
+                debugToggleView('mediator', sv);
+            }
         } catch(e) {
             summary.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(e.message)}</span>`;
             if (tree) tree.innerHTML = '';
+            _pendingDebugSubView = null;
         }
     }
 
@@ -945,20 +953,133 @@
         if (btn) btn.textContent = _mediatorEventsPaused ? 'Resume' : 'Pause';
     }
 
+    // ── Past Events (server ring buffer) ────────────────────────
+
+    let _pastEventsLoaded = false;
+
+    async function _mediatorLoadPastEvents() {
+        const container = document.getElementById('mediator-past-events');
+        if (!container) return;
+
+        container.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-weight:600;font-size:0.76rem;color:var(--text-secondary)">📜 Past Events</span>
+                    <span style="font-size:0.65rem;color:var(--text-muted)"><span class="spinner"></span>&nbsp; Loading…</span>
+                </div>
+            </div>`;
+
+        try {
+            const result = await api('/mediator/events/recent?limit=100');
+            const events = result.events || [];
+
+            if (events.length === 0) {
+                container.innerHTML = `
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <span style="font-weight:600;font-size:0.76rem;color:var(--text-secondary)">📜 Past Events</span>
+                            <span style="font-size:0.65rem;color:var(--text-muted)">No events in server buffer</span>
+                        </div>
+                    </div>`;
+                return;
+            }
+
+            // Transform server events to the format _mediatorEventRow expects
+            const transformed = events.map(e => {
+                const type = (e.type || '').replace('mediator:', '').replace('index:', '');
+                const data = e.data || {};
+                const paths = [];
+                if (e.key) paths.push(e.key);
+                if (data.writes) paths.push(...data.writes);
+                if (data.invalidated) paths.push(...data.invalidated);
+                if (data.path) { if (!paths.includes(data.path)) paths.push(data.path); }
+                if (data.paths) paths.push(...data.paths);
+
+                return {
+                    type: type,
+                    trigger: data.trigger || data.phase || '',
+                    seq: e.seq,
+                    paths: paths,
+                    ts: (data.timestamp || e.ts || 0) * 1000, // server sends seconds
+                    elapsed_ms: data.elapsed_ms,
+                    entries: data.entries,
+                    step: data.step,
+                    total: data.total,
+                    error: data.error,
+                    ok: data.ok,
+                    count: data.count,
+                    empty: data.empty,
+                    task_id: data.task_id,
+                };
+            });
+
+            let html = `
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <span style="font-weight:600;font-size:0.76rem;color:var(--text-secondary)">📜 Past Events</span>
+                        <span style="font-size:0.65rem;color:var(--text-muted)">${events.length} event${events.length !== 1 ? 's' : ''} from server buffer</span>
+                    </div>
+                    <button class="btn btn-sm btn-ghost" onclick="_mediatorLoadPastEvents()" style="font-size:0.65rem">↻ Refresh</button>
+                </div>
+                <div style="max-height:280px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--bg-secondary);font-family:var(--font-mono,'Consolas','Monaco',monospace);font-size:0.66rem">`;
+
+            for (const evt of transformed) {
+                html += _mediatorEventRow(evt, false);
+            }
+            html += '</div>';
+            container.innerHTML = html;
+            _pastEventsLoaded = true;
+
+        } catch(e) {
+            container.innerHTML = `
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                    <span style="font-weight:600;font-size:0.76rem;color:var(--text-secondary)">📜 Past Events</span>
+                    <span style="font-size:0.65rem;color:var(--danger)">⚠ ${esc(e.message)}</span>
+                </div>`;
+        }
+    }
+
     // ── Live Index Status Panel ─────────────────────────────────
-    // Tracks per-node state in real time via SSE events.
+    // Tracks per-node state in real time via SSE events + diag polling.
     // State: { path: { status: 'pending'|'computing'|'done'|'failed', elapsed_ms, entries, error, ts } }
     let _statusNodes = {};
     let _statusListener = null;
     let _statusCycleInfo = null;  // { phase, total, startTs }
     let _statusVisible = false;
 
+    function _statusSeedFromDiag(data) {
+        if (!data || !data.entries) return;
+        const entries = data.entries;
+        const refreshing = data.refreshing || [];
+        for (const [path, entry] of Object.entries(entries)) {
+            if (refreshing.includes(path)) {
+                _statusNodes[path] = { status: 'computing', elapsed_ms: null, entries: null, error: null, ts: Date.now() };
+            } else if (entry.cached) {
+                _statusNodes[path] = {
+                    status: 'done',
+                    elapsed_ms: entry.elapsed_s != null ? Math.round(entry.elapsed_s * 1000) : null,
+                    entries: entry.entries || null,
+                    error: null,
+                    ts: Date.now(),
+                };
+            } else {
+                _statusNodes[path] = { status: 'pending', elapsed_ms: null, entries: null, error: null, ts: Date.now() };
+            }
+        }
+    }
+
     function _mediatorShowStatus() {
         const container = document.getElementById('debug-mediator-status');
         if (!container) return;
 
-        // Render the accumulated state instantly — SSE events keep it updated
+        // Seed from diag data so the panel shows current node states
+        _statusSeedFromDiag(_mediatorDiagData);
+
+        // Render the accumulated state
         _statusRender(container);
+
+        // Start listening for SSE events to update in real time
+        _statusStartListening();
     }
 
     function _statusStartListening() {
@@ -996,11 +1117,13 @@
                         _statusNodes[p] = { status: 'computing', elapsed_ms: null, entries: null, error: null, ts: Date.now() };
                     }
                 }
-            } else if (type === 'write' && path) {
-                // A resolver computed — mark as done
-                if (_statusNodes[path] && _statusNodes[path].status === 'computing') {
-                    _statusNodes[path].status = 'done';
-                    _statusNodes[path].ts = Date.now();
+            } else if (type === 'write') {
+                // A resolver computed — mark all written paths as done
+                for (const p of (evt.paths || [])) {
+                    if (_statusNodes[p]) {
+                        _statusNodes[p].status = 'done';
+                        _statusNodes[p].ts = Date.now();
+                    }
                 }
             }
 

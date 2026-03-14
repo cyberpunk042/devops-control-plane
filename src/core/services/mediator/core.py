@@ -738,6 +738,7 @@ class QueryMediator:
                 entry = self._get_cached(node_path)
                 if entry is not None:
                     cached_count += 1
+                    entry_info["cached"] = True
                     age = now - entry.computed_at
                     entry_info["age_s"] = round(age, 1)
                     entry_info["source"] = entry.source
