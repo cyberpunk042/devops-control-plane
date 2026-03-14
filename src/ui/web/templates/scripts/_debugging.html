@@ -208,7 +208,7 @@
     // Activate the correct sub-tab button
     debugCurrentMode = mode;
     document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => b.classList.remove('active'));
-    const modeLabels = { audit: '📋 Audit Log', state: '📦 State', health: '❤️ Health', config: '⚙️ Config', commands: '⚡ Commands', traces: '📝 Traces', mediator: '🌳 Mediator', timeline: '📅 History' };
+    const modeLabels = { audit: '📋 Audit Log', state: '📦 State', health: '❤️ Health', config: '⚙️ Config', commands: '⚡ Commands', traces: '📝 Traces', mediator: '🌳 Mediator', timeline: '📋 History' };
     document.querySelectorAll('#tab-debugging .debug-modes > .content-mode').forEach(b => {
         if (b.textContent.trim() === (modeLabels[mode] || '').trim()) b.classList.add('active');
     });

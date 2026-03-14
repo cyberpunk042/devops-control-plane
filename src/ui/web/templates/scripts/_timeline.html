@@ -636,14 +636,18 @@ document.addEventListener('click', (e) => {
 // via _tlOnData() which is called by storeSet('timeline', ...)
 
 function _tlNavMode(mode) {
-  _tlState.navMode = mode;
+  _tlState.navMode     = mode;
+  _tlState.chainFilter = null;  // clear cross-view selection state
+  _tlState.dateFrom    = null;
+  _tlState.dateTo      = null;
+  _tlNavActiveChain    = null;
   document.querySelectorAll('.timeline-nav-modes button').forEach(b => {
     b.classList.toggle('active', b.id === `tl-nav-mode-${mode}`);
   });
   const searchWrap = document.getElementById('tl-nav-chain-search-wrap');
   if (searchWrap) searchWrap.style.display = mode === 'chains' ? '' : 'none';
   _tlNavRender();
-  _tlPushState();
+  _tlRenderFiltered();
 }
 
 function _tlNavFilterChains(val) {
@@ -780,8 +784,10 @@ function _tlNavRenderCalendar() {
 function _tlJumpToDate(dateStr) {
   // Set date range filter to show only this day's entries
   const d = new Date(dateStr + 'T00:00:00Z');
-  _tlState.dateFrom = d.getTime() / 1000;
-  _tlState.dateTo   = _tlState.dateFrom + 86400;
+  _tlState.dateFrom    = d.getTime() / 1000;
+  _tlState.dateTo      = _tlState.dateFrom + 86400;
+  _tlState.chainFilter = null;  // clear chain filter — date and chain are separate views
+  _tlNavActiveChain    = null;
   _tlRenderFiltered();
 }
 
@@ -794,6 +800,8 @@ function _tlNavHoverChain(chainId) {
 function _tlNavSelectChain(chainId) {
   _tlNavActiveChain    = chainId;
   _tlState.chainFilter = chainId;
+  _tlState.dateFrom    = null;  // clear date filter — chain and date are separate views
+  _tlState.dateTo      = null;
   _tlUpdateActivePills();
   _tlRenderFiltered();
   _tlNavRender();
