@@ -1117,7 +1117,7 @@ class QueryMediator:
         """
         paths = [
             p for p in self._tree.all_paths()
-            if p.startswith(prefix + ".")
+            if p.startswith(prefix + ".") or p == prefix
         ]
         return self.refresh(*paths)
 
@@ -1138,7 +1138,7 @@ class QueryMediator:
         stale_paths: list[str] = []
 
         for path in self._tree.all_paths():
-            if prefix and not path.startswith(prefix + "."):
+            if prefix and path != prefix and not path.startswith(prefix + "."):
                 continue
             node = self._tree.resolve(path)
             if node is None:
@@ -1179,11 +1179,16 @@ class QueryMediator:
         busted: list[str] = []
 
         for path in self._tree.all_paths():
-            if prefix and not path.startswith(prefix + "."):
+            if prefix and path != prefix and not path.startswith(prefix + "."):
                 continue
             entry = self._get_cached(path)
             if entry is not None and (now - entry.computed_at) >= max_age:
                 self.put(path, notify=notify)
+                busted.append(path)
+            elif entry is None:
+                # No cache at all — include in dispatch list so
+                # paths that were pending (never computed) also get
+                # re-dispatched after bust.
                 busted.append(path)
 
         return {"busted": busted, "count": len(busted)}
@@ -1282,34 +1287,99 @@ class QueryMediator:
 
         if self._work_queue is not None:
             # ── Work queue path (priority-aware) ─────────────
+            from .config import tier_priority_for_path
             from .work_queue import Priority, WorkItem
 
-            default_priority = (
-                priority if priority is not None else Priority.LOW
-            )
+            # Use per-node tier priority unless caller specified one
+            use_tier_priority = priority is None
 
-            items: list[WorkItem] = []
-            for p in valid_paths:
-                node = self._tree.resolve(p)
-                item_size = node.size if node is not None else 1
+            def _make_items(paths: list[str], pri: int) -> list[WorkItem]:
+                """Build WorkItem list for a set of paths at a given priority."""
+                result: list[WorkItem] = []
+                for p in paths:
+                    node = self._tree.resolve(p)
+                    item_size = node.size if node is not None else 1
+                    result.append(WorkItem(
+                        priority=pri,
+                        size=item_size,
+                        path=p,
+                        resolver=lambda p=p: self._dispatch_worker(
+                            task_id, [p],
+                        ),
+                        callback=None,
+                        error_callback=lambda exc, p=p: logger.exception(
+                            "dispatch %s: work_queue failed for %s",
+                            task_id, p,
+                        ),
+                    ))
+                return result
 
-                items.append(WorkItem(
-                    priority=default_priority,
-                    size=item_size,
-                    path=p,
-                    resolver=lambda p=p: self._dispatch_worker(
-                        task_id, [p],
+            if use_tier_priority and len(valid_paths) > 1:
+                # ── Tiered dispatch: group by priority, chain tiers ──
+                # Same pattern as index_watcher: higher-priority tiers
+                # must FINISH before lower-priority tiers START.
+                #
+                # Drain pending items from any previous dispatch so old
+                # lower-priority items don't hold up workers.
+                self._work_queue.drain()
+
+                from collections import defaultdict
+                grouped: dict[int, list[str]] = defaultdict(list)
+                for p in valid_paths:
+                    grouped[tier_priority_for_path(p)].append(p)
+
+                # Sort tiers by priority (lowest number = highest urgency)
+                tier_order = sorted(grouped.keys())
+
+                logger.info(
+                    "[dispatch %s] tiered dispatch: %s",
+                    task_id,
+                    ", ".join(
+                        f"pri={p}({len(grouped[p])} paths)"
+                        for p in tier_order
                     ),
-                    callback=None,
-                    error_callback=lambda exc, p=p: logger.exception(
-                        "dispatch %s: work_queue failed for %s",
-                        task_id, p,
-                    ),
-                ))
+                )
 
-            self._work_queue.submit_batch(
-                items, on_complete=on_complete,
-            )
+                def _dispatch_tier_chain(
+                    remaining: list[tuple[int, list[str]]],
+                ) -> None:
+                    if not remaining:
+                        if on_complete is not None:
+                            try:
+                                on_complete()
+                            except Exception:
+                                logger.exception(
+                                    "dispatch %s: on_complete failed",
+                                    task_id,
+                                )
+                        return
+
+                    pri, paths = remaining[0]
+                    rest = remaining[1:]
+
+                    logger.info(
+                        "[dispatch %s] starting tier pri=%d: %s",
+                        task_id, pri,
+                        ", ".join(paths[:5])
+                        + (f" (+{len(paths)-5} more)" if len(paths) > 5 else ""),
+                    )
+
+                    items = _make_items(paths, pri)
+                    self._work_queue.submit_batch(
+                        items,
+                        on_complete=lambda: _dispatch_tier_chain(rest),
+                    )
+
+                _dispatch_tier_chain([
+                    (pri, grouped[pri]) for pri in tier_order
+                ])
+            else:
+                # ── Flat dispatch (explicit priority or single path) ──
+                flat_pri = priority if priority is not None else Priority.LOW
+                items = _make_items(valid_paths, flat_pri)
+                self._work_queue.submit_batch(
+                    items, on_complete=on_complete,
+                )
 
         elif self._executor is not None:
             # ── Legacy executor path ─────────────────────────

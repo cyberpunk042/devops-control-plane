@@ -38,9 +38,9 @@ def peek_refs():  # type: ignore[no-untyped-def]
     if not doc_path:
         return jsonify({"references": [], "unresolved": []})
 
-    # Gate: check if peek/index is enabled server-side
-    from src.core.services.server_settings import is_peek_index_enabled
-    if not is_peek_index_enabled(_project_root()):
+    # Gate: check if peek + symbols is enabled server-side
+    from src.core.services.server_settings import is_peek_symbols_enabled
+    if not is_peek_symbols_enabled(_project_root()):
         return jsonify({
             "references": [], "unresolved": [], "pending": [],
             "symbols_ready": False, "disabled": True,
@@ -139,9 +139,9 @@ def peek_resolve():  # type: ignore[no-untyped-def]
         JSON with resolved references list, each containing:
             text, type, resolved_path, line_number, is_directory
     """
-    # Gate: check if peek/index is enabled server-side
-    from src.core.services.server_settings import is_peek_index_enabled
-    if not is_peek_index_enabled(_project_root()):
+    # Gate: check if peek + symbols is enabled server-side
+    from src.core.services.server_settings import is_peek_symbols_enabled
+    if not is_peek_symbols_enabled(_project_root()):
         return jsonify({
             "references": [], "unresolved": [], "pending": [],
             "disabled": True,

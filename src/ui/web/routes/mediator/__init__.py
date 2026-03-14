@@ -251,6 +251,12 @@ def mediator_index_status():  # type: ignore[no-untyped-def]
     try:
         result: dict = {}
 
+        # Peek & Symbols toggle state
+        from src.core.services.server_settings import is_peek_symbols_enabled
+        result["peek_symbols_enabled"] = is_peek_symbols_enabled(
+            current_app.config["PROJECT_ROOT"]
+        )
+
         # Stats
         try:
             stats = m.get("index.stats")["data" ]
@@ -487,6 +493,10 @@ def mediator_config_get():  # type: ignore[no-untyped-def]
                 cfg["system"]["ft_version"] = result.stdout.strip()
         except Exception:
             pass
+
+    # Peek & Symbols toggle state
+    from src.core.services.server_settings import is_peek_symbols_enabled
+    cfg["peek_symbols_enabled"] = is_peek_symbols_enabled(root)
 
     return jsonify(cfg)
 

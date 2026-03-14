@@ -656,7 +656,7 @@ async function _resolvePeekLinks(docPath, rawContent, container) {
 
         if (!res) return;
 
-        // Server-side peek/index is disabled — skip all annotation
+        // Server-side peek + symbols is disabled — skip all annotation
         if (res.disabled) {
             console.debug('[Peek] Feature disabled by server settings');
             return;

@@ -54,6 +54,9 @@
         if (typeof _mediatorStopListening === 'function') _mediatorStopListening();
     }
 
+    // Persist last active debug mode to sessionStorage
+    try { sessionStorage.setItem('_debugLastMode', mode); } catch(e) {}
+
     // Update URL hash — include active sub-view if one exists
     const subView = _debugViewMode[mode];
     const hashPath = subView && subView !== 'preview' ? `debugging/${mode}/${subView}` : `debugging/${mode}`;
@@ -85,6 +88,9 @@
 
     function debugToggleView(panel, mode) {
     _debugViewMode[panel] = mode;
+
+    // Persist last sub-view per panel to sessionStorage
+    try { sessionStorage.setItem('_debugLastSubView_' + panel, mode); } catch(e) {}
 
     // Update toggle buttons
     document.querySelectorAll(`.debug-view-toggle[data-panel="${panel}"]`).forEach(btn => {
@@ -177,9 +183,25 @@
 
     async function loadDebugTab(subMode, subParts) {
     const validModes = ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'];
-    const mode = (subMode && validModes.includes(subMode)) ? subMode : 'audit';
+
+    // Restore from sessionStorage if no explicit mode given (e.g. clicking the Debugging tab)
+    let restoredMode = null;
+    let restoredSubView = null;
+    if (!subMode || !validModes.includes(subMode)) {
+        try {
+            const saved = sessionStorage.getItem('_debugLastMode');
+            if (saved && validModes.includes(saved)) {
+                restoredMode = saved;
+                restoredSubView = sessionStorage.getItem('_debugLastSubView_' + saved) || null;
+            }
+        } catch(e) {}
+    }
+
+    const mode = (subMode && validModes.includes(subMode)) ? subMode : (restoredMode || 'audit');
     // Second segment = internal sub-view (e.g. 'status', 'source')
-    const subView = (subParts && subParts.length > 1) ? subParts[1] : null;
+    const subView = (subParts && subParts.length > 1) ? subParts[1] : restoredSubView;
+    // Third segment = selected node (e.g. 'index.scan')
+    const nodeFromHash = (subParts && subParts.length > 2) ? subParts[2] : null;
 
     // Activate the correct sub-tab button
     debugCurrentMode = mode;
@@ -195,8 +217,9 @@
         if (el) el.style.display = m === mode ? '' : 'none';
     });
 
-    // Update hash — include sub-view if present
-    const hashPath = subView ? `debugging/${mode}/${subView}` : `debugging/${mode}`;
+    // Update hash — include sub-view and node if present
+    let hashPath = subView ? `debugging/${mode}/${subView}` : `debugging/${mode}`;
+    if (nodeFromHash) hashPath += '/' + nodeFromHash;
     history.replaceState(null, '', `#${hashPath}`);
 
     // Load data for the active mode
@@ -207,8 +230,8 @@
     else if (mode === 'commands') { if (!capabilitiesLoaded) loadCapabilities(); }
     else if (mode === 'traces') loadDebugTraces();
     else if (mode === 'mediator') {
-        // Store pending sub-view so loadMediatorDiag can activate it after data arrives
-        if (subView) _pendingDebugSubView = { panel: mode, view: subView };
+        // Store pending sub-view + node so loadMediatorDiag can restore after data arrives
+        if (subView) _pendingDebugSubView = { panel: mode, view: subView, node: nodeFromHash };
         if (typeof loadMediatorDiag === 'function') loadMediatorDiag();
     }
 

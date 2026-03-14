@@ -317,15 +317,15 @@
                 </div>
             </div>`;
 
-            // ── Peek & Index + File Logging row ──
+            // ── Peek & Symbols + File Logging row ──
             html += `<div class="settings-row">
                 <div class="settings-group">
-                    <div class="settings-label">🔍 Peek & Index</div>
+                    <div class="settings-label">🔍 Peek & Symbols</div>
                     <div class="settings-btn-group">
                         <button class="settings-btn ${peekOn ? 'active' : ''}"
-                            onclick="_prefSetServerPeekIndex(true)">On</button>
+                            onclick="_prefSetServerPeekSymbols(true)">On</button>
                         <button class="settings-btn ${!peekOn ? 'active' : ''}"
-                            onclick="_prefSetServerPeekIndex(false)">Off</button>
+                            onclick="_prefSetServerPeekSymbols(false)">Off</button>
                     </div>
                 </div>
                 <div class="settings-group">
@@ -609,10 +609,10 @@
     }
 
     /**
-     * Toggle the server-side Peek & Index feature.
-     * Sends a PUT to /api/server/settings and prompts for restart.
+     * Toggle the server-side Peek & Symbols feature.
+     * Takes effect on the next index watcher cycle (no restart needed).
      */
-    async function _prefSetServerPeekIndex(enabled) {
+    async function _prefSetServerPeekSymbols(enabled) {
         try {
             const resp = await fetch('/api/server/settings', {
                 method: 'PUT',
@@ -620,17 +620,32 @@
                 body: JSON.stringify({ peek_index_enabled: enabled }),
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const result = await resp.json();
+            await resp.json();
 
             // Re-render the server section
             _loadServerSettingsSection();
 
-            // Prompt restart if the setting actually changed
-            if (result.needs_restart) {
-                const action = enabled ? 'enabled' : 'disabled';
-                if (typeof toast === 'function') {
-                    toast(`Peek & Index ${action} — restart required`, 'info', 5000);
-                }
+            const action = enabled ? 'enabled' : 'disabled';
+            if (typeof toast === 'function') {
+                toast(`Peek & Symbols ${action}`, 'info', 3000);
+            }
+
+            // Sync mediator _configData so mediator views update
+            if (typeof _configData !== 'undefined' && _configData) {
+                _configData.peek_symbols_enabled = enabled;
+            }
+            // Re-render mediator views if they exist
+            if (typeof _mediatorDiagData !== 'undefined' && _mediatorDiagData) {
+                if (typeof _mediatorRenderSummary === 'function') _mediatorRenderSummary(_mediatorDiagData);
+                if (typeof _mediatorRenderTree === 'function') _mediatorRenderTree(_mediatorDiagData);
+            }
+            if (typeof _configVisible !== 'undefined' && _configVisible && typeof _mediatorShowConfig === 'function') {
+                _mediatorShowConfig();
+            }
+            if (typeof _mediatorSelectedPath !== 'undefined' &&
+                (_mediatorSelectedPath === 'index.symbols' || _mediatorSelectedPath === 'index.peek') &&
+                typeof _mediatorSelectNode === 'function') {
+                _mediatorSelectNode(_mediatorSelectedPath);
             }
         } catch (e) {
             if (typeof toast === 'function') {

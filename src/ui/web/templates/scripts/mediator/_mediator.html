@@ -24,9 +24,13 @@
         const tree = document.getElementById('mediator-tree');
         try {
             summary.innerHTML = '<span class="spinner"></span>&nbsp; Loading mediator diagnostics…';
-            const data = await api('/mediator/diag');
+            const [data, configData] = await Promise.all([
+                api('/mediator/diag'),
+                _configData ? Promise.resolve(_configData) : api('/mediator/config').catch(() => null),
+            ]);
             _mediatorDiagData = data;
             _debugData.mediator = data;
+            if (configData && !_configData) _configData = configData;
             _mediatorRenderSummary(data);
             _mediatorRenderTree(data);
             _mediatorRenderGraph(data);
@@ -40,8 +44,14 @@
             // Activate pending sub-view (e.g. hash restore to #debugging/mediator/status)
             if (_pendingDebugSubView && _pendingDebugSubView.panel === 'mediator') {
                 const sv = _pendingDebugSubView.view;
+                const pendingNode = _pendingDebugSubView.node;
                 _pendingDebugSubView = null;
-                debugToggleView('mediator', sv);
+                if (sv) debugToggleView('mediator', sv);
+                // Restore selected node from hash (e.g. index.scan)
+                if (pendingNode && _mediatorDiagData && _mediatorDiagData.entries
+                    && _mediatorDiagData.entries[pendingNode]) {
+                    _mediatorSelectNode(pendingNode);
+                }
             }
         } catch(e) {
             summary.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(e.message)}</span>`;
@@ -103,6 +113,11 @@
             parts.push(`<span style="color:var(--text-muted)">executor: ✗</span>`);
         }
 
+        // Peek & Symbols disabled badge
+        if (_configData && _configData.peek_symbols_enabled === false) {
+            parts.push('<span style="background:rgba(107,114,128,0.15);color:#6b7280;padding:1px 8px;border-radius:10px;font-weight:500;cursor:pointer" title="Peek & Symbols is disabled — click to re-enable" onclick="_peekSymConfirmEnable()">🚫 Peek off</span>');
+        }
+
         el.innerHTML = parts.join('<span style="color:var(--border-subtle);margin:0 4px">│</span>');
     }
 
@@ -154,9 +169,9 @@
             const isBranchSelected = _mediatorSelectedBranch === branch;
             const branchBg = isBranchSelected ? 'rgba(99,102,241,0.08)' : 'transparent';
 
-            html += `<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:0.74rem;user-select:none;background:${branchBg};border-left:${isBranchSelected ? '2px solid var(--accent)' : '2px solid transparent'}">
-                <span onclick="_mediatorToggleBranch('${esc(branch)}')" style="cursor:pointer;font-size:0.65rem;width:10px">${arrow}</span>
-                <span onclick="_mediatorSelectBranch('${esc(branch)}')" style="cursor:pointer;font-weight:600;color:${isBranchSelected ? 'var(--accent)' : 'var(--text-secondary)'}">${esc(branch)}</span>
+            html += `<div onclick="_mediatorSelectBranch('${esc(branch)}')" style="display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:0.74rem;user-select:none;cursor:pointer;background:${branchBg};border-left:${isBranchSelected ? '2px solid var(--accent)' : '2px solid transparent'}" onmouseover="this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.background='${branchBg}'">
+                <span onclick="event.stopPropagation();_mediatorToggleBranch('${esc(branch)}')" style="cursor:pointer;font-size:0.65rem;width:10px">${arrow}</span>
+                <span style="font-weight:600;color:${isBranchSelected ? 'var(--accent)' : 'var(--text-secondary)'}">${esc(branch)}</span>
                 <span style="font-size:0.65rem;color:var(--text-muted);font-weight:400">(${nodes.length})</span>
                 <span style="font-size:0.62rem;display:flex;gap:4px;margin-left:auto">${bSummary.join(' ')}</span>
             </div>`;
@@ -225,10 +240,16 @@
         const bgColor = isSelected ? 'rgba(99,102,241,0.08)' : 'transparent';
         const borderLeft = isSelected ? '2px solid var(--accent)' : '2px solid transparent';
 
+        // Peek & Symbols disabled indicator
+        const isPeekSymNode = path === 'index.symbols' || path === 'index.peek';
+        const peekDisabledBadge = (isPeekSymNode && _configData && _configData.peek_symbols_enabled === false)
+            ? '<span style="font-size:0.6rem;color:#6b7280;margin-left:2px" title="Peek & Symbols disabled">🚫</span>'
+            : '';
+
         return `<div onclick="_mediatorSelectNode('${esc(path)}')" data-mediator-path="${esc(path)}" data-computed-at="${entry && entry.age_s !== undefined ? (Date.now()/1000 - entry.age_s) : ''}" style="cursor:pointer;padding:2px 8px 2px 16px;font-size:0.72rem;font-family:var(--font-mono,'Consolas','Monaco',monospace);display:flex;align-items:center;gap:0;border-left:${borderLeft};background:${bgColor};transition:background 0.15s;line-height:1.5" onmouseover="this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.background='${bgColor}'">
             <span style="color:var(--text-muted);white-space:pre">${connector} </span>
             <span style="color:${cacheColor}">${cacheIcon}</span>
-            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary);padding:0 6px" title="${esc(path)}">${esc(shortName)}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary);padding:0 6px" title="${esc(path)}">${esc(shortName)}${peekDisabledBadge}</span>
             <span class="mediator-age" style="color:var(--text-muted);min-width:36px;text-align:right;padding-right:6px">${ageStr}</span>
             <span style="min-width:16px;text-align:center">${statusIcon}</span>
         </div>`;
@@ -289,7 +310,13 @@
         }
 
         let html = `<div style="padding:12px 16px">
-            <div style="font-weight:600;font-size:0.82rem;color:var(--text-primary);margin-bottom:12px">🌳 Mediator Overview</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:6px">
+                <span style="font-weight:600;font-size:0.82rem;color:var(--text-primary)">🌳 Mediator Overview</span>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-sm btn-ghost" onclick="_mediatorRefreshStale()" style="font-size:0.65rem">🔄 Refresh Stale</button>
+                    <button class="btn btn-sm btn-ghost" onclick="_mediatorConfirmBust()" style="font-size:0.65rem">💥 Bust All</button>
+                </div>
+            </div>
 
             <div style="display:flex;gap:16px;padding:8px 12px;border-radius:var(--radius-sm);background:var(--bg-secondary);font-size:0.72rem;margin-bottom:12px;flex-wrap:wrap">
                 <span><strong>${allPaths.length}</strong> total nodes</span>
@@ -375,7 +402,7 @@
                 <span style="font-weight:600;font-size:0.82rem;color:var(--text-primary)">${esc(branch)} branch</span>
                 <div style="display:flex;gap:6px">
                     <button class="btn btn-sm btn-ghost" onclick="_mediatorRefreshBranch('${esc(branch)}')" style="font-size:0.65rem">🔄 Refresh Branch</button>
-                    <button class="btn btn-sm btn-ghost" onclick="_mediatorBustBranch('${esc(branch)}')" style="font-size:0.65rem">💥 Bust Branch</button>
+                    <button class="btn btn-sm btn-ghost" onclick="_mediatorConfirmBustBranch('${esc(branch)}')" style="font-size:0.65rem">💥 Bust Branch</button>
                 </div>
             </div>`;
 
@@ -437,6 +464,10 @@
             const count = Object.keys(result.refreshed || {}).length;
             toast(`Refreshed ${count} node${count !== 1 ? 's' : ''} in ${esc(branch)} branch`);
             await loadMediatorDiag();
+            // Re-select the branch to refresh the detail panel
+            if (_mediatorSelectedBranch === branch) {
+                _mediatorSelectBranch(branch);
+            }
         } catch(e) {
             toast('Branch refresh failed: ' + e.message, 'error');
         }
@@ -445,8 +476,17 @@
     async function _mediatorBustBranch(branch) {
         try {
             const result = await apiPost('/mediator/bust', { max_age: 0, prefix: branch });
+            const busted = result.busted || [];
             toast(`Busted ${result.count || 0} entr${(result.count || 0) !== 1 ? 'ies' : 'y'} in ${esc(branch)} branch`);
+            // Dispatch busted paths for immediate recompute
+            if (busted.length > 0) {
+                apiPost('/mediator/dispatch', { paths: busted }).catch(() => {});
+            }
             await loadMediatorDiag();
+            // Re-select the branch to refresh the detail panel
+            if (_mediatorSelectedBranch === branch) {
+                _mediatorSelectBranch(branch);
+            }
         } catch(e) {
             toast('Branch bust failed: ' + e.message, 'error');
         }
@@ -458,6 +498,14 @@
         _mediatorSelectedPath = path;
         _mediatorSelectedBranch = null;
         if (_mediatorDiagData) _mediatorRenderTree(_mediatorDiagData);
+
+        // Update hash to include selected node
+        const currentView = _debugViewMode['mediator'] || 'preview';
+        const hashPath = `debugging/mediator/${currentView}/${path}`;
+        const newHash = `#${hashPath}`;
+        if (location.hash !== newHash) {
+            history.replaceState({ tab: hashPath, depth: _navDepth }, '', newHash);
+        }
 
         const detail = document.getElementById('mediator-detail');
         if (!detail) return;
@@ -492,9 +540,28 @@
             statusBadge = '<span style="background:rgba(148,163,184,0.12);color:#64748b;padding:2px 10px;border-radius:10px;font-weight:500;font-size:0.72rem">○ COLD</span>';
         }
 
+        // Peek & Symbols disabled warning for these nodes
+        const isPeekSymbolNode = path === 'index.symbols' || path === 'index.peek';
+        const peekSymDisabled = isPeekSymbolNode && _configData && _configData.peek_symbols_enabled === false;
+
         // Header with title + action buttons
-        let html = `<div style="padding:12px 16px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:6px">
+        let html = `<div style="padding:12px 16px">`;
+
+        // Show disabled banner if Peek & Symbols is off for this node
+        if (peekSymDisabled) {
+            html += `<div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:6px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                <div style="font-size:0.74rem;color:#d97706">
+                    <strong>🚫 Peek & Symbols is OFF</strong> — this node won't be recomputed.
+                    ${data.cached ? 'Cached data will get progressively stale.' : 'No data available.'}
+                </div>
+                <button class="btn btn-sm" onclick="_configTogglePeekSymbols(true)"
+                    style="background:#d97706;color:#fff;border:none;border-radius:4px;padding:4px 12px;font-size:0.68rem;font-weight:600;cursor:pointer;white-space:nowrap">
+                    ■ Enable Peek & Symbols
+                </button>
+            </div>`;
+        }
+
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:6px">
                 <span style="font-weight:600;font-size:0.82rem;color:var(--text-primary)">${esc(path)}</span>
                 <div style="display:flex;gap:6px">
                     <button class="btn btn-sm btn-ghost" onclick="_mediatorRefreshPath('${esc(path)}')" style="font-size:0.65rem">🔄 Refresh</button>
@@ -612,7 +679,12 @@
     async function _mediatorBust(maxAge) {
         try {
             const result = await apiPost('/mediator/bust', { max_age: maxAge });
+            const busted = result.busted || [];
             toast(`Busted ${result.count || 0} entr${(result.count || 0) !== 1 ? 'ies' : 'y'} older than ${maxAge}s`);
+            // Dispatch busted paths for immediate recompute
+            if (busted.length > 0) {
+                apiPost('/mediator/dispatch', { paths: busted }).catch(() => {});
+            }
             await loadMediatorDiag();
         } catch(e) {
             toast('Bust failed: ' + e.message, 'error');
@@ -622,7 +694,12 @@
     async function _mediatorBustPath(path) {
         try {
             const result = await apiPost('/mediator/bust', { max_age: 0, prefix: path });
+            const busted = result.busted || [];
             toast(`Busted ${result.count || 0} entr${(result.count || 0) !== 1 ? 'ies' : 'y'} for ${path}`);
+            // Dispatch busted paths for immediate recompute
+            if (busted.length > 0) {
+                apiPost('/mediator/dispatch', { paths: busted }).catch(() => {});
+            }
             await loadMediatorDiag();
             if (_mediatorSelectedPath === path) _mediatorSelectNode(path);
         } catch(e) {
@@ -1508,7 +1585,13 @@
                         if (n.elapsed_ms != null) detail = n.elapsed_ms + 'ms · ' + detail;
                         break;
                     default:
-                        icon = '⬜'; color = 'var(--text-muted)'; detail = 'pending';
+                        // Check if this is a peek/symbols node that's intentionally disabled
+                        if ((p === 'index.symbols' || p === 'index.peek')
+                            && _configData && _configData.peek_symbols_enabled === false) {
+                            icon = '🚫'; color = '#6b7280'; detail = 'disabled (Peek & Symbols off)';
+                        } else {
+                            icon = '⬜'; color = 'var(--text-muted)'; detail = 'pending';
+                        }
                 }
 
                 const diagEntry = _mediatorDiagData && _mediatorDiagData.entries && _mediatorDiagData.entries[p];
@@ -1652,6 +1735,93 @@
         try {
             await fetch('/api/mediator/index/rescan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         } catch (e) { console.error('[Config] force cycle failed:', e); }
+    }
+
+    async function _configTogglePeekSymbols(enabled) {
+        try {
+            const resp = await fetch('/api/server/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ peek_index_enabled: enabled }),
+            });
+            if (resp.ok) {
+                // Update local config data immediately
+                if (_configData) _configData.peek_symbols_enabled = enabled;
+                const action = enabled ? 'enabled' : 'disabled';
+                if (typeof toast === 'function') {
+                    toast('Peek & Symbols ' + action, 'info', 3000);
+                }
+                // When enabling, dispatch the peek/symbols nodes for immediate recompute
+                if (enabled) {
+                    apiPost('/mediator/dispatch', { paths: ['index.peek', 'index.symbols'] }).catch(() => {});
+                }
+                // Re-render all affected views
+                if (_mediatorDiagData) {
+                    _mediatorRenderSummary(_mediatorDiagData);
+                    _mediatorRenderTree(_mediatorDiagData);
+                }
+                // Re-render config panel if visible
+                if (_configVisible) _mediatorShowConfig();
+                // Re-render detail if a peek/symbols node is selected
+                if (_mediatorSelectedPath === 'index.symbols' || _mediatorSelectedPath === 'index.peek') {
+                    _mediatorSelectNode(_mediatorSelectedPath);
+                }
+            }
+        } catch (e) {
+            console.error('[Config] toggle peek/symbols failed:', e);
+        }
+    }
+    // ── Peek & Symbols confirm modal ─────────────────────────────
+    /** Confirmation modal for re-enabling Peek & Symbols from the summary bar */
+    function _peekSymConfirmEnable() {
+        modalOpen({
+            title: '🔬 Enable Peek & Symbols',
+            body: '<div style="font-size:0.85rem;color:var(--text-secondary);padding:8px 0">'
+                + '<p style="margin:0 0 10px">This will re-enable <strong>index.symbols</strong> and <strong>index.peek</strong> recomputation on each index watcher cycle.</p>'
+                + '<p style="margin:0;font-size:0.78rem;color:var(--text-muted)">These nodes provide file reference annotations in previews and symbol lookup. They add ~2-3s per cycle on file changes, or ~30s on cold start.</p>'
+                + '</div>',
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: '✅ Enable Peek & Symbols', cls: 'btn-primary', onclick: '_configTogglePeekSymbols(true); modalClose()' },
+            ],
+        });
+    }
+
+    // ── Bust confirmation modals ─────────────────────────────────
+
+    /** Root "Bust All" — prominent warning modal */
+    function _mediatorConfirmBust() {
+        const total = _mediatorDiagData ? Object.keys(_mediatorDiagData.entries || {}).length : '?';
+        modalOpen({
+            title: '💥 Bust All Cache',
+            body: '<div style="font-size:0.85rem;color:var(--text-secondary);padding:8px 0">'
+                + '<p style="margin:0 0 10px"><strong>All ' + total + ' cached nodes</strong> will be invalidated and queued for recomputation.</p>'
+                + '<p style="margin:0;font-size:0.78rem;color:var(--text-muted)">This forces a full re-index. On this machine it may take 30-60 seconds to recompute everything.</p>'
+                + '</div>',
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: '💥 Bust All', cls: 'btn-primary', onclick: '_mediatorBust(0); modalClose()', style: 'background:#ef4444' },
+            ],
+        });
+    }
+
+    /** Branch bust — lighter confirmation */
+    function _mediatorConfirmBustBranch(branch) {
+        const entries = _mediatorDiagData ? _mediatorDiagData.entries || {} : {};
+        const count = Object.keys(entries).filter(p => p === branch || p.startsWith(branch + '.')).length;
+        modalOpen({
+            title: '💥 Bust ' + branch + ' branch',
+            body: '<div style="font-size:0.85rem;color:var(--text-secondary);padding:8px 0">'
+                + '<p style="margin:0"><strong>' + count + ' node' + (count !== 1 ? 's' : '') + '</strong> in the <code>' + branch + '</code> branch will be invalidated and recomputed.</p>'
+                + '</div>',
+            size: 'narrow',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: '💥 Bust Branch', cls: 'btn-primary', onclick: "_mediatorBustBranch('" + branch + "'); modalClose()" },
+            ],
+        });
     }
 
     // ── Shared style constants ──────────────────────────────────
@@ -1999,6 +2169,14 @@
         html += '<div title="When ON, the watcher skips re-dispatching tiers whose classify output has not changed — saves CPU on unchanged projects. When OFF, every poll that detects file changes dispatches all tiers."><span style="' + _cfgLabel + '">Smart Dispatch</span> ';
         html += '<button style="' + (smartOn ? _cfgBtnOn : _cfgBtnOff) + '" onclick="_configSave({watcher:{smart_dispatch:' + (!smartOn) + '}})">';
         html += smartOn ? '■ ON' : '□ OFF';
+        html += '</button></div>';
+
+        // Peek & Symbols toggle
+        const peekSymOn = _configData && _configData.peek_symbols_enabled !== false;
+        html += '<div title="When ON, index.symbols and index.peek are computed each cycle (enables file reference annotations in previews). When OFF, those nodes are skipped — the rest of the index still runs.">'
+              + '<span style="' + _cfgLabel + '">Peek & Symbols</span> ';
+        html += '<button style="' + (peekSymOn ? _cfgBtnOn : _cfgBtnOff) + '" onclick="_configTogglePeekSymbols(' + (!peekSymOn) + ')">';
+        html += peekSymOn ? '■ ON' : '□ OFF';
         html += '</button></div>';
 
         html += '</div>';

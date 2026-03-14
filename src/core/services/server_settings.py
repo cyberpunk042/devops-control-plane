@@ -7,9 +7,10 @@ from browser preferences (localStorage) and devops card prefs.
 
 Current settings:
     peek_index_enabled: bool
-        Controls whether the project index (background AST parse,
-        symbol index, peek cache) runs on the server.  When disabled,
-        peek-refs returns empty and no background index thread starts.
+        Controls whether peek annotations and the symbol index run.
+        When disabled, peek-refs returns empty and index.symbols /
+        index.peek are skipped.  The rest of the project index
+        (scan, delta, stats, view, classify) always runs.
         Does NOT affect Docusaurus build-time peek (that uses its own
         feature flag in project.yml → pages → segments → features).
 
@@ -102,9 +103,44 @@ def save_settings(project_root: Path, settings: dict[str, Any]) -> dict[str, Any
     return merged
 
 
-def is_peek_index_enabled(project_root: Path) -> bool:
-    """Quick check: is the peek/index feature enabled?"""
-    return bool(load_settings(project_root).get("peek_index_enabled", True))
+def is_peek_symbols_enabled(project_root: Path) -> bool:
+    """Quick check: is the peek + symbols feature enabled?
+
+    When the setting has never been explicitly set, the default depends
+    on system resources:
+    - Very low performance (≤2 CPU cores or ≤2 GB RAM): defaults to OFF
+    - Everything else: defaults to ON
+    """
+    settings = load_settings(project_root)
+    explicit = settings.get("peek_index_enabled")
+    if explicit is not None:
+        return bool(explicit)
+
+    # No explicit setting — auto-detect based on system resources
+    return not _is_very_low_perf()
+
+
+def _is_very_low_perf() -> bool:
+    """Return True if the machine has ≤2 CPU cores or ≤2 GB RAM."""
+    import os
+
+    cpu = os.cpu_count() or 4
+    if cpu <= 2:
+        return True
+
+    try:
+        import psutil
+        mem_gb = psutil.virtual_memory().total / (1024 ** 3)
+        if mem_gb <= 2.0:
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+# Backward compat alias
+is_peek_index_enabled = is_peek_symbols_enabled
 
 
 # ── File logging toggle (runtime) ──────────────────────────────

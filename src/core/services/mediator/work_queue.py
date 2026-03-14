@@ -438,6 +438,47 @@ class WorkQueue:
 
     # ── Public API ─────────────────────────────────────────────
 
+    def drain(self) -> int:
+        """Remove all pending (not-yet-running) items from the queue.
+
+        Items that are already being executed by workers are NOT
+        affected — only queued items waiting to be picked up.
+
+        For items in batch groups, their group completion is recorded
+        so ``on_complete`` callbacks still fire normally when the
+        remaining (already-running) items finish.
+
+        Returns
+        -------
+        int
+            Number of items removed from the queue.
+        """
+        drained = 0
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except Exception:
+                break
+
+            # Don't drain poison pills
+            if item.path == "__shutdown__":
+                self._queue.put(item)
+                break
+
+            drained += 1
+
+            # Record group completion for drained items so batch
+            # tracking stays consistent
+            if item.group_id is not None:
+                self._record_group_completion(item.group_id, success=False)
+
+            self._queue.task_done()
+
+        if drained:
+            logger.info("[WorkQueue] drained %d pending items", drained)
+
+        return drained
+
     def submit(self, item: WorkItem) -> None:
         """Submit a work item to the queue.
 

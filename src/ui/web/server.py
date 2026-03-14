@@ -286,15 +286,10 @@ def create_app(
 
 
     # Start index watcher (FS polling → mediator cascade)
-    # When peek/index is enabled, the FS watcher drives the mediator tree.
-    # The legacy project_index bridge (get_index()) uses mediator.peek()
-    # so consumers get mediator-backed data without a separate background thread.
-    from src.core.services.server_settings import is_peek_index_enabled
-    if is_peek_index_enabled(app.config["PROJECT_ROOT"]):
-        from src.core.services.mediator.index_watcher import start_index_watcher
-        start_index_watcher(app.config["PROJECT_ROOT"], mediator_inst)
-    else:
-        logger.info("Project index disabled by server settings")
+    # The index watcher always runs — it drives scan, delta, stats, view, classify.
+    # Peek + symbols are gated by the peek_index_enabled setting inside the watcher.
+    from src.core.services.mediator.index_watcher import start_index_watcher
+    start_index_watcher(app.config["PROJECT_ROOT"], mediator_inst)
 
     # Restore file logging if previously enabled
     from src.core.services.server_settings import load_settings, toggle_file_logging

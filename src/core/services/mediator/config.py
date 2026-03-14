@@ -48,6 +48,102 @@ _DEFAULTS: dict[str, Any] = {
 }
 
 
+# ── Tier path classification ────────────────────────────────────
+# Single source of truth for which paths belong to which tier.
+# Imported by core.py (dispatch) and index_watcher.py (cycle dispatch).
+
+TIER_PATHS: dict[str, frozenset[str]] = {
+    "T1:visible": frozenset({
+        "devops.git", "devops.ci", "devops.packages",
+        "devops.quality", "devops.docs", "devops.dns",
+    }),
+    "T2:infra": frozenset({
+        "devops.docker", "devops.k8s", "devops.terraform",
+        "devops.env", "devops.github",
+    }),
+    "T3:heavy": frozenset({
+        "devops.security", "devops.testing",
+    }),
+    "T5:aggregate": frozenset({
+        "devops.status",
+    }),
+}
+
+# Prefix-based tier classification (paths that match by prefix)
+TIER_PREFIXES: dict[str, list[str]] = {
+    "T1:visible":   ["catalog."],
+    "T2:infra":     ["github."],
+    "T4:index":     ["index."],
+    "T5:aggregate": ["posture."],
+}
+
+# Audit tiers (separate sets for clarity)
+AUDIT_L0L1 = frozenset({
+    "audit.scores", "audit.system", "audit.deps",
+    "audit.structure", "audit.clients",
+})
+AUDIT_L2 = frozenset({
+    "audit.system_deep", "audit.l2_structure",
+    "audit.l2_quality", "audit.l2_repo",
+    "audit.l2_risks", "audit.scores_enriched",
+})
+
+
+def tier_for_path(path: str) -> str:
+    """Classify a mediator path into its tier name.
+
+    Returns the tier name (e.g. ``"T1:visible"``) or ``"T4:index"``
+    as fallback for unclassified paths.
+    """
+    # Check exact-match sets first
+    for tier_name, path_set in TIER_PATHS.items():
+        if path in path_set:
+            return tier_name
+
+    # Check prefix-based classification
+    for tier_name, prefixes in TIER_PREFIXES.items():
+        for prefix in prefixes:
+            if path.startswith(prefix):
+                return tier_name
+
+    # Audit classification
+    if path in AUDIT_L0L1:
+        return "T5:aggregate"
+    if path in AUDIT_L2:
+        return "T6:deep"
+
+    # Fallback
+    return "T4:index"
+
+
+def tier_priority_for_path(
+    path: str,
+    config: dict[str, Any] | None = None,
+) -> int:
+    """Return the work queue priority for a mediator path.
+
+    Looks up the path's tier, then reads the tier's priority from
+    config.  If no config is provided, uses the defaults.
+
+    Parameters
+    ----------
+    path : str
+        Mediator node path (e.g. ``"devops.git"``).
+    config : dict | None
+        Mediator config dict (from ``load_config``).  If ``None``,
+        uses ``_DEFAULTS``.
+
+    Returns
+    -------
+    int
+        Priority value (0=CRITICAL … 4=IDLE).
+    """
+    tier_name = tier_for_path(path)
+    tiers = (config or _DEFAULTS).get("tiers", {})
+    tier_cfg = tiers.get(tier_name, {})
+    return tier_cfg.get("priority", 3)  # fallback to LOW
+
+
 # ── Public API ──────────────────────────────────────────────────
 
 

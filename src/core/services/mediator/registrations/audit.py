@@ -162,6 +162,7 @@ def register_audit(mediator: QueryMediator) -> None:
         resolver=_resolve_audit_system_deep,
         ttl=600,
         persist=True,
+        size=3,
     ))
 
     tree.register(TreeRegistration(
@@ -169,6 +170,7 @@ def register_audit(mediator: QueryMediator) -> None:
         resolver=_resolve_l2_structure,
         ttl=600,
         persist=True,
+        size=2,
     ))
 
     tree.register(TreeRegistration(
@@ -176,6 +178,7 @@ def register_audit(mediator: QueryMediator) -> None:
         resolver=_resolve_l2_quality,
         ttl=600,
         persist=True,
+        size=2,
     ))
 
     tree.register(TreeRegistration(
@@ -183,6 +186,7 @@ def register_audit(mediator: QueryMediator) -> None:
         resolver=_resolve_l2_repo,
         ttl=600,
         persist=True,
+        size=2,
     ))
 
     tree.register(TreeRegistration(
@@ -190,6 +194,7 @@ def register_audit(mediator: QueryMediator) -> None:
         resolver=_resolve_l2_risks,
         ttl=600,
         persist=True,
+        size=2,
     ))
 
     tree.register(TreeRegistration(
@@ -197,6 +202,7 @@ def register_audit(mediator: QueryMediator) -> None:
         resolver=_resolve_audit_scores_enriched,
         ttl=600,
         persist=True,
+        size=3,
     ))
 
     logger.debug("registered audit.* nodes (11 total)")

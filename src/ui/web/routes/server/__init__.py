@@ -77,8 +77,8 @@ def server_settings_put():  # type: ignore[no-untyped-def]
     JSON body: partial dict of settings to update.
     Returns the full merged settings after save.
 
-    NOTE: Changing ``peek_index_enabled`` takes effect on next
-    server restart.  ``file_logging_enabled`` takes effect immediately.
+    NOTE: Changing ``peek_index_enabled`` controls peek + symbols only.
+    The index watcher always runs. Takes effect on next cycle.
     """
     from src.core.services.server_settings import (
         load_settings,
@@ -92,18 +92,14 @@ def server_settings_put():  # type: ignore[no-untyped-def]
     old = load_settings(root)
     merged = save_settings(root, {**old, **data})
 
-    # Detect if a restart-requiring setting changed
-    needs_restart = (
-        old.get("peek_index_enabled") != merged.get("peek_index_enabled")
-    )
-
-    # Apply file logging toggle immediately (no restart needed)
+    # peek_index_enabled takes effect on next index watcher cycle (no restart needed)
+    # file_logging_enabled takes effect immediately
     if old.get("file_logging_enabled") != merged.get("file_logging_enabled"):
         toggle_file_logging(root, merged["file_logging_enabled"])
 
     return jsonify({
         "settings": merged,
-        "needs_restart": needs_restart,
+        "needs_restart": False,  # no settings currently require restart
     })
 
 

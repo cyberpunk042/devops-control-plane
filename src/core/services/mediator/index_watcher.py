@@ -175,6 +175,7 @@ def _poll_loop(
     # Index nodes split into two tiers:
     #   FAST — must run first, sequentially (~45ms total)
     #   SLOW — can run in parallel with detect/devops/posture
+    #   Peek + symbols are gated by server setting (checked each cycle)
     _FAST_INDEX = [
         "index.scan",      # root — scans filesystem (~25ms)
         "index.delta",     # depends on scan — diffs against prev (~5ms)
@@ -183,12 +184,24 @@ def _poll_loop(
         "index.paths",     # depends on scan — flat path set (~1ms)
         "index.classify",  # depends on scan — language/framework detection (~10ms)
     ]
-    _SLOW_INDEX = [
-        "index.symbols",   # depends on delta — symbol index (cold ~30s, warm <1ms)
-        "index.peek",      # depends on delta+symbols+scan — peek cache (cold ~2s, warm <100ms)
+    _SLOW_INDEX_ALWAYS = [
         "index.stats",     # depends on all index nodes (~1ms)
     ]
-    _ALL_INDEX = _FAST_INDEX + _SLOW_INDEX
+    _SLOW_INDEX_PEEK = [
+        "index.symbols",   # depends on delta — symbol index (cold ~30s, warm <1ms)
+        "index.peek",      # depends on delta+symbols+scan — peek cache (cold ~2s, warm <100ms)
+    ]
+
+    def _get_slow_index():
+        """Return SLOW_INDEX list, excluding peek+symbols if disabled."""
+        from src.core.services.server_settings import is_peek_symbols_enabled
+        if is_peek_symbols_enabled(project_root):
+            return _SLOW_INDEX_PEEK + _SLOW_INDEX_ALWAYS
+        else:
+            logger.debug("[IndexWatcher] Peek & Symbols disabled — skipping index.symbols + index.peek")
+            return _SLOW_INDEX_ALWAYS
+
+
 
     # Initial snapshot — capture baseline mtimes.
     try:
@@ -309,10 +322,12 @@ def _poll_loop(
             # ── Phase 1: Fast index nodes (sequential, ~45ms) ──
             # Skipped on warm start — index nodes already cached from disk.
             if not _warm:
+                _slow_index = _get_slow_index()
+                _all_index = _FAST_INDEX + _slow_index
                 _publish_progress("index:cycle:start", {
                     "phase": "index",
-                    "total": len(_ALL_INDEX),
-                    "paths": list(_ALL_INDEX),
+                    "total": len(_all_index),
+                    "paths": list(_all_index),
                 })
 
                 t0 = time.time()
@@ -321,7 +336,7 @@ def _poll_loop(
                     _publish_progress("index:node:start", {
                         "path": path,
                         "step": i + 1,
-                        "total": len(_ALL_INDEX),
+                        "total": len(_all_index),
                     })
                     node_t0 = time.time()
                     try:
@@ -335,7 +350,7 @@ def _poll_loop(
                         _publish_progress("index:node:done", {
                             "path": path,
                             "step": i + 1,
-                            "total": len(_ALL_INDEX),
+                            "total": len(_all_index),
                             "elapsed_ms": round(node_elapsed * 1000),
                             **size_info,
                         })
@@ -348,7 +363,7 @@ def _poll_loop(
                         _publish_progress("index:node:failed", {
                             "path": path,
                             "step": i + 1,
-                            "total": len(_ALL_INDEX),
+                            "total": len(_all_index),
                             "elapsed_ms": round(node_elapsed * 1000),
                             "error": str(exc)[:200],
                         })
@@ -383,34 +398,16 @@ def _poll_loop(
             # solely for cascade invalidation.  Dispatching both would
             # duplicate work.
             try:
+                from .config import (
+                    TIER_PATHS, AUDIT_L0L1, AUDIT_L2,
+                )
                 from .work_queue import Priority
 
                 # ── Build tier path lists ────────────────────────────
-                _T1_PATHS = frozenset({
-                    "devops.git", "devops.ci", "devops.packages",
-                    "devops.quality", "devops.docs", "devops.dns",
-                })
-                _T2_PATHS = frozenset({
-                    "devops.docker", "devops.k8s", "devops.terraform",
-                    "devops.env", "devops.github",
-                })
-                _T3_PATHS = frozenset({
-                    "devops.security", "devops.testing",
-                })
-                _T5_PATHS = frozenset({
-                    "devops.status",
-                })
-                # Audit L0/L1 (fast, TTL=300s)
-                _AUDIT_L0L1 = frozenset({
-                    "audit.scores", "audit.system", "audit.deps",
-                    "audit.structure", "audit.clients",
-                })
-                # Audit L2 + enriched (heavy, TTL=600s)
-                _AUDIT_L2 = frozenset({
-                    "audit.system_deep", "audit.l2_structure",
-                    "audit.l2_quality", "audit.l2_repo",
-                    "audit.l2_risks", "audit.scores_enriched",
-                })
+                _T1_PATHS = TIER_PATHS["T1:visible"]
+                _T2_PATHS = TIER_PATHS["T2:infra"]
+                _T3_PATHS = TIER_PATHS["T3:heavy"]
+                _T5_PATHS = TIER_PATHS["T5:aggregate"]
 
                 all_paths = mediator.tree.all_paths()
                 posture_paths = [
@@ -446,16 +443,16 @@ def _poll_loop(
                     ]
                 else:
                     # Cold start: slow index nodes
-                    tier4_paths = list(_SLOW_INDEX) + ["index.view"]
+                    tier4_paths = list(_get_slow_index()) + ["index.view"]
 
                 # T5: aggregates
                 tier5_paths = (
                     [p for p in all_paths if p in _T5_PATHS]
                     + posture_paths
-                    + [p for p in all_paths if p in _AUDIT_L0L1]
+                    + [p for p in all_paths if p in AUDIT_L0L1]
                 )
                 # T6: deep audit
-                tier6_paths = [p for p in all_paths if p in _AUDIT_L2]
+                tier6_paths = [p for p in all_paths if p in AUDIT_L2]
 
                 # ── Smart dispatch: filter by classify change ──
                 # If classify didn't change, narrow dispatch scope.
@@ -612,7 +609,7 @@ def _poll_loop(
                 _publish_progress("index:cycle:done", {
                     "phase": "index",
                     "ok": fast_ok,
-                    "total": len(_ALL_INDEX),
+                    "total": len(_all_index),
                     "elapsed_ms": round(total_elapsed * 1000),
                 })
                 logger.info(
