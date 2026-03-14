@@ -9,11 +9,11 @@
 // ── State ────────────────────────────────────────────────────────────
 
 const _tlState = {
-  // Pagination
-  nextCursor:  null,    // before_ts for next page
-  prevCursor:  null,    // after_ts for live refresh
-  hasMore:     true,
-  loading:     false,
+  // Data (from store — single source of truth)
+  allEntries:       [],   // full entry list from timeline.data
+  _filteredEntries: [],   // after client-side filter
+  _renderedCount:   0,    // how many rendered so far (client-side pagination)
+  hasMore:          true,
 
   // Filters
   sources:     [],      // string[] — empty = all
@@ -23,13 +23,11 @@ const _tlState = {
   envs:        [],
   modules:     [],
   chainFilter: null,    // chain_id filter (when user selects a chain)
+  dateFrom:    null,    // unix epoch lower bound (calendar jump)
+  dateTo:      null,    // unix epoch upper bound (calendar jump)
   sortBy:      'ts',
   sortDir:     'desc',
   q:           '',
-
-  // Live
-  liveEntries: [],
-  liveTimer:   null,
 
   // Rendered state
   lastDate:    null,
@@ -182,56 +180,107 @@ function _tlToggleRaw(idx) {
   el.style.display = el.style.display === 'none' ? '' : 'none';
 }
 
-// ── Data loading ─────────────────────────────────────────────────────
+// ── Store integration ────────────────────────────────────────────────
+// Follows the proven double-cache pattern:
+//   1. storeGet('timeline') — instant from __INITIAL_STATE__
+//   2. api('/timeline/data') — cold start fallback
+//   3. SSE cache:done → storeSet('timeline') — live updates
+//
+// All data (entries, facets, chains, calendar) comes from ONE object.
+// Filtering, sorting, and pagination happen client-side.
 
-async function _tlLoadPage(append = false) {
-  if (_tlState.loading) return;
-  if (!append) {
-    _tlState.nextCursor = null;
-    _tlState.prevCursor = null;
-    _tlState.hasMore    = true;
-    _tlState.lastDate   = null;
-    document.getElementById('timeline-list').innerHTML = '';
-    document.getElementById('timeline-empty').style.display = 'none';
-  }
+storeRegister('timeline', _tlOnData);
 
-  _tlState.loading = true;
-  document.getElementById('timeline-loading').style.display = '';
+function _tlOnData(data) {
+  // Store raw data — single source of truth
+  _tlState.allEntries  = data.entries  || [];
+  _tlState.navChains   = data.chains   || [];
+  _tlState.navDomains  = (data.facets || {}).by_source || {};
+  _tlState.navCalendar = data.calendar || [];
 
-  try {
-    const params = new URLSearchParams({ limit: 50 });
-    if (_tlState.nextCursor)        params.set('before_ts', _tlState.nextCursor);
-    if (_tlState.sources.length)    _tlState.sources.forEach(s   => params.append('source[]', s));
-    if (_tlState.statuses.length)   _tlState.statuses.forEach(s  => params.append('status[]', s));
-    if (_tlState.severities.length) _tlState.severities.forEach(s => params.append('severity[]', s));
-    if (_tlState.locality)          params.set('locality', _tlState.locality);
-    if (_tlState.envs.length)       _tlState.envs.forEach(e => params.append('env[]', e));
-    if (_tlState.chainFilter)       params.set('chain_id', _tlState.chainFilter);
-    if (_tlState.q)                 params.set('q', _tlState.q);
-    params.set('sort_by',  _tlState.sortBy);
-    params.set('sort_dir', _tlState.sortDir);
+  // Build filter menus from facets (always consistent — same population)
+  const facets = data.facets || {};
+  _tlBuildSourceMenu(facets.by_source || {});
+  _tlBuildStatusMenu(facets.by_status || {});
+  _tlBuildSeverityMenu(facets.by_severity || {});
 
-    const data = await api('/timeline?' + params.toString());
-    const list = document.getElementById('timeline-list');
-    const html = data.entries.map((e, i) =>
-      _tlMaybeDateHeader(e) + _tlRenderEntry(e, (append ? 'p' : '') + i)
-    ).join('');
+  // Render navigator
+  _tlNavRender();
 
-    list.insertAdjacentHTML('beforeend', html);
+  // Apply current filters and render entry list
+  _tlRenderFiltered();
+}
 
-    _tlState.hasMore    = data.has_more;
-    _tlState.nextCursor = data.next_cursor;
-    if (!append) _tlState.prevCursor = data.prev_cursor;
+function _tlRenderFiltered() {
+  // Filter client-side from allEntries
+  let filtered = _tlState.allEntries.filter(_tlPassesFilter);
 
-    if (!append && !data.entries.length) {
-      document.getElementById('timeline-empty').style.display = '';
-    }
-  } catch (err) {
-    console.error('[TL] load error', err);
-  } finally {
-    _tlState.loading = false;
+  // Sort
+  filtered = _tlSortEntries(filtered);
+
+  // Reset list
+  _tlState.lastDate = null;
+  const list = document.getElementById('timeline-list');
+  list.innerHTML = '';
+
+  if (!filtered.length) {
+    document.getElementById('timeline-empty').style.display = '';
     document.getElementById('timeline-loading').style.display = 'none';
+    return;
   }
+  document.getElementById('timeline-empty').style.display = 'none';
+
+  // Render (paginated client-side — show first 100, sentinel loads more)
+  _tlState._filteredEntries = filtered;
+  _tlState._renderedCount   = 0;
+  _tlRenderNextBatch();
+}
+
+function _tlRenderNextBatch() {
+  const BATCH = 100;
+  const filtered = _tlState._filteredEntries || [];
+  const start    = _tlState._renderedCount || 0;
+  const end      = Math.min(start + BATCH, filtered.length);
+  if (start >= filtered.length) {
+    _tlState.hasMore = false;
+    return;
+  }
+
+  const batch = filtered.slice(start, end);
+  const list  = document.getElementById('timeline-list');
+  const html  = batch.map((e, i) =>
+    _tlMaybeDateHeader(e) + _tlRenderEntry(e, start + i)
+  ).join('');
+  list.insertAdjacentHTML('beforeend', html);
+
+  _tlState._renderedCount = end;
+  _tlState.hasMore = end < filtered.length;
+  document.getElementById('timeline-loading').style.display = 'none';
+}
+
+function _tlSortEntries(entries) {
+  const by  = _tlState.sortBy;
+  const dir = _tlState.sortDir;
+  const mult = dir === 'desc' ? -1 : 1;
+
+  return [...entries].sort((a, b) => {
+    let va, vb;
+    if (by === 'ts') {
+      va = a.ts || 0; vb = b.ts || 0;
+    } else if (by === 'severity') {
+      const ord = { critical: 0, high: 1, medium: 2, low: 3 };
+      va = ord[a.severity] ?? 99; vb = ord[b.severity] ?? 99;
+    } else if (by === 'status') {
+      const ord = { failed: 0, attention: 1, warning: 2, ok: 3 };
+      va = ord[a.status] ?? 99; vb = ord[b.status] ?? 99;
+    } else if (by === 'source') {
+      va = a.source || ''; vb = b.source || '';
+      return mult * va.localeCompare(vb);
+    } else {
+      va = a.ts || 0; vb = b.ts || 0;
+    }
+    return mult * (va - vb);
+  });
 }
 
 // ── Scroll observer ──────────────────────────────────────────────────
@@ -240,48 +289,56 @@ function _tlInitScrollObserver() {
   const sentinel = document.getElementById('timeline-sentinel');
   if (!sentinel) return;
   const observer = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting && _tlState.hasMore && !_tlState.loading) {
-      _tlLoadPage(true);
+    if (entries[0].isIntersecting && _tlState.hasMore) {
+      _tlRenderNextBatch();
     }
   }, { rootMargin: '200px' });
   observer.observe(sentinel);
 }
 
 // ── Live SSE entries ─────────────────────────────────────────────────
+// Individual entries arrive via SSE timeline:entry.
+// Each one is added to state, filtered, and prepended to the list if it passes.
+
+let _tlLiveBatch = [];
+let _tlLiveTimer = null;
 
 function _tlOnLiveEntry(entry) {
-  _tlState.liveEntries.push(entry);
-  clearTimeout(_tlState.liveTimer);
-  _tlState.liveTimer = setTimeout(_tlFlushLiveEntries, 800);
+  _tlLiveBatch.push(entry);
+  clearTimeout(_tlLiveTimer);
+  _tlLiveTimer = setTimeout(_tlFlushLive, 800);
 }
 
-function _tlFlushLiveEntries() {
-  if (!_tlState.liveEntries.length) return;
-  const entries = [..._tlState.liveEntries];
-  _tlState.liveEntries = [];
+function _tlFlushLive() {
+  if (!_tlLiveBatch.length) return;
+  const batch = [..._tlLiveBatch];
+  _tlLiveBatch = [];
 
-  const filtered = entries.filter(_tlPassesFilter);
-  if (!filtered.length) return;
+  for (const entry of batch) {
+    // Add to master state
+    _tlState.allEntries.unshift(entry);
+  }
 
+  // Filter the batch
+  const visible = batch.filter(_tlPassesFilter);
+  if (!visible.length) return;
+
+  // Prepend to rendered list
   const savedLastDate = _tlState.lastDate;
-  _tlState.lastDate = null; // reset so date headers render for live entries
-  const html = filtered.map((e, i) =>
-    _tlMaybeDateHeader(e) + _tlRenderEntry(e, 'live-' + Date.now() + i)
-  ).join('');
-  _tlState.lastDate = savedLastDate; // restore
-
+  _tlState.lastDate = null;
   const list = document.getElementById('timeline-list');
+  const html = visible.map((e, i) =>
+    _tlMaybeDateHeader(e) + _tlRenderEntry(e, 'live-' + Date.now() + '-' + i)
+  ).join('');
+  _tlState.lastDate = savedLastDate;
+
   list.insertAdjacentHTML('afterbegin', html);
 
-  // Mark as new for highlight animation
+  // Highlight animation
   list.querySelectorAll('.timeline-entry:not(.tl-new-done)').forEach(el => {
     el.classList.add('tl-new');
     setTimeout(() => { el.classList.remove('tl-new'); el.classList.add('tl-new-done'); }, 1600);
   });
-
-  if (_tlState.prevCursor === null || filtered.length) {
-    _tlState.prevCursor = Math.max(...filtered.map(e => e.ts));
-  }
 }
 
 // ── Filter pipeline ──────────────────────────────────────────────────
@@ -289,9 +346,11 @@ function _tlFlushLiveEntries() {
 function _tlPassesFilter(entry) {
   if (_tlState.sources.length && !_tlState.sources.includes(entry.source)) return false;
   if (_tlState.statuses.length && !_tlState.statuses.includes(entry.status)) return false;
-  if (_tlState.severities.length && !_tlState.severities.includes(entry.severity)) return false;
+  if (_tlState.severities.length && !_tlState.severities.includes(entry.severity || 'none')) return false;
   if (_tlState.locality && entry.locality !== _tlState.locality) return false;
   if (_tlState.chainFilter && entry.chain_id !== _tlState.chainFilter) return false;
+  if (_tlState.dateFrom != null && entry.ts < _tlState.dateFrom) return false;
+  if (_tlState.dateTo != null && entry.ts >= _tlState.dateTo) return false;
   if (_tlState.q) {
     const needle = _tlState.q.toLowerCase();
     const hay = [entry.summary, entry.subtype, entry.ref, entry.source].join(' ').toLowerCase();
@@ -306,7 +365,7 @@ function _tlApplyCheckFilter(axis, value, checked) {
   if (checked) { if (!arr.includes(value)) arr.push(value); }
   else          { const i = arr.indexOf(value); if (i >= 0) arr.splice(i, 1); }
   _tlUpdateActivePills();
-  _tlLoadPage(false);
+  _tlRenderFiltered();
 }
 
 function _tlSetLocality(val) {
@@ -315,7 +374,7 @@ function _tlSetLocality(val) {
     b.classList.toggle('active', b.id === ('tl-loc-' + (val || 'all')));
   });
   _tlUpdateActivePills();
-  _tlLoadPage(false);
+  _tlRenderFiltered();
 }
 
 function _tlApplySort() {
@@ -323,14 +382,14 @@ function _tlApplySort() {
   const [by, dir] = v.split(':');
   _tlState.sortBy  = by;
   _tlState.sortDir = dir;
-  _tlLoadPage(false);
+  _tlRenderFiltered();
 }
 
 function _tlSearchDebounce() {
   clearTimeout(_tlSearchTimer);
   _tlSearchTimer = setTimeout(() => {
     _tlState.q = document.getElementById('timeline-search').value;
-    _tlLoadPage(false);
+    _tlRenderFiltered();
   }, 400);
 }
 
@@ -340,19 +399,19 @@ function _tlUpdateActivePills() {
   const pills = [];
   _tlState.sources.forEach(s => pills.push({label: `src:${s}`, clear: () => {
     _tlState.sources = _tlState.sources.filter(x => x !== s);
-    _tlUpdateActivePills(); _tlLoadPage(false);
+    _tlUpdateActivePills(); _tlRenderFiltered();
   }}));
   _tlState.statuses.forEach(s => pills.push({label: `status:${s}`, clear: () => {
     _tlState.statuses = _tlState.statuses.filter(x => x !== s);
-    _tlUpdateActivePills(); _tlLoadPage(false);
+    _tlUpdateActivePills(); _tlRenderFiltered();
   }}));
   _tlState.severities.forEach(s => pills.push({html: `<span class="tl-severity tl-sev-${s}">${s}</span>`, clear: () => {
     _tlState.severities = _tlState.severities.filter(x => x !== s);
-    _tlUpdateActivePills(); _tlLoadPage(false);
+    _tlUpdateActivePills(); _tlRenderFiltered();
   }}));
   if (_tlState.chainFilter) pills.push({label: `chain:…${_tlState.chainFilter.slice(-8)}`, clear: () => {
     _tlState.chainFilter = null; _tlNavActiveChain = null;
-    _tlUpdateActivePills(); _tlLoadPage(false); _tlNavRender();
+    _tlUpdateActivePills(); _tlRenderFiltered(); _tlNavRender();
   }});
   container.innerHTML = pills.map((p, i) =>
     `<span class="tl-filter-pill">${p.html || _tlEsc(p.label)}
@@ -405,6 +464,47 @@ function _tlBuildSourceMenu(domains) {
   }).join('');
 }
 
+function _tlBuildStatusMenu(byStatus) {
+  const menu = document.getElementById('timeline-status-menu');
+  if (!menu) return;
+  const all = [
+    { value: 'ok',        icon: '●', label: 'ok' },
+    { value: 'warning',   icon: '◑', label: 'warning' },
+    { value: 'attention', icon: '⚠', label: 'attention' },
+    { value: 'failed',    icon: '✕', label: 'failed' },
+  ];
+  menu.innerHTML = all.map(s => {
+    const count = byStatus[s.value] || 0;
+    if (count === 0) return '';
+    return `<label><input type="checkbox" value="${s.value}"
+      ${_tlState.statuses.includes(s.value) ? 'checked' : ''}
+      onchange="_tlApplyCheckFilter('status','${s.value}',this.checked)">
+      ${s.icon} ${_tlEsc(s.label)} <span style="color:var(--text-muted);font-size:0.64rem">(${count})</span>
+    </label>`;
+  }).join('');
+}
+
+function _tlBuildSeverityMenu(bySeverity) {
+  const menu = document.getElementById('timeline-severity-menu');
+  if (!menu) return;
+  const all = [
+    { value: 'critical', icon: '🔴', label: 'critical' },
+    { value: 'high',     icon: '🟠', label: 'high' },
+    { value: 'medium',   icon: '🟡', label: 'medium' },
+    { value: 'low',      icon: '⚪', label: 'low' },
+    { value: 'none',     icon: '·',  label: 'none' },
+  ];
+  menu.innerHTML = all.map(s => {
+    const count = bySeverity[s.value] || 0;
+    if (count === 0) return '';
+    return `<label><input type="checkbox" value="${s.value}"
+      ${_tlState.severities.includes(s.value) ? 'checked' : ''}
+      onchange="_tlApplyCheckFilter('severity','${s.value}',this.checked)">
+      ${s.icon} ${_tlEsc(s.label)} <span style="color:var(--text-muted);font-size:0.64rem">(${count})</span>
+    </label>`;
+  }).join('');
+}
+
 // Close menus on outside click
 document.addEventListener('click', (e) => {
   if (!e.target.closest('[id$="-btn"]') && !e.target.closest('.timeline-dropdown')) {
@@ -414,22 +514,8 @@ document.addEventListener('click', (e) => {
 
 // ── Navigator ────────────────────────────────────────────────────────
 
-async function _tlNavLoad() {
-  try {
-    const [chainsData, domainsData, calData] = await Promise.all([
-      api('/timeline/chains'),
-      api('/timeline/domains'),
-      api('/timeline/calendar'),
-    ]);
-    _tlState.navChains   = chainsData.chains   || [];
-    _tlState.navDomains  = domainsData.domains || {};
-    _tlState.navCalendar = calData.days        || [];
-    _tlBuildSourceMenu(_tlState.navDomains);
-    _tlNavRender();
-  } catch (err) {
-    console.warn('[TL] nav load error', err);
-  }
-}
+// _tlNavLoad is no longer needed — navigator data comes from the store
+// via _tlOnData() which is called by storeSet('timeline', ...)
 
 function _tlNavMode(mode) {
   _tlState.navMode = mode;
@@ -573,15 +659,11 @@ function _tlNavRenderCalendar() {
 }
 
 function _tlJumpToDate(dateStr) {
-  // Set date_from to start of this day, date_to to end of this day
+  // Set date range filter to show only this day's entries
   const d = new Date(dateStr + 'T00:00:00Z');
-  const dateFrom = d.getTime() / 1000;
-  const dateTo   = dateFrom + 86400;
-  // Apply as a one-shot filter via before_ts/after_ts
-  _tlState.nextCursor = dateTo;
-  _tlState.lastDate   = null;
-  document.getElementById('timeline-list').innerHTML = '';
-  _tlLoadPage(false);
+  _tlState.dateFrom = d.getTime() / 1000;
+  _tlState.dateTo   = _tlState.dateFrom + 86400;
+  _tlRenderFiltered();
 }
 
 function _tlNavHoverChain(chainId) {
@@ -594,7 +676,7 @@ function _tlNavSelectChain(chainId) {
   _tlNavActiveChain    = chainId;
   _tlState.chainFilter = chainId;
   _tlUpdateActivePills();
-  _tlLoadPage(false);
+  _tlRenderFiltered();
   _tlNavRender();
 }
 
@@ -602,7 +684,7 @@ function _tlFilterBySource(src) {
   if (!_tlState.sources.includes(src)) {
     _tlState.sources.push(src);
     _tlUpdateActivePills();
-    _tlLoadPage(false);
+    _tlRenderFiltered();
   }
 }
 
@@ -668,8 +750,19 @@ function _tlInit() {
   } catch (_) {}
 
   _tlInitScrollObserver();
-  _tlNavLoad();
-  _tlLoadPage(false);
+
+  // Store pattern: try storeGet first (instant from __INITIAL_STATE__),
+  // fall back to API fetch (cold start)
+  const cached = storeGet('timeline');
+  if (cached) {
+    _tlOnData(cached);
+  } else {
+    api('/timeline/data').then(data => {
+      storeSet('timeline', data);
+    }).catch(err => {
+      console.error('[TL] data fetch error', err);
+    });
+  }
 
   // Scroll sync (throttled)
   let _tlScrollTimer = null;

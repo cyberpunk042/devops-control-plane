@@ -51,20 +51,14 @@
             <button class="btn btn-sm btn-ghost" id="timeline-status-btn"
                     onclick="_tlToggleMenu('status')">Status ▾</button>
             <div id="timeline-status-menu" class="timeline-dropdown" style="display:none">
-              <label><input type="checkbox" value="ok"        onchange="_tlApplyCheckFilter('status','ok',this.checked)"> ● ok</label>
-              <label><input type="checkbox" value="warning"   onchange="_tlApplyCheckFilter('status','warning',this.checked)"> ◑ warning</label>
-              <label><input type="checkbox" value="attention" onchange="_tlApplyCheckFilter('status','attention',this.checked)"> ⚠ attention</label>
-              <label><input type="checkbox" value="failed"    onchange="_tlApplyCheckFilter('status','failed',this.checked)"> ✕ failed</label>
+              <!-- populated by _tlBuildStatusMenu() -->
             </div>
           </div>
           <div style="position:relative">
             <button class="btn btn-sm btn-ghost" id="timeline-severity-btn"
                     onclick="_tlToggleMenu('severity')">Severity ▾</button>
             <div id="timeline-severity-menu" class="timeline-dropdown" style="display:none">
-              <label><input type="checkbox" value="critical" onchange="_tlApplyCheckFilter('severity','critical',this.checked)"> 🔴 critical</label>
-              <label><input type="checkbox" value="high"     onchange="_tlApplyCheckFilter('severity','high',this.checked)"> 🟠 high</label>
-              <label><input type="checkbox" value="medium"   onchange="_tlApplyCheckFilter('severity','medium',this.checked)"> 🟡 medium</label>
-              <label><input type="checkbox" value="low"      onchange="_tlApplyCheckFilter('severity','low',this.checked)"> ⚪ low</label>
+              <!-- populated by _tlBuildSeverityMenu() -->
             </div>
           </div>
         </div>

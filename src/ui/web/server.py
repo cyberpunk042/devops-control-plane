@@ -252,6 +252,8 @@ def create_app(
         "audit:deps": "audit.deps",
         "audit:structure": "audit.structure",
         "audit:clients": "audit.clients",
+        # timeline domain (1 key — single aggregate)
+        "timeline": "timeline.data",
     }
 
     @app.context_processor

@@ -66,7 +66,7 @@ def _parse_sources() -> list[Source]:
     result = []
     for r in raws:
         try:
-            result.append(Source(r.upper()))
+            result.append(Source(r.lower()))
         except ValueError:
             pass
     return result
@@ -83,14 +83,17 @@ def _parse_statuses() -> list[EntryStatus]:
     return result
 
 
-def _parse_severities() -> list[Severity]:
+def _parse_severities() -> list[Severity | None]:
     raws = _get_list("severity")
-    result = []
+    result: list[Severity | None] = []
     for r in raws:
-        try:
-            result.append(Severity(r.lower()))
-        except ValueError:
-            pass
+        if r.lower() == "none":
+            result.append(None)
+        else:
+            try:
+                result.append(Severity(r.lower()))
+            except ValueError:
+                pass
     return result
 
 
@@ -183,15 +186,32 @@ def timeline_query():
         return jsonify({"error": str(exc)}), 500
 
 
+@timeline_bp.get("/timeline/data")
+def timeline_data():
+    """GET /api/timeline/data — full aggregate (entries + facets + chains + calendar).
+
+    This is the primary data endpoint for the timeline UI.
+    Returns the timeline.data mediator node — single source of truth.
+    Fallback for cold start when __INITIAL_STATE__ is not populated.
+    """
+    try:
+        data = _service.data()
+        return jsonify(data)
+    except Exception as exc:
+        logger.exception("timeline: data error")
+        return jsonify({"error": str(exc)}), 500
+
+
 @timeline_bp.get("/timeline/chains")
 def timeline_chains():
     """GET /api/timeline/chains — chain summaries for left navigator.
 
     Returns: list of chain dicts sorted by last_ts desc.
+    Reads from timeline.data aggregate.
     """
     try:
-        chains = _service.chains()
-        return jsonify({"chains": chains})
+        data = _service.data()
+        return jsonify({"chains": data.get("chains", [])})
     except Exception as exc:
         logger.exception("timeline: chains error")
         return jsonify({"error": str(exc)}), 500
@@ -202,10 +222,11 @@ def timeline_domains():
     """GET /api/timeline/domains — per-source entry counts.
 
     Returns: dict of source_value → count.
+    Reads from timeline.data aggregate facets.
     """
     try:
-        domains = _service.domains()
-        return jsonify({"domains": domains})
+        data = _service.data()
+        return jsonify({"domains": data.get("facets", {}).get("by_source", {})})
     except Exception as exc:
         logger.exception("timeline: domains error")
         return jsonify({"error": str(exc)}), 500
@@ -216,10 +237,11 @@ def timeline_calendar():
     """GET /api/timeline/calendar — per-day entry counts for Calendar mode.
 
     Returns: list of {date, count, has_failure} sorted by date desc.
+    Reads from timeline.data aggregate.
     """
     try:
-        cal = _service.calendar()
-        return jsonify({"days": cal})
+        data = _service.data()
+        return jsonify({"days": data.get("calendar", [])})
     except Exception as exc:
         logger.exception("timeline: calendar error")
         return jsonify({"error": str(exc)}), 500
@@ -229,11 +251,15 @@ def timeline_calendar():
 def timeline_stats():
     """GET /api/timeline/stats — aggregate counts.
 
-    Returns: stats dict from timeline.view.stats.
+    Returns: facets from timeline.data aggregate.
     """
     try:
-        stats = _service.stats()
-        return jsonify(stats)
+        data = _service.data()
+        facets = data.get("facets", {})
+        return jsonify({
+            "total": sum(facets.get("by_source", {}).values()),
+            **facets,
+        })
     except Exception as exc:
         logger.exception("timeline: stats error")
         return jsonify({"error": str(exc)}), 500

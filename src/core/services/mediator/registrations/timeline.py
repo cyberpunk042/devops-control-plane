@@ -1,24 +1,34 @@
 """
 Timeline domain registration — wires all timeline nodes into the mediator tree.
 
-Registers 23 nodes in 3 categories::
+Registers 14 nodes in 3 categories::
 
-    Source nodes (6)  — raw data, mtime-watched or ttl-polled
-    View nodes   (10) — pre-aggregated slices of the merged feed
-    Feed nodes   (7)  — curated outputs consumed by M2-M5
+    Source nodes    (6)  — raw data, mtime-watched or ttl-polled
+    Aggregate node  (1)  — single UI data surface (entries + facets + chains + calendar)
+    Feed nodes      (7)  — curated outputs consumed by M2-M5
 
 Dependency graph::
 
     scan_activity ─┐
     cli_ops        │
-    git_log        ├──→ view.recent / today / week / month
-    ledger_runs    │    view.local / shared / failures / security
-    ledger_audits  │    view.chains / stats
+    git_log        ├──→ timeline.data (aggregate)
+    ledger_runs    │
+    ledger_audits  │
     chat           ┘
 
-    view.failures + feed.security_posture ──→ feed.notifications
-    view.*                                ──→ feed.readiness
-    git_log                               ──→ feed.changelog
+    timeline.data ──→ feed.security_posture
+    timeline.data ──→ feed.pkg_health
+    timeline.data ──→ feed.tool_lifecycle
+    timeline.data ──→ feed.stack_health
+    timeline.data ──→ feed.readiness
+    timeline.data ──→ feed.changelog
+    timeline.data ──→ feed.notifications
+
+The aggregate node follows the proven double-cache pattern:
+  - persist=True  → disk shard for warm start
+  - single TTL    → all data consistent by construction
+  - injected via __INITIAL_STATE__ → storeGet() instant first paint
+  - SSE cache:done → storeSet() live updates
 
 All resolvers call the adapter layer or perform in-memory aggregation
 over source node results.  No adapter is called more than once per
@@ -35,6 +45,7 @@ from typing import Any
 from src.core.services.mediator.core import QueryMediator
 from src.core.services.mediator.tree import TreeRegistration
 from src.core.services.timeline.models import (
+    ChainRole,
     EntryStatus,
     Locality,
     Severity,
@@ -71,19 +82,6 @@ _SECURITY_SOURCES_SET = frozenset({
     Source.SECURITY, Source.AUDIT, Source.POSTURE, Source.VAULT,
 })
 
-_ALL_VIEW_PATHS = [
-    "timeline.view.recent",
-    "timeline.view.today",
-    "timeline.view.week",
-    "timeline.view.month",
-    "timeline.view.local",
-    "timeline.view.shared",
-    "timeline.view.failures",
-    "timeline.view.security",
-    "timeline.view.chains",
-    "timeline.view.stats",
-]
-
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -101,24 +99,102 @@ def _get_entries(mediator: QueryMediator, paths: list[str]) -> list[TimelineEntr
     return merged
 
 
-def _today_start_ts() -> float:
-    """Return unix epoch of today's midnight (local time, UTC)."""
-    now = datetime.now(timezone.utc)
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return midnight.timestamp()
+def _build_facets(entries: list[TimelineEntry]) -> dict[str, dict[str, int]]:
+    """Compute facet counts from an entry list."""
+    by_source: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    by_severity: dict[str, int] = {}
+    for e in entries:
+        by_source[e.source.value] = by_source.get(e.source.value, 0) + 1
+        by_status[e.status.value] = by_status.get(e.status.value, 0) + 1
+        sev_key = e.severity.value if e.severity else "none"
+        by_severity[sev_key] = by_severity.get(sev_key, 0) + 1
+    return {
+        "by_source": by_source,
+        "by_status": by_status,
+        "by_severity": by_severity,
+    }
+
+
+def _build_chains(entries: list[TimelineEntry]) -> list[dict[str, Any]]:
+    """Build chain summaries from entries that have a chain_id."""
+    chain_map: dict[str, dict] = {}
+    member_map: dict[str, list[dict]] = {}
+
+    for e in entries:
+        if e.chain_id is None:
+            continue
+
+        # Chain summary
+        if e.chain_id not in chain_map:
+            chain_map[e.chain_id] = {
+                "chain_id": e.chain_id,
+                "entry_count": 0,
+                "first_ts": e.ts,
+                "last_ts": e.ts,
+                "summary": e.summary,
+                "sources": set(),
+            }
+        c = chain_map[e.chain_id]
+        c["entry_count"] += 1
+        c["first_ts"] = min(c["first_ts"], e.ts)
+        c["last_ts"] = max(c["last_ts"], e.ts)
+        c["sources"].add(e.source.value)
+        if e.chain_role == ChainRole.ORIGIN:
+            c["summary"] = e.summary
+
+        # Chain member
+        member_map.setdefault(e.chain_id, []).append({
+            "id":               e.id,
+            "ts":               e.ts,
+            "source":           e.source.value if e.source else "",
+            "subtype":          e.subtype or "",
+            "status":           e.status.value if e.status else "ok",
+            "locality":         e.locality.value if e.locality else "local",
+            "summary":          e.summary or "",
+            "chain_role":       e.chain_role.value if e.chain_role else "",
+            "chain_parent_ref": e.chain_parent_ref,
+        })
+
+    for members in member_map.values():
+        members.sort(key=lambda m: m["ts"])
+
+    result = []
+    for c in sorted(chain_map.values(), key=lambda x: x["last_ts"], reverse=True):
+        result.append({
+            **c,
+            "sources": sorted(c["sources"]),
+            "members": member_map.get(c["chain_id"], []),
+        })
+    return result
+
+
+def _build_calendar(entries: list[TimelineEntry]) -> list[dict[str, Any]]:
+    """Build per-day counts for the Calendar navigator."""
+    day_map: dict[str, dict] = {}
+    for e in entries:
+        d = datetime.fromtimestamp(e.ts, tz=timezone.utc)
+        key = d.strftime("%Y-%m-%d")
+        if key not in day_map:
+            day_map[key] = {"date": key, "count": 0, "has_failure": False}
+        day_map[key]["count"] += 1
+        if e.status and e.status.value in ("failed", "attention", "warning"):
+            day_map[key]["has_failure"] = True
+    return sorted(day_map.values(), key=lambda x: x["date"], reverse=True)
 
 
 # ── Registration ────────────────────────────────────────────────────
 
 
 def register_timeline(mediator: QueryMediator) -> None:
-    """Register all 23 timeline.* nodes in the mediator tree.
+    """Register all timeline.* nodes in the mediator tree.
 
     Must be called after register_all() installs other domains,
     as timeline feed nodes may eventually depend on devops/audit data.
 
-    Registration order: source nodes first (no deps), then view nodes
-    (depend on sources), then feed nodes (depend on views/sources).
+    Registration order: source nodes first (no deps), then the
+    aggregate node (depends on sources), then feed nodes (depend
+    on aggregate).
     """
     tree = mediator.tree
     root = mediator.project_root
@@ -195,205 +271,50 @@ def register_timeline(mediator: QueryMediator) -> None:
     ))
 
     # ================================================================
-    # CATEGORY 2 — View nodes (10)
-    # In-memory aggregations over source nodes.
+    # CATEGORY 2 — Aggregate node (1)
+    # Single UI data surface. Replaces the 10 view nodes.
+    # Follows the proven double-cache pattern (persist=True).
     # ================================================================
 
-    def _resolve_recent() -> list[TimelineEntry]:
-        """All entries from the last 24 hours, newest-first."""
-        cutoff = time.time() - 86_400
+    def _resolve_data() -> dict[str, Any]:
+        """Single computation: entries + facets + chains + calendar.
+
+        All data comes from the same source fetch — guaranteed consistent.
+        Entries are sorted newest-first, no time filter (the full dataset).
+        Filtering (time, source, status, etc.) happens client-side or in
+        TimelineService.query() for the paginated API.
+        """
         entries = _get_entries(mediator, _ALL_SOURCES)
-        return sorted(
-            (e for e in entries if e.ts >= cutoff),
-            key=lambda e: e.ts, reverse=True,
-        )
-
-    tree.register(TreeRegistration(
-        path="timeline.view.recent",
-        resolver=_resolve_recent,
-        ttl=30,
-        persist=False,
-        size=2,
-        depends_on=_ALL_SOURCES,
-    ))
-
-    def _resolve_today() -> list[TimelineEntry]:
-        """All entries from today (UTC midnight onward), newest-first."""
-        cutoff = _today_start_ts()
-        entries = _get_entries(mediator, _ALL_SOURCES)
-        return sorted(
-            (e for e in entries if e.ts >= cutoff),
-            key=lambda e: e.ts, reverse=True,
-        )
-
-    tree.register(TreeRegistration(
-        path="timeline.view.today",
-        resolver=_resolve_today,
-        ttl=30,
-        persist=False,
-        size=1,
-        depends_on=_ALL_SOURCES,
-    ))
-
-    def _resolve_week() -> list[TimelineEntry]:
-        """All entries from the last 7 days, newest-first."""
-        cutoff = time.time() - 7 * 86_400
-        entries = _get_entries(mediator, _ALL_SOURCES)
-        return sorted(
-            (e for e in entries if e.ts >= cutoff),
-            key=lambda e: e.ts, reverse=True,
-        )
-
-    tree.register(TreeRegistration(
-        path="timeline.view.week",
-        resolver=_resolve_week,
-        ttl=60,
-        persist=False,
-        size=2,
-        depends_on=_ALL_SOURCES,
-    ))
-
-    def _resolve_month() -> list[TimelineEntry]:
-        """All entries from the last 30 days, newest-first."""
-        cutoff = time.time() - 30 * 86_400
-        entries = _get_entries(mediator, _ALL_SOURCES)
-        return sorted(
-            (e for e in entries if e.ts >= cutoff),
-            key=lambda e: e.ts, reverse=True,
-        )
-
-    tree.register(TreeRegistration(
-        path="timeline.view.month",
-        resolver=_resolve_month,
-        ttl=300,
-        persist=False,
-        size=2,
-        depends_on=_ALL_SOURCES,
-    ))
-
-    def _resolve_local() -> list[TimelineEntry]:
-        """All local-only entries (scan_activity + cli_ops), newest-first."""
-        entries = _get_entries(mediator, _LOCAL_SOURCES)
-        return sorted(entries, key=lambda e: e.ts, reverse=True)
-
-    tree.register(TreeRegistration(
-        path="timeline.view.local",
-        resolver=_resolve_local,
-        ttl=30,
-        persist=False,
-        size=1,
-        depends_on=_LOCAL_SOURCES,
-    ))
-
-    def _resolve_shared() -> list[TimelineEntry]:
-        """All shared entries (git + ledger + chat), newest-first."""
-        entries = _get_entries(mediator, _SHARED_SOURCES)
-        return sorted(entries, key=lambda e: e.ts, reverse=True)
-
-    tree.register(TreeRegistration(
-        path="timeline.view.shared",
-        resolver=_resolve_shared,
-        ttl=60,
-        persist=False,
-        size=1,
-        depends_on=_SHARED_SOURCES,
-    ))
-
-    def _resolve_failures() -> list[TimelineEntry]:
-        """All entries with failed or warning status, newest-first."""
-        entries = _get_entries(mediator, _ALL_SOURCES)
-        return sorted(
-            (e for e in entries if e.status in (EntryStatus.FAILED, EntryStatus.WARNING, EntryStatus.ATTENTION)),
-            key=lambda e: e.ts, reverse=True,
-        )
-
-    tree.register(TreeRegistration(
-        path="timeline.view.failures",
-        resolver=_resolve_failures,
-        ttl=30,
-        persist=False,
-        size=1,
-        depends_on=_ALL_SOURCES,
-    ))
-
-    def _resolve_security() -> list[TimelineEntry]:
-        """All security-related entries (SECURITY, AUDIT, POSTURE, VAULT), newest-first."""
-        entries = _get_entries(mediator, ["timeline.source.scan_activity"])
-        return sorted(
-            (e for e in entries if e.source in _SECURITY_SOURCES_SET),
-            key=lambda e: e.ts, reverse=True,
-        )
-
-    tree.register(TreeRegistration(
-        path="timeline.view.security",
-        resolver=_resolve_security,
-        ttl=60,
-        persist=False,
-        size=1,
-        depends_on=["timeline.source.scan_activity"],
-    ))
-
-    def _resolve_chains() -> list[TimelineEntry]:
-        """All entries that belong to a chain (chain_id is set), newest-first."""
-        entries = _get_entries(mediator, _ALL_SOURCES)
-        return sorted(
-            (e for e in entries if e.chain_id is not None),
-            key=lambda e: e.ts, reverse=True,
-        )
-
-    tree.register(TreeRegistration(
-        path="timeline.view.chains",
-        resolver=_resolve_chains,
-        ttl=60,
-        persist=False,
-        size=2,
-        depends_on=_ALL_SOURCES,
-    ))
-
-    def _resolve_stats() -> dict[str, Any]:
-        """Aggregate counts: total, by source, by status, by locality."""
-        entries = _get_entries(mediator, _ALL_SOURCES)
-        by_source: dict[str, int] = {}
-        by_status: dict[str, int] = {}
-        local_count = 0
-        shared_count = 0
-        chain_count = len({e.chain_id for e in entries if e.chain_id})
-
-        for e in entries:
-            by_source[e.source.value] = by_source.get(e.source.value, 0) + 1
-            by_status[e.status.value] = by_status.get(e.status.value, 0) + 1
-            if e.locality == Locality.LOCAL:
-                local_count += 1
-            else:
-                shared_count += 1
+        entries.sort(key=lambda e: e.ts, reverse=True)
 
         return {
-            "total": len(entries),
-            "by_source": by_source,
-            "by_status": by_status,
-            "local": local_count,
-            "shared": shared_count,
-            "chains": chain_count,
+            "entries": [e.to_dict() for e in entries],
+            "facets": _build_facets(entries),
+            "chains": _build_chains(entries),
+            "calendar": _build_calendar(entries),
         }
 
     tree.register(TreeRegistration(
-        path="timeline.view.stats",
-        resolver=_resolve_stats,
-        ttl=300,
-        persist=False,
-        size=1,
+        path="timeline.data",
+        resolver=_resolve_data,
+        ttl=30,
+        persist=True,
+        size=5,
         depends_on=_ALL_SOURCES,
     ))
 
     # ================================================================
     # CATEGORY 3 — Feed nodes (7)
     # Curated outputs for downstream milestones (M2-M5).
+    # All depend on timeline.data (the aggregate).
     # ================================================================
 
     def _resolve_security_posture() -> list[TimelineEntry]:
         """Security posture signals: SECURITY, AUDIT, POSTURE entries with severity."""
-        entries = mediator.get("timeline.view.security")["data"]
-        return [e for e in entries if e.severity is not None]
+        raw = mediator.get("timeline.data")["data"]
+        entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
+        return [e for e in entries
+                if e.source in _SECURITY_SOURCES_SET and e.severity is not None]
 
     tree.register(TreeRegistration(
         path="timeline.feed.security_posture",
@@ -401,12 +322,13 @@ def register_timeline(mediator: QueryMediator) -> None:
         ttl=300,
         persist=False,
         size=1,
-        depends_on=["timeline.view.security"],
+        depends_on=["timeline.data"],
     ))
 
     def _resolve_pkg_health() -> list[TimelineEntry]:
         """Package health signals: PKG entries with warning or failed status."""
-        entries = _get_entries(mediator, ["timeline.source.scan_activity"])
+        raw = mediator.get("timeline.data")["data"]
+        entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         return sorted(
             (e for e in entries if e.source == Source.PKG and e.status != EntryStatus.OK),
             key=lambda e: e.ts, reverse=True,
@@ -418,12 +340,13 @@ def register_timeline(mediator: QueryMediator) -> None:
         ttl=300,
         persist=False,
         size=1,
-        depends_on=["timeline.source.scan_activity"],
+        depends_on=["timeline.data"],
     ))
 
     def _resolve_tool_lifecycle() -> list[TimelineEntry]:
         """Tool lifecycle signals: TOOLS and STACK entries."""
-        entries = _get_entries(mediator, _LOCAL_SOURCES)
+        raw = mediator.get("timeline.data")["data"]
+        entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         return sorted(
             (e for e in entries if e.source in (Source.TOOLS, Source.STACK)),
             key=lambda e: e.ts, reverse=True,
@@ -435,12 +358,13 @@ def register_timeline(mediator: QueryMediator) -> None:
         ttl=300,
         persist=False,
         size=1,
-        depends_on=_LOCAL_SOURCES,
+        depends_on=["timeline.data"],
     ))
 
     def _resolve_stack_health() -> list[TimelineEntry]:
         """Stack health signals: STACK entries with non-ok status."""
-        entries = _get_entries(mediator, ["timeline.source.scan_activity"])
+        raw = mediator.get("timeline.data")["data"]
+        entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         return sorted(
             (e for e in entries if e.source == Source.STACK and e.status != EntryStatus.OK),
             key=lambda e: e.ts, reverse=True,
@@ -452,18 +376,20 @@ def register_timeline(mediator: QueryMediator) -> None:
         ttl=300,
         persist=False,
         size=1,
-        depends_on=["timeline.source.scan_activity"],
+        depends_on=["timeline.data"],
     ))
 
     def _resolve_readiness() -> dict[str, Any]:
-        """Readiness score derived from failures and security posture.
+        """Readiness score derived from failures and stats.
 
         Returns a simple dict with score (0-100) and contributing signals.
         Full scoring formula is designed in E9 (M4) — this is the data surface.
         """
-        failures = mediator.get("timeline.view.failures")["data"]
-        stats = mediator.get("timeline.view.stats")["data"]
-        total = stats.get("total", 0)
+        raw = mediator.get("timeline.data")["data"]
+        entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
+        failures = [e for e in entries
+                    if e.status in (EntryStatus.FAILED, EntryStatus.WARNING, EntryStatus.ATTENTION)]
+        total = len(entries)
 
         critical = sum(1 for e in failures if e.severity == Severity.CRITICAL)
         high = sum(1 for e in failures if e.severity == Severity.HIGH)
@@ -487,22 +413,24 @@ def register_timeline(mediator: QueryMediator) -> None:
         ttl=300,
         persist=False,
         size=2,
-        depends_on=["timeline.view.failures", "timeline.view.stats"],
+        depends_on=["timeline.data"],
     ))
 
     def _resolve_changelog() -> list[dict[str, Any]]:
         """Changelog feed: GIT + PLAN entries formatted for changelog rendering."""
-        entries = _get_entries(mediator, ["timeline.source.git_log"])
+        raw = mediator.get("timeline.data")["data"]
+        entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         result = []
         for e in sorted(entries, key=lambda x: x.ts, reverse=True):
-            result.append({
-                "ts": e.ts,
-                "ref": e.ref,
-                "summary": e.summary,
-                "source": e.source.value,
-                "subtype": e.subtype,
-                "detail": e.detail,
-            })
+            if e.source in (Source.GIT, Source.PLAN):
+                result.append({
+                    "ts": e.ts,
+                    "ref": e.ref,
+                    "summary": e.summary,
+                    "source": e.source.value,
+                    "subtype": e.subtype,
+                    "detail": e.detail,
+                })
         return result
 
     tree.register(TreeRegistration(
@@ -511,13 +439,17 @@ def register_timeline(mediator: QueryMediator) -> None:
         ttl=600,
         persist=False,
         size=2,
-        depends_on=["timeline.source.git_log"],
+        depends_on=["timeline.data"],
     ))
 
     def _resolve_notifications() -> list[dict[str, Any]]:
         """Notification candidates: failures + security posture with severity."""
-        failures = mediator.get("timeline.view.failures")["data"]
-        posture = mediator.get("timeline.feed.security_posture")["data"]
+        raw = mediator.get("timeline.data")["data"]
+        entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
+        failures = [e for e in entries
+                    if e.status in (EntryStatus.FAILED, EntryStatus.WARNING, EntryStatus.ATTENTION)]
+        posture = [e for e in entries
+                   if e.source in _SECURITY_SOURCES_SET and e.severity is not None]
 
         # Deduplicate by id, sort by severity then ts
         seen: set[str] = set()
@@ -554,7 +486,7 @@ def register_timeline(mediator: QueryMediator) -> None:
         ttl=60,
         persist=False,
         size=1,
-        depends_on=["timeline.view.failures", "timeline.feed.security_posture"],
+        depends_on=["timeline.data"],
     ))
 
-    logger.debug("registered timeline.* nodes (23 total)")
+    logger.debug("registered timeline.* nodes (14 total)")

@@ -70,6 +70,8 @@ _PATH_TO_CARD_KEY: dict[str, str] = {
     # posture domain
     "posture.summary": "posture:summary",
     "posture.full": "posture:full",
+    # timeline domain
+    "timeline.data": "timeline",
 }
 
 

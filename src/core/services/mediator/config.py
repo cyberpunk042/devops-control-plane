@@ -75,7 +75,7 @@ TIER_PREFIXES: dict[str, list[str]] = {
     "T1:visible":   ["catalog."],
     "T2:infra":     ["github.", "tabmesh."],
     "T4:index":     ["index."],
-    "T5:aggregate": ["posture."],
+    "T5:aggregate": ["posture.", "timeline."],
 }
 
 # Audit tiers (separate sets for clarity)

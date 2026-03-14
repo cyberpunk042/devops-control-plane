@@ -300,7 +300,7 @@ class TimelineQuery:
     sources: list[Source] = field(default_factory=list)
     subtypes: list[str] = field(default_factory=list)
     statuses: list[EntryStatus] = field(default_factory=list)
-    severities: list[Severity] = field(default_factory=list)
+    severities: list[Severity | None] = field(default_factory=list)
     locality: Locality | None = None
     envs: list[str] = field(default_factory=list)
     modules: list[str] = field(default_factory=list)
@@ -352,13 +352,17 @@ class TimelinePage:
     next_cursor: float | None = None
     prev_cursor: float | None = None
     total_hint: int | None = None
+    facets: dict[str, dict[str, int]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict for API responses."""
-        return {
+        d: dict[str, Any] = {
             "entries": [e.to_dict() for e in self.entries],
             "has_more": self.has_more,
             "next_cursor": self.next_cursor,
             "prev_cursor": self.prev_cursor,
             "total_hint": self.total_hint,
         }
+        if self.facets is not None:
+            d["facets"] = self.facets
+        return d
