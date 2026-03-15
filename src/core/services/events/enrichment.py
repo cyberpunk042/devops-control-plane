@@ -128,7 +128,36 @@ def extract_summary(path: str, data: Any) -> str:
     if not isinstance(data, dict):
         if isinstance(data, list):
             return f"{path.split('.')[-1]}: {len(data)} entries"
-        return path.split(".")[-1]
+        # Convert dataclass to dict for summary extraction
+        if hasattr(data, "__dataclass_fields__"):
+            try:
+                data = {k: getattr(data, k, None) for k in data.__dataclass_fields__}
+            except Exception:
+                return path.split(".")[-1]
+        elif hasattr(data, "__dict__"):
+            data = {k: v for k, v in data.__dict__.items() if not k.startswith("_")}
+        else:
+            return path.split(".")[-1]
+
+    # Posture nodes: summarize what was found
+    if path.startswith("posture."):
+        if data.get("summary"):
+            return data["summary"]
+        items = data.get("items", [])
+        if items:
+            ok = [i for i in items if isinstance(i, dict) and i.get("rank") in ("current", "ok")]
+            warn = [i for i in items if isinstance(i, dict) and i.get("rank") not in ("current", "ok", "")]
+            parts = []
+            if ok:
+                parts.append(f"{len(ok)} ok")
+            if warn:
+                names = ", ".join(i.get("name", "?") for i in warn[:3])
+                parts.append(f"{len(warn)} warning(s): {names}")
+            if parts:
+                return " · ".join(parts)
+        rank = data.get("rank") or data.get("overall_rank")
+        if rank:
+            return f"{path.split('.')[-1]}: {rank}"
 
     try:
         from src.core.services.devops.activity import _extract_summary
@@ -151,12 +180,154 @@ def extract_summary(path: str, data: Any) -> str:
 # ── Result summary extraction ────────────────────────────────────────
 
 def extract_result_summary(path: str, data: Any) -> dict:
-    """Extract key metrics from resolver result as a compact dict."""
+    """Extract key metrics from resolver result as a compact dict.
+
+    Returns the MOST USEFUL information for the timeline entry detail.
+    """
+    # Convert dataclass objects to dicts
+    if hasattr(data, "__dataclass_fields__"):
+        try:
+            import dataclasses
+            data = dataclasses.asdict(data)
+        except Exception:
+            try:
+                data = {k: getattr(data, k, None) for k in data.__dataclass_fields__}
+            except Exception:
+                pass
+
     if not isinstance(data, dict):
         if isinstance(data, list):
             return {"count": len(data)}
-        return {}
+        # Try to extract attributes from objects
+        if hasattr(data, "__dict__"):
+            data = {k: v for k, v in data.__dict__.items() if not k.startswith("_")}
+        else:
+            return {}
 
+    # ── Path-specific extractors ─────────────────────────────────
+
+    # Posture nodes: show each item's name, value, and detail
+    if path.startswith("posture."):
+        d = {}
+        items = data.get("items", [])
+        for item in items:
+            if isinstance(item, dict):
+                name = item.get("name", "?")
+                value = item.get("value", "")
+                detail = item.get("detail", "")
+                rank = item.get("rank", "")
+                entry = str(value)
+                if detail and detail != value:
+                    entry += f" — {detail}"
+                if rank and rank not in ("current", "ok", ""):
+                    entry += f" ({rank})"
+                d[name] = entry
+        if "overall_rank" in data:
+            d["overall"] = f"{data['overall_rank']} — {data.get('summary', '')}"
+        return d
+
+    # Docker: version, containers, services, compose
+    if path == "devops.docker":
+        d = {}
+        if data.get("available"):
+            d["docker"] = "available"
+            v = data.get("version", "")
+            if "version" in v.lower():
+                d["version"] = v.split(",")[0].replace("Docker version ", "")
+        d["daemon"] = "running" if data.get("daemon_running") else "stopped"
+        if data.get("compose_available"):
+            d["compose"] = data.get("compose_version", "available")
+        dfs = data.get("dockerfiles", [])
+        if dfs:
+            d["dockerfiles"] = len(dfs)
+        svcs = data.get("compose_services", [])
+        if svcs:
+            d["services"] = ", ".join(s.get("name", s) if isinstance(s, dict) else str(s) for s in svcs[:5])
+        return d
+
+    # Security: findings with severity
+    if path == "devops.security":
+        findings = data.get("findings", [])
+        posture = data.get("posture", {})
+        d = {"findings": len(findings)}
+        if posture:
+            d["score"] = posture.get("score", "?")
+            d["grade"] = posture.get("grade", "?")
+        by_sev = {}
+        for f in findings:
+            s = f.get("severity", "info")
+            by_sev[s] = by_sev.get(s, 0) + 1
+        if by_sev:
+            d["by_severity"] = ", ".join(f"{v} {k}" for k, v in sorted(by_sev.items()))
+        return d
+
+    # Git: branch, dirty, changes
+    if path == "devops.git":
+        return {
+            "branch": data.get("branch", "?"),
+            "commit": data.get("commit", "?")[:8],
+            "dirty": data.get("dirty", False),
+            "changes": data.get("total_changes", 0),
+            "staged": data.get("staged_count", 0),
+            "modified": data.get("modified_count", 0),
+        }
+
+    # CI: providers, workflows
+    if path == "devops.ci":
+        providers = data.get("providers", [])
+        names = [p.get("name", "?") for p in providers if isinstance(p, dict)]
+        return {
+            "workflows": data.get("total_workflows", 0),
+            "providers": ", ".join(names) if names else "none",
+        }
+
+    # Env: environments, active, vault state
+    if path == "devops.env":
+        envs = data.get("environments", [])
+        active = next((e for e in envs if isinstance(e, dict) and e.get("active")), None)
+        d = {"environments": len(envs)}
+        if active:
+            d["active"] = active.get("name", "?")
+            d["vault"] = active.get("vault_state", "?")
+            d["keys"] = active.get("local_keys", 0)
+        return d
+
+    # Packages
+    if path == "devops.packages":
+        managers = data.get("managers", [])
+        names = [m.get("name", "?") for m in managers if isinstance(m, dict)]
+        return {
+            "managers": ", ".join(names) if names else "none",
+            "total_installed": data.get("total_installed", 0),
+        }
+
+    # Catalog tools
+    if path == "catalog.tools":
+        return {
+            "total": data.get("total", 0),
+            "available": data.get("available", 0),
+            "missing": data.get("missing_count", 0),
+        }
+
+    # GitHub runs
+    if path == "github.runs":
+        runs = data.get("runs", [])
+        if runs:
+            latest = runs[0]
+            return {
+                "total_runs": len(runs),
+                "latest": latest.get("name", "?"),
+                "conclusion": latest.get("conclusion", "?"),
+                "branch": latest.get("headBranch", "?"),
+            }
+        return {"total_runs": 0}
+
+    # GitHub pulls
+    if path == "github.pulls":
+        pulls = data.get("pulls", [])
+        return {"open_prs": len(pulls)}
+
+    # ── Fallback: use activity.py extractor then generic ─────────
     try:
         from src.core.services.devops.activity import _extract_detail
         card_key = _path_to_card_key(path)
@@ -166,12 +337,11 @@ def extract_result_summary(path: str, data: Any) -> dict:
     except Exception:
         pass
 
-    # Fallback: extract count-like fields
     result = {}
-    for key in ("total", "count", "findings", "score"):
+    for key in ("total", "count", "findings", "score", "rank", "status"):
         if key in data:
             val = data[key]
-            if isinstance(val, (int, float)):
+            if isinstance(val, (int, float, str, bool)):
                 result[key] = val
             elif isinstance(val, list):
                 result[f"{key}_count"] = len(val)

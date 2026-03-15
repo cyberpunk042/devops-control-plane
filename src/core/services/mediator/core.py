@@ -522,10 +522,12 @@ class QueryMediator:
                     _result_summary = extract_result_summary(path, result)
                     _delta = compute_delta(path, result, _old_entry)
 
-                    _detail = {"elapsed_s": round(elapsed, 3)}
+                    _detail = {}
+                    # Flatten result summary into detail (not nested under "result")
                     if _result_summary:
-                        _detail["result"] = _result_summary
-                    if _delta:
+                        _detail.update(_result_summary)
+                    _detail["elapsed_s"] = round(elapsed, 3)
+                    if _delta and _delta.get("status") != "new":
                         _detail["delta"] = _delta
                     if self._last_invalidation_trigger:
                         _detail["triggered_by"] = self._last_invalidation_trigger

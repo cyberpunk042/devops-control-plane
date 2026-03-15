@@ -490,8 +490,8 @@ function _tlFlushLive() {
 // ── Filter pipeline ──────────────────────────────────────────────────
 
 function _tlPassesFilter(entry) {
-  // Hide index infrastructure noise unless explicitly shown
-  if (!_tlState._showInfra) {
+  // Hide index infrastructure noise unless a chain is selected or explicitly shown
+  if (!_tlState.chainFilter && !_tlState._showInfra && !_tlState._domainFilter) {
     var ref = entry.ref || '';
     var adp = entry.adapter || '';
     if (adp === 'index' || ref.startsWith('index.')) return false;
@@ -714,11 +714,12 @@ document.addEventListener('click', (e) => {
 // via _tlOnData() which is called by storeSet('timeline', ...)
 
 function _tlNavMode(mode) {
-  _tlState.navMode     = mode;
-  _tlState.chainFilter = null;  // clear cross-view selection state
-  _tlState.dateFrom    = null;
-  _tlState.dateTo      = null;
-  _tlNavActiveChain    = null;
+  _tlState.navMode       = mode;
+  _tlState.chainFilter   = null;  // clear cross-view selection state
+  _tlState.dateFrom      = null;
+  _tlState.dateTo        = null;
+  _tlState._domainFilter = null;  // clear domain filter from Domains view
+  _tlNavActiveChain      = null;
   document.querySelectorAll('.timeline-nav-modes button').forEach(b => {
     b.classList.toggle('active', b.id === `tl-nav-mode-${mode}`);
   });
@@ -1018,8 +1019,15 @@ function _tlNavRenderDomains() {
 }
 
 function _tlDomainToggle(key) {
+  // Toggle expand/collapse
   if (_tlDomainExpanded.has(key)) {
     _tlDomainExpanded.delete(key);
+    // Collapsing: clear filter if it was this domain
+    if (_tlState._domainFilter === key) {
+      _tlState._domainFilter = null;
+      _tlUpdateActivePills();
+      _tlRenderFiltered();
+    }
   } else {
     _tlDomainExpanded.add(key);
     // Also expand the first child subtype
@@ -1028,12 +1036,13 @@ function _tlDomainToggle(key) {
     if (subtypes && typeof subtypes === 'object') {
       var firstSub = Object.keys(subtypes)[0];
       if (firstSub) {
-        var subKey = key + ':' + firstSub;
-        _tlDomainExpanded.add(subKey);
+        _tlDomainExpanded.add(key + ':' + firstSub);
       }
     }
-    // Select the first leaf entry (filter by this domain's source)
-    _tlDomainFilter(key);
+    // Filter to this domain
+    _tlState._domainFilter = key;
+    _tlUpdateActivePills();
+    _tlRenderFiltered();
   }
   _tlNavRender();
 }
