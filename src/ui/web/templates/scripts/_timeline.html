@@ -490,6 +490,14 @@ function _tlFlushLive() {
 // ── Filter pipeline ──────────────────────────────────────────────────
 
 function _tlPassesFilter(entry) {
+  // Hide index infrastructure noise unless explicitly shown
+  if (!_tlState._showInfra) {
+    var ref = entry.ref || '';
+    var adp = entry.adapter || '';
+    if (adp === 'index' || ref.startsWith('index.')) return false;
+  }
+  // Domain filter (from side panel domain click)
+  if (_tlState._domainFilter && (entry.adapter || '') !== _tlState._domainFilter) return false;
   if (_tlState.sources.length && !_tlState.sources.includes(entry.source)) return false;
   if (_tlState.statuses.length && !_tlState.statuses.includes(entry.status)) return false;
   if (_tlState.severities.length && !_tlState.severities.includes(entry.severity || 'none')) return false;
@@ -604,6 +612,14 @@ window._tlClearPill = function(i) {
   const container = document.getElementById('timeline-active-filters');
   if (container && container._pills && container._pills[i]) container._pills[i].clear();
 };
+
+function _tlToggleInfra() {
+  _tlState._showInfra = !_tlState._showInfra;
+  var btn = document.getElementById('tl-infra-toggle');
+  if (btn) btn.textContent = _tlState._showInfra ? 'Hide infra' : 'Show infra';
+  _tlRenderFiltered();
+  _tlNavRender();
+}
 
 function _tlResetAllFilters() {
   _tlState.sources     = [];
@@ -730,21 +746,29 @@ function _tlNavRender() {
 // Tracks which chain nodes are expanded in the navigator
 const _tlNavExpanded = new Set();
 
-function _tlNavRenderChains() {
-  const chains = _tlState.navChains.filter(c =>
-    !_tlState.navFilter || (c.summary || c.chain_id).toLowerCase().includes(_tlState.navFilter)
-  );
-  if (!chains.length) return `<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No chains found</div>`;
+function _isInfraChain(c) {
+  var cid = c.chain_id;
+  return cid.endsWith(':index');
+}
 
-  return chains.map(c => {
-    const isActive   = c.chain_id === _tlNavActiveChain;
+function _tlNavRenderChains() {
+  var allFiltered = _tlState.navChains.filter(function(c) {
+    return !_tlState.navFilter || (c.summary || c.chain_id).toLowerCase().includes(_tlState.navFilter);
+  });
+
+  var mainChains = allFiltered.filter(function(c) { return !_isInfraChain(c); });
+  var infraChains = allFiltered.filter(_isInfraChain);
+
+  if (!mainChains.length && !infraChains.length) return '<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No chains found</div>';
+
+  function _renderChainItem(c) {
     const isExpanded = _tlNavExpanded.has(c.chain_id);
     const label      = (c.summary || c.chain_id || '').substring(0, 50);
     const srcs       = (c.sources || []).join(' · ');
     const chevron    = c.members && c.members.length ? (isExpanded ? '▾' : '▸') : '';
 
     const membersHtml = (isExpanded && c.members && c.members.length)
-      ? `<div class="tl-nav-chain-members">${
+      ? `<div class="tl-nav-chain-members" onclick="event.stopPropagation()">${
           c.entry_count > 50
             ? _tlRenderChainFlat(c.members, c.chain_id)
             : _tlRenderChainTree(c.members, c.chain_id)
@@ -752,10 +776,9 @@ function _tlNavRenderChains() {
       : '';
 
     return `
-<div class="tl-nav-chain"
->
-  <div class="tl-nav-chain-header" style="user-select:none;cursor:pointer"
-       onclick="_tlNavToggleChain('${_tlEsc(c.chain_id)}')">
+<div class="tl-nav-chain" style="cursor:pointer"
+     onclick="_tlNavToggleChain('${_tlEsc(c.chain_id)}')">
+  <div class="tl-nav-chain-header" style="user-select:none">
     <span style="font-size:0.6rem;color:var(--text-muted);width:10px">${chevron}</span>
     <span style="flex:1;display:flex;align-items:center;gap:4px;overflow:hidden">
       <span>📎</span>
@@ -769,7 +792,22 @@ function _tlNavRenderChains() {
   <div style="padding:0 8px 2px 24px;font-size:0.6rem;color:var(--text-muted)">${_tlEsc(srcs)}</div>
   ${membersHtml}
 </div>`;
-  }).join('');
+  }
+
+  var html = mainChains.map(_renderChainItem).join('');
+
+  if (infraChains.length) {
+    var infraExpanded = _tlState._showInfra;
+    html += `<div style="margin-top:8px;border-top:1px solid var(--border-color);padding-top:4px">
+      <button onclick="_tlToggleInfra()" class="btn btn-sm btn-ghost"
+              style="font-size:0.58rem;padding:1px 8px;width:100%;text-align:left;opacity:0.7">
+        ${infraExpanded ? '▾' : '▸'} Infrastructure (${infraChains.length})
+      </button>
+      ${infraExpanded ? infraChains.map(_renderChainItem).join('') : ''}
+    </div>`;
+  }
+
+  return html;
 }
 
 let _tlToggleBusy = false;
@@ -818,7 +856,7 @@ function _tlRenderChainFlat(members, chainId) {
     const lCol  = m.locality === 'shared' ? 'var(--accent)' : 'var(--text-muted)';
     const sub   = m.subtype === 'merge' ? '<span style="font-size:0.52rem;color:var(--accent)">MERGE</span> ' : '';
     return `<div class="tl-nav-member" style="cursor:pointer"
-                 onclick="_tlScrollToEntry('${_tlEsc(m.id)}')">
+                 onclick="event.stopPropagation();_tlScrollToEntry('${_tlEsc(m.id)}')">
       <span style="color:${sCol}">${sIcon}</span>
       <span style="color:${lCol};font-size:0.58rem">${lIcon}</span>
       <span class="tl-source-badge tl-source-${_tlEsc((m.source||'').toLowerCase())}"
@@ -880,7 +918,7 @@ function _tlRenderChainTree(members, chainId) {
     const indent = depth * 16;
 
     let html = `<div class="tl-nav-member" style="padding-left:${indent}px;cursor:pointer"
-                     onclick="_tlScrollToEntry('${_tlEsc(m.id)}')">
+                     onclick="event.stopPropagation();_tlScrollToEntry('${_tlEsc(m.id)}')">
       <span style="font-size:0.58rem;color:var(--text-muted);font-family:monospace">${connector}</span>
       <span style="color:${sCol}">${sIcon}</span>
       <span style="color:${lCol};font-size:0.58rem">${lIcon}</span>
@@ -939,7 +977,7 @@ function _tlNavRenderDomains() {
               const statusColor = { ok:'var(--success)', warning:'var(--warning)',
                 attention:'var(--warning)', failed:'var(--error)' }[e.status] ?? 'var(--text-muted)';
               return `<div class="tl-nav-chain" style="padding:1px 0;cursor:pointer"
-                           onclick="_tlScrollToEntry('${_tlEsc(e.id)}')"
+                           onclick="event.stopPropagation();_tlScrollToEntry('${_tlEsc(e.id)}')"
                            title="${_tlEsc(e.id)}">
                 <div class="tl-nav-chain-header" style="padding:2px 8px">
                   <span style="color:${statusColor};font-size:0.58rem">${statusIcon}</span>
@@ -1001,12 +1039,12 @@ function _tlDomainToggle(key) {
 }
 
 function _tlDomainFilter(adapter) {
-  // Toggle: if already filtering this adapter, clear
-  var idx = _tlState.sources.indexOf(adapter);
-  if (idx >= 0) {
-    _tlState.sources.splice(idx, 1);
+  // Filter entries by adapter (domain) — not by source
+  // Use a custom domain filter instead of the source filter
+  if (_tlState._domainFilter === adapter) {
+    _tlState._domainFilter = null;
   } else {
-    _tlState.sources = [adapter];
+    _tlState._domainFilter = adapter;
   }
   _tlUpdateActivePills();
   _tlRenderFiltered();

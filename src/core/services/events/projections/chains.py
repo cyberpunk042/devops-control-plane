@@ -20,6 +20,60 @@ from src.core.services.events.projections.timeline import (
 )
 
 
+_DOMAIN_LABELS = {
+    "audit": "Audit lifecycle",
+    "github": "GitHub status",
+    "catalog": "Catalog scan",
+    "posture": "Posture check",
+    "index": "Index refresh",
+    "docker": "Docker status",
+    "k8s": "Kubernetes status",
+    "terraform": "Terraform status",
+    "security": "Security scan",
+    "testing": "Test results",
+    "quality": "Quality check",
+    "env": "Environment status",
+    "packages": "Package status",
+    "ci": "CI/CD status",
+    "dns": "DNS status",
+    "docs": "Documentation",
+}
+
+
+def _friendly_chain_name(cid: str, group: list) -> str:
+    """Derive a human-friendly name for a chain."""
+    from datetime import datetime, UTC
+
+    # Cycle domain sub-chain: "cycle-xxx:audit" → "Audit lifecycle"
+    if cid.startswith("cycle-") and ":" in cid:
+        domain = cid.split(":")[-1]
+        return _DOMAIN_LABELS.get(domain, f"{domain.capitalize()} cycle")
+
+    # Main cycle chain: "cycle-20260315-201710" → "System scan · 20:17"
+    if cid.startswith("cycle-"):
+        try:
+            # Extract time from cycle id: cycle-YYYYMMDD-HHMMSS
+            parts = cid.split("-")
+            time_part = parts[-1]  # HHMMSS
+            hh, mm = time_part[:2], time_part[2:4]
+            return f"System scan · {hh}:{mm}"
+        except Exception:
+            return "System scan"
+
+    # Git branch: "git:main" → "Branch: main"
+    if cid.startswith("git:"):
+        branch = cid[4:]
+        return f"Branch: {branch}"
+
+    # Use the origin event's summary
+    if group:
+        origin = group[-1]  # oldest event
+        if origin.summary and origin.summary != cid:
+            return origin.summary
+
+    return cid
+
+
 class ChainProjection:
     """Builds chain summaries from event store."""
 
@@ -105,11 +159,8 @@ class ChainProjection:
                     "chain_parent_ref": event.causation_id,
                 })
 
-            # Summary: use correlation_id for cycles, first event summary for others
-            summary = cid
-            if not cid.startswith("cycle-"):
-                # Use the origin (oldest) event's summary
-                summary = group[-1].summary or cid
+            # Friendly summary
+            summary = _friendly_chain_name(cid, group)
 
             chains.append({
                 "chain_id": cid,
@@ -121,6 +172,9 @@ class ChainProjection:
                 "members": members,
             })
 
-        # Sort chains by last_ts descending
-        chains.sort(key=lambda c: c["last_ts"], reverse=True)
+        # Sort: user/meaningful chains first, cycle infrastructure last
+        def _chain_sort_key(c):
+            is_cycle = c["chain_id"].startswith("cycle-")
+            return (is_cycle, -c["last_ts"])  # False < True, so non-cycle comes first
+        chains.sort(key=_chain_sort_key)
         return chains
