@@ -44,6 +44,31 @@ def create_app(
     app.config["PROJECT_ROOT"] = Path(project_root or Path.cwd())
     app.config["CONFIG_PATH"] = str(config_path) if config_path else None
 
+    # Factory reset: if signal file exists, clear .state/ before anything initializes
+    _factory_reset_signal = app.config["PROJECT_ROOT"] / ".factory-reset-signal"
+    if _factory_reset_signal.exists():
+        import shutil
+        _state_dir = app.config["PROJECT_ROOT"] / ".state"
+        try:
+            _factory_reset_signal.unlink()
+            if _state_dir.exists():
+                # Preserve server.pid — manage.sh needs it for process tracking
+                _pid_file = _state_dir / "server.pid"
+                _pid_backup = None
+                if _pid_file.exists():
+                    _pid_backup = _pid_file.read_text(encoding="utf-8")
+                shutil.rmtree(_state_dir)
+                _state_dir.mkdir(parents=True, exist_ok=True)
+                if _pid_backup is not None:
+                    _pid_file.write_text(_pid_backup, encoding="utf-8")
+            logging.getLogger(__name__).warning(
+                "Factory reset: .state/ cleared on startup (signal file detected)"
+            )
+        except Exception as _exc:
+            logging.getLogger(__name__).error(
+                "Factory reset: failed to clear .state/: %s", _exc
+            )
+
     # Register project root in core context (used by all core services)
     from src.core.context import set_project_root as _set_ctx_root
     _set_ctx_root(app.config["PROJECT_ROOT"])

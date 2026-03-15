@@ -182,6 +182,18 @@ function _tlDateLabel(d) {
   return dateStr;
 }
 
+const _TL_ADAPTER_LABELS = {
+  scan_activity:  'Scan Activity',
+  cli_ops:        'CLI Operations',
+  git_log:        'Git History',
+  ledger_runs:    'Ledger Runs',
+  ledger_audits:  'Ledger Audits',
+  chat:           'Chat',
+};
+function _tlAdapterLabel(adapter) {
+  return _TL_ADAPTER_LABELS[adapter] || adapter;
+}
+
 function _tlChainLabel(chainId) {
   if (!chainId) return '';
   const c = _tlState.navChains.find(x => x.chain_id === chainId);
@@ -705,21 +717,27 @@ function _tlNavRenderChains() {
     const chevron    = c.members && c.members.length ? (isExpanded ? '▾' : '▸') : '';
 
     const membersHtml = (isExpanded && c.members && c.members.length)
-      ? `<div class="tl-nav-chain-members">${_tlRenderChainTree(c.members, c.chain_id)}</div>`
+      ? `<div class="tl-nav-chain-members">${
+          c.entry_count > 50
+            ? _tlRenderChainFlat(c.members, c.chain_id)
+            : _tlRenderChainTree(c.members, c.chain_id)
+        }</div>`
       : '';
 
     return `
 <div class="tl-nav-chain ${isActive ? 'tl-nav-chain--active' : ''}"
-     onmouseenter="_tlNavHoverChain('${_tlEsc(c.chain_id)}')"
-     onmouseleave="_tlNavHoverChain(null)">
-  <div class="tl-nav-chain-header" style="user-select:none">
-    <span style="font-size:0.6rem;color:var(--text-muted);width:10px;cursor:pointer"
-          onclick="event.stopPropagation();_tlNavToggleChain('${_tlEsc(c.chain_id)}')">${chevron}</span>
-    <span onclick="_tlNavSelectChainAndExpand('${_tlEsc(c.chain_id)}')" style="flex:1;display:flex;align-items:center;gap:4px;overflow:hidden;cursor:pointer">
+>
+  <div class="tl-nav-chain-header" style="user-select:none;cursor:pointer"
+       onclick="_tlNavToggleChain('${_tlEsc(c.chain_id)}')">
+    <span style="font-size:0.6rem;color:var(--text-muted);width:10px">${chevron}</span>
+    <span style="flex:1;display:flex;align-items:center;gap:4px;overflow:hidden">
       <span>📎</span>
       <span class="tl-nav-chain-label" title="${_tlEsc(c.chain_id)}">${_tlEsc(label)}</span>
     </span>
     <span class="tl-nav-chain-count">${c.entry_count}</span>
+    <span onclick="event.stopPropagation();_tlNavSelectChain('${_tlEsc(c.chain_id)}')"
+          title="Filter timeline to this chain"
+          style="cursor:pointer;font-size:0.58rem;color:var(--text-muted);padding:0 4px">🔍</span>
   </div>
   <div style="padding:0 8px 2px 24px;font-size:0.6rem;color:var(--text-muted)">${_tlEsc(srcs)}</div>
   ${membersHtml}
@@ -727,10 +745,58 @@ function _tlNavRenderChains() {
   }).join('');
 }
 
+let _tlToggleBusy = false;
 function _tlNavToggleChain(chainId) {
-  if (_tlNavExpanded.has(chainId)) _tlNavExpanded.delete(chainId);
-  else _tlNavExpanded.add(chainId);
-  _tlNavRender();
+  if (_tlToggleBusy) { console.warn('[TL] toggle re-entry blocked'); return; }
+  _tlToggleBusy = true;
+  try {
+    // Expand/collapse
+    if (_tlNavExpanded.has(chainId)) _tlNavExpanded.delete(chainId);
+    else _tlNavExpanded.add(chainId);
+    // Select/deselect (toggle) — single render pass
+    if (_tlState.chainFilter === chainId) {
+      _tlNavActiveChain    = null;
+      _tlState.chainFilter = null;
+    } else {
+      _tlNavActiveChain    = chainId;
+      _tlState.chainFilter = chainId;
+    }
+    _tlState.dateFrom = null;
+    _tlState.dateTo   = null;
+    _tlUpdateActivePills();
+    _tlRenderFiltered();
+    _tlNavRender();
+  } finally {
+    _tlToggleBusy = false;
+  }
+}
+
+function _tlRenderChainFlat(members, chainId) {
+  // Flat chronological list for large chains (e.g., git history)
+  const MAX_SHOW = 50;
+  const shown = members.slice(0, MAX_SHOW);
+  let html = shown.map(m => {
+    const sIcon = { ok:'●', warning:'◑', attention:'⚠', failed:'✕' }[m.status] ?? '●';
+    const sCol  = { ok:'var(--success)', warning:'var(--warning)',
+                    attention:'var(--warning)', failed:'var(--error)' }[m.status] ?? 'var(--text-muted)';
+    const lIcon = m.locality === 'shared' ? '⇡' : '⬡';
+    const lCol  = m.locality === 'shared' ? 'var(--accent)' : 'var(--text-muted)';
+    const sub   = m.subtype === 'merge' ? '<span style="font-size:0.52rem;color:var(--accent)">MERGE</span> ' : '';
+    return `<div class="tl-nav-member" style="cursor:pointer"
+                 onclick="_tlScrollToEntry('${_tlEsc(m.id)}')">
+      <span style="color:${sCol}">${sIcon}</span>
+      <span style="color:${lCol};font-size:0.58rem">${lIcon}</span>
+      <span class="tl-source-badge tl-source-${_tlEsc((m.source||'').toLowerCase())}"
+            style="font-size:0.52rem">${_tlEsc((m.source||'').toUpperCase())}</span>
+      ${sub}<span class="tl-nav-member-summary">${_tlEsc(m.summary)}</span>
+      <span class="tl-nav-member-time">${_tlFormatTime(m.ts)}</span>
+    </div>`;
+  }).join('');
+  if (members.length > MAX_SHOW) {
+    html += `<div style="font-size:0.58rem;color:var(--text-muted);padding:4px 8px">
+      +${members.length - MAX_SHOW} more entries</div>`;
+  }
+  return html;
 }
 
 function _tlRenderChainTree(members, chainId) {
@@ -755,13 +821,11 @@ function _tlRenderChainTree(members, chainId) {
   }
 
   function childrenOf(parent) {
-    // Children reference the parent by chain_parent_ref matching parent's ref-like fields
+    const parentRef = parent.id ? parent.id.split(':').slice(1).join(':') : null;
     return members.filter(m =>
       m !== parent && m.chain_parent_ref && m.chain_role !== 'origin' &&
       (m.chain_parent_ref === parent.id ||
-       m.chain_parent_ref === chainId ||
-       // Match if chain_parent_ref equals the ref portion of parent's id
-       (parent.id && m.chain_parent_ref === parent.id.split(':').slice(1).join(':')))
+       (parentRef && m.chain_parent_ref === parentRef))
     );
   }
 
@@ -787,10 +851,12 @@ function _tlRenderChainTree(members, chainId) {
       <span style="font-size:0.52rem;color:var(--text-muted)">${roleLabel}</span>
     </div>`;
 
-    const children = childrenOf(m);
-    children.forEach((child, i) => {
-      html += renderNode(child, depth + 1, i === children.length - 1);
-    });
+    if (depth < 10) { // cap depth to prevent stack overflow
+      const children = childrenOf(m);
+      children.forEach((child, i) => {
+        html += renderNode(child, depth + 1, i === children.length - 1);
+      });
+    }
     return html;
   }
 
@@ -865,7 +931,7 @@ function _tlNavRenderDomains() {
       <div class="tl-nav-chain-header" style="user-select:none;cursor:pointer"
            onclick="_tlDomainToggle('${_tlEsc(adapter)}')">
         <span style="font-size:0.6rem;color:var(--text-muted);width:10px">${adapterExp ? '▾' : '▸'}</span>
-        <span style="font-weight:600;font-size:0.66rem;flex:1">${_tlEsc(adapter)}</span>
+        <span style="font-weight:600;font-size:0.66rem;flex:1">${_tlEsc(_tlAdapterLabel(adapter))}</span>
         <span class="tl-nav-chain-count">${adapterCount}</span>
       </div>
       ${subtypesHtml}
@@ -1073,6 +1139,11 @@ function _tlJumpToYear(year) {
 }
 
 function _tlNavHoverChain(chainId) {
+  // Skip hover highlight for large chains (performance)
+  if (chainId) {
+    const chain = _tlState.navChains.find(c => c.chain_id === chainId);
+    if (chain && chain.entry_count > 50) return;
+  }
   document.querySelectorAll('.timeline-entry').forEach(el => {
     el.classList.toggle('tl-chain-hover', chainId !== null && el.dataset.chain === chainId);
   });

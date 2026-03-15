@@ -202,13 +202,18 @@ class GitLogAdapter:
 
         parents = commit.get("parents", [])
         parent_ref = parents[0] if parents else None
+        is_merge = len(parents) > 1
+
+        # Store parent hashes in detail for branch visualization
+        if parents:
+            detail["parents"] = parents
 
         return TimelineEntry(
             id=f"git:{commit_hash}",
             ts=ts,
             ref=commit_hash,
             source=source,
-            subtype=subtype,
+            subtype="merge" if is_merge else subtype,
             actor=Actor.USER,
             status=EntryStatus.OK,
             severity=None,
@@ -217,7 +222,7 @@ class GitLogAdapter:
             modules=[],
             summary=summary,
             detail=detail,
-            chain_id=commit_hash,       # runs triggered by this commit share this chain_id
-            chain_role=ChainRole.ORIGIN,
+            chain_id="git:history",
+            chain_role=ChainRole.ORIGIN if not parent_ref else ChainRole.STEP,
             chain_parent_ref=parent_ref,
         )

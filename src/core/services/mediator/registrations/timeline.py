@@ -200,16 +200,26 @@ def _build_chains(entries: list[TimelineEntry]) -> list[dict[str, Any]]:
 
     for members in member_map.values():
         members.sort(key=lambda m: m["ts"])
+        # If no member has role=origin, promote the earliest to origin
+        has_origin = any(m["chain_role"] == "origin" for m in members)
+        if not has_origin and members:
+            members[0]["chain_role"] = "origin"
+            members[0]["chain_parent_ref"] = None
 
     result = []
     for c in sorted(chain_map.values(), key=lambda x: x["last_ts"], reverse=True):
         # Only include chains with 2+ members — solo entries are not chains
         if c["entry_count"] < 2:
             continue
+        members = member_map.get(c["chain_id"], [])
+        # Use the origin member's summary as chain summary if no origin was found before
+        origin = next((m for m in members if m["chain_role"] == "origin"), None)
+        if origin and not any(e.chain_role == ChainRole.ORIGIN for e in entries if e.chain_id == c["chain_id"]):
+            c["summary"] = origin["summary"]
         result.append({
             **c,
             "sources": sorted(c["sources"]),
-            "members": member_map.get(c["chain_id"], []),
+            "members": members,
         })
     return result
 

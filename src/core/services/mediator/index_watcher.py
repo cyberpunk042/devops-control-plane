@@ -545,6 +545,12 @@ def _poll_loop(
                     logger.debug(
                         "[IndexWatcher] no tiers to dispatch",
                     )
+                    # Clear cycle operation context — no tiers to run
+                    try:
+                        from src.core.engine.operation_context import set_operation_id
+                        set_operation_id(None)
+                    except Exception:
+                        pass
                 else:
                     # ── Chain tiers via on_complete callbacks ─────
                     # Each tier's on_complete dispatches the next tier.
@@ -561,6 +567,12 @@ def _poll_loop(
                             _publish_progress("index:tiers:done", {
                                 "total_dispatched": total_dispatched[0],
                             })
+                            # Clear cycle operation context — all tiers done
+                            try:
+                                from src.core.engine.operation_context import set_operation_id
+                                set_operation_id(None)
+                            except Exception:
+                                pass
                             return
 
                         tier_name, tier_paths, tier_priority = (
@@ -631,12 +643,6 @@ def _poll_loop(
                     "total": len(_all_index),
                     "elapsed_ms": round(total_elapsed * 1000),
                 })
-                # Clear cycle operation context
-                try:
-                    from src.core.engine.operation_context import set_operation_id
-                    set_operation_id(None)
-                except Exception:
-                    pass
                 logger.info(
                     "[IndexWatcher] cycle done: fast %d/%d in %.0fms, "
                     "%d nodes dispatched to background",

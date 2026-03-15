@@ -66,35 +66,30 @@ def server_restart_route():  # type: ignore[no-untyped-def]
 def server_factory_reset_route():  # type: ignore[no-untyped-def]
     """Factory reset: clear .state/ folder and restart.
 
-    Deletes all cached state, scan history, audit activity, pending audits,
-    and mediator index shards. Does NOT touch project.yml, source code,
-    git history, .ledger/ data, or .agent/ docs.
+    Writes a ``.factory-reset-signal`` file and triggers a restart.
+    On next startup, the server detects this signal and clears ``.state/``
+    BEFORE initializing anything — no race with background workers.
 
-    After clearing, triggers a server restart so all state is recomputed
-    from scratch.
+    Does NOT touch project.yml, source code, git history, .ledger/ data,
+    or .agent/ docs.
     """
-    import shutil
-
     from src.core.services.server_lifecycle import request_restart
 
     root = current_app.config["PROJECT_ROOT"]
-    state_dir = root / ".state"
+    signal_path = root / ".factory-reset-signal"
 
-    logger.warning("Factory reset requested — clearing %s", state_dir)
+    logger.warning("Factory reset requested — writing signal file")
 
     try:
-        if state_dir.exists():
-            shutil.rmtree(state_dir)
-            state_dir.mkdir(parents=True, exist_ok=True)
-            logger.info("Factory reset: .state/ cleared")
+        signal_path.write_text("factory-reset\n", encoding="utf-8")
     except Exception as exc:
-        logger.exception("Factory reset: failed to clear .state/")
+        logger.exception("Factory reset: failed to write signal file")
         return jsonify({"error": str(exc)}), 500
 
     result = request_restart(root)
     if result and "error" in result:
         return jsonify(result), 500
-    return jsonify({"status": "factory_reset", "message": ".state/ cleared, restarting"})
+    return jsonify({"status": "factory_reset", "message": "Signal written, restarting"})
 
 
 # ── Server settings (feature toggles) ──────────────────────────
