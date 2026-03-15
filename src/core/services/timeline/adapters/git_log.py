@@ -80,6 +80,7 @@ class GitLogAdapter:
 
     def load(self) -> list[TimelineEntry]:
         """Return all non-noise commits from git log."""
+        self._branch = self._current_branch()
         raw_commits = self._read_git_log()
         result: list[TimelineEntry] = []
 
@@ -92,6 +93,17 @@ class GitLogAdapter:
                 logger.warning("git_log: skipping commit: %s", exc)
 
         return result
+
+    def _current_branch(self) -> str:
+        try:
+            r = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=str(self._root),
+                capture_output=True, text=True, timeout=5,
+            )
+            return r.stdout.strip() or "main"
+        except Exception:
+            return "main"
 
     def _read_git_log(self) -> list[dict]:
         """Run git log --format with --numstat and parse into dicts."""
@@ -222,7 +234,7 @@ class GitLogAdapter:
             modules=[],
             summary=summary,
             detail=detail,
-            chain_id="git:history",
+            chain_id=f"git:{self._branch}",
             chain_role=ChainRole.ORIGIN if not parent_ref else ChainRole.STEP,
             chain_parent_ref=parent_ref,
         )

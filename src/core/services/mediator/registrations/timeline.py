@@ -182,7 +182,8 @@ def _build_chains(entries: list[TimelineEntry]) -> list[dict[str, Any]]:
         c["first_ts"] = min(c["first_ts"], e.ts)
         c["last_ts"] = max(c["last_ts"], e.ts)
         c["sources"].add(e.source.value)
-        if e.chain_role == ChainRole.ORIGIN:
+        if e.chain_role == ChainRole.ORIGIN and c["entry_count"] == 1:
+            # Only use origin summary if it's the first (and thus only) entry so far
             c["summary"] = e.summary
 
         # Chain member
@@ -199,7 +200,7 @@ def _build_chains(entries: list[TimelineEntry]) -> list[dict[str, Any]]:
         })
 
     for members in member_map.values():
-        members.sort(key=lambda m: m["ts"])
+        members.sort(key=lambda m: m["ts"], reverse=True)
         # If no member has role=origin, promote the earliest to origin
         has_origin = any(m["chain_role"] == "origin" for m in members)
         if not has_origin and members:
@@ -212,10 +213,6 @@ def _build_chains(entries: list[TimelineEntry]) -> list[dict[str, Any]]:
         if c["entry_count"] < 2:
             continue
         members = member_map.get(c["chain_id"], [])
-        # Use the origin member's summary as chain summary if no origin was found before
-        origin = next((m for m in members if m["chain_role"] == "origin"), None)
-        if origin and not any(e.chain_role == ChainRole.ORIGIN for e in entries if e.chain_id == c["chain_id"]):
-            c["summary"] = origin["summary"]
         result.append({
             **c,
             "sources": sorted(c["sources"]),

@@ -771,9 +771,17 @@ function _tlNavToggleChain(chainId) {
   }
 }
 
+// Track how many members are shown per chain
+const _tlChainShown = {};
+
+function _tlChainLoadMore(chainId) {
+  _tlChainShown[chainId] = (_tlChainShown[chainId] || 50) + 100;
+  _tlNavRender();
+}
+
 function _tlRenderChainFlat(members, chainId) {
   // Flat chronological list for large chains (e.g., git history)
-  const MAX_SHOW = 50;
+  const MAX_SHOW = _tlChainShown[chainId] || 50;
   const shown = members.slice(0, MAX_SHOW);
   let html = shown.map(m => {
     const sIcon = { ok:'●', warning:'◑', attention:'⚠', failed:'✕' }[m.status] ?? '●';
@@ -793,8 +801,13 @@ function _tlRenderChainFlat(members, chainId) {
     </div>`;
   }).join('');
   if (members.length > MAX_SHOW) {
-    html += `<div style="font-size:0.58rem;color:var(--text-muted);padding:4px 8px">
-      +${members.length - MAX_SHOW} more entries</div>`;
+    const remaining = members.length - MAX_SHOW;
+    html += `<div style="padding:4px 8px">
+      <button onclick="_tlChainLoadMore('${_tlEsc(chainId)}')"
+              class="btn btn-sm btn-ghost"
+              style="font-size:0.58rem;padding:2px 8px;width:100%;text-align:center">
+        Load more (${remaining} remaining)
+      </button></div>`;
   }
   return html;
 }
