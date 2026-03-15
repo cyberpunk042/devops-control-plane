@@ -980,9 +980,36 @@ function _tlNavRenderDomains() {
 }
 
 function _tlDomainToggle(key) {
-  if (_tlDomainExpanded.has(key)) _tlDomainExpanded.delete(key);
-  else _tlDomainExpanded.add(key);
+  if (_tlDomainExpanded.has(key)) {
+    _tlDomainExpanded.delete(key);
+  } else {
+    _tlDomainExpanded.add(key);
+    // Also expand the first child subtype
+    var adapters = _tlState.navAdapters || {};
+    var subtypes = adapters[key];
+    if (subtypes && typeof subtypes === 'object') {
+      var firstSub = Object.keys(subtypes)[0];
+      if (firstSub) {
+        var subKey = key + ':' + firstSub;
+        _tlDomainExpanded.add(subKey);
+      }
+    }
+    // Select the first leaf entry (filter by this domain's source)
+    _tlDomainFilter(key);
+  }
   _tlNavRender();
+}
+
+function _tlDomainFilter(adapter) {
+  // Toggle: if already filtering this adapter, clear
+  var idx = _tlState.sources.indexOf(adapter);
+  if (idx >= 0) {
+    _tlState.sources.splice(idx, 1);
+  } else {
+    _tlState.sources = [adapter];
+  }
+  _tlUpdateActivePills();
+  _tlRenderFiltered();
 }
 
 function _tlScrollToEntry(entryId) {
