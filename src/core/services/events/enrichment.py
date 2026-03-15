@@ -168,6 +168,86 @@ def extract_summary(path: str, data: Any) -> str:
     except Exception:
         pass
 
+    # Index nodes: descriptive summaries
+    if path == "index.scan":
+        if isinstance(data, dict):
+            return f"{len(data)} files scanned"
+        return "filesystem scanned"
+    if path == "index.delta":
+        if isinstance(data, dict):
+            added = len(data.get("added", []))
+            removed = len(data.get("removed", []))
+            modified = len(data.get("modified", []))
+            if hasattr(data, "added"):
+                added = len(data.added) if hasattr(data.added, "__len__") else 0
+                removed = len(data.removed) if hasattr(data.removed, "__len__") else 0
+                modified = len(data.modified) if hasattr(data.modified, "__len__") else 0
+            if added or removed or modified:
+                return f"{added} added, {removed} removed, {modified} modified"
+            return "no file changes"
+        return "no changes"
+    if path == "index.files":
+        count = len(data) if isinstance(data, dict) else 0
+        return f"{count} filename mappings"
+    if path == "index.dirs":
+        count = len(data) if isinstance(data, dict) else 0
+        return f"{count} directory mappings"
+    if path == "index.paths":
+        count = len(data) if isinstance(data, (dict, set, list)) else 0
+        return f"{count} paths indexed"
+    if path == "index.classify":
+        if isinstance(data, dict):
+            lang = data.get("primary_language", "?")
+            fws = data.get("frameworks", [])
+            return f"Language: {lang}, {len(fws)} framework(s)"
+        return "classified"
+    if path == "index.symbols":
+        count = len(data) if isinstance(data, dict) else 0
+        return f"{count} symbols indexed"
+    if path == "index.stats":
+        if isinstance(data, dict):
+            files = data.get("file_count", "?")
+            symbols = data.get("symbol_count", "?")
+            lang = data.get("primary_language", "?")
+            return f"{files} files, {symbols} symbols, {lang}"
+        return "stats computed"
+    if path == "index.view":
+        return "view cache rebuilt"
+    if path == "index.peek":
+        return "peek cache rebuilt"
+
+    # Catalog
+    if path == "catalog.tools":
+        if isinstance(data, dict):
+            avail = data.get("available", 0)
+            missing = data.get("missing_count", 0)
+            return f"{avail} tools available, {missing} missing"
+    if path == "catalog.builders":
+        if isinstance(data, dict):
+            builders = data.get("builders", [])
+            names = [b.get("name", "?") for b in builders if isinstance(b, dict) and b.get("available")]
+            if names:
+                return f"{len(names)} builder(s): {', '.join(names)}"
+            return f"{len(builders)} builder(s)"
+    if path == "catalog.scripts":
+        if isinstance(data, dict):
+            scripts = data.get("scripts", [])
+            names = [s.get("name", s.get("id", "?")) for s in scripts if isinstance(s, dict)]
+            if names:
+                return f"{len(names)} script(s): {', '.join(names[:4])}"
+
+    # Audit system: fix raw dict leaking
+    if path == "audit.system":
+        if isinstance(data, dict):
+            os_info = data.get("os", {})
+            if isinstance(os_info, dict):
+                name = os_info.get("name", os_info.get("system", "?"))
+            else:
+                name = str(os_info)[:30]
+            tools = data.get("tools", [])
+            avail = sum(1 for t in tools if isinstance(t, dict) and t.get("available"))
+            return f"{name} · {avail}/{len(tools)} tools"
+
     # Fallback: try common fields
     for key in ("summary", "label", "message"):
         val = data.get(key)

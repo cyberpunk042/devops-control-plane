@@ -331,14 +331,6 @@ def register_timeline(mediator: QueryMediator) -> None:
         if event_store and event_store.count() > 0:
             from src.core.services.events.projections.domains import DomainProjection
             facets = DomainProjection(event_store).build()
-
-            # Create "mediator" aggregate view from event store domains
-            mediator_subs: dict[str, int] = {}
-            for domain, subtypes in facets.get("by_adapter", {}).items():
-                for sub, count in subtypes.items():
-                    mediator_subs[sub] = mediator_subs.get(sub, 0) + count
-            if mediator_subs:
-                facets["by_adapter"]["mediator"] = mediator_subs
         else:
             facets = {"by_source": {}, "by_status": {}, "by_severity": {}, "by_adapter": {}}
 

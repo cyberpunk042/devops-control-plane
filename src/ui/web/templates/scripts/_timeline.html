@@ -497,7 +497,19 @@ function _tlPassesFilter(entry) {
     if (adp === 'index' || ref.startsWith('index.')) return false;
   }
   // Domain filter (from side panel domain click)
-  if (_tlState._domainFilter && (entry.adapter || '') !== _tlState._domainFilter) return false;
+  if (_tlState._domainFilter) {
+    var df = _tlState._domainFilter;
+    var ea = entry.adapter || '';
+    if (df.indexOf(':') > 0) {
+      // Subtype filter: "index:dirs" → adapter must be "index", subtype must contain "dirs"
+      var dfParts = df.split(':');
+      var dfAdapter = dfParts[0];
+      var dfSub = dfParts.slice(1).join(':');
+      if (ea !== dfAdapter || (entry.subtype || '').indexOf(dfSub) < 0) return false;
+    } else {
+      if (ea !== df) return false;
+    }
+  }
   if (_tlState.sources.length && !_tlState.sources.includes(entry.source)) return false;
   if (_tlState.statuses.length && !_tlState.statuses.includes(entry.status)) return false;
   if (_tlState.severities.length && !_tlState.severities.includes(entry.severity || 'none')) return false;
@@ -1030,6 +1042,14 @@ function _tlDomainToggle(key) {
     }
   } else {
     _tlDomainExpanded.add(key);
+    // Clear any other active filters that would block entries
+    _tlState.sources     = [];
+    _tlState.statuses    = [];
+    _tlState.severities  = [];
+    _tlState.chainFilter = null;
+    _tlState.dateFrom    = null;
+    _tlState.dateTo      = null;
+    _tlNavActiveChain    = null;
     // Also expand the first child subtype
     var adapters = _tlState.navAdapters || {};
     var subtypes = adapters[key];
