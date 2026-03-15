@@ -494,7 +494,20 @@ function _tlPassesFilter(entry) {
   if (_tlState.statuses.length && !_tlState.statuses.includes(entry.status)) return false;
   if (_tlState.severities.length && !_tlState.severities.includes(entry.severity || 'none')) return false;
   if (_tlState.locality && entry.locality !== _tlState.locality) return false;
-  if (_tlState.chainFilter && entry.chain_id !== _tlState.chainFilter) return false;
+  if (_tlState.chainFilter) {
+    var cf = _tlState.chainFilter;
+    var ecid = entry.chain_id || '';
+    if (ecid === cf) {
+      // Exact match — always pass
+    } else if (cf.indexOf(':') > 0 && cf.startsWith(ecid + ':')) {
+      // Domain sub-chain (e.g. cf="cycle-xxx:audit", ecid="cycle-xxx")
+      // Only match if entry's adapter/domain matches the suffix
+      var domain = cf.split(':').pop();
+      if ((entry.adapter || '') !== domain) return false;
+    } else {
+      return false;
+    }
+  }
   if (_tlState.dateFrom != null && entry.ts < _tlState.dateFrom) return false;
   if (_tlState.dateTo != null && entry.ts >= _tlState.dateTo) return false;
   if (_tlState.q) {
@@ -739,7 +752,7 @@ function _tlNavRenderChains() {
       : '';
 
     return `
-<div class="tl-nav-chain ${isActive ? 'tl-nav-chain--active' : ''}"
+<div class="tl-nav-chain"
 >
   <div class="tl-nav-chain-header" style="user-select:none;cursor:pointer"
        onclick="_tlNavToggleChain('${_tlEsc(c.chain_id)}')">
@@ -1214,11 +1227,7 @@ function _tlFilterBySource(src) {
 }
 
 function _tlNavScrollTo(chainId) {
-  // Highlight chain in nav matching entry in view
-  document.querySelectorAll('.tl-nav-chain').forEach(el => {
-    el.classList.toggle('tl-nav-chain--active',
-      el.querySelector(`[onclick*="${chainId}"]`) !== null);
-  });
+  // No-op — scroll sync highlighting removed (caused false matches)
 }
 
 // ── Resize handle ────────────────────────────────────────────────────
