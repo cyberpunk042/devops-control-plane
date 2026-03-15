@@ -21,10 +21,9 @@ Endpoints:
 from __future__ import annotations
 
 
-
 from flask import current_app, jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.core.services.tool_install.path_refresh import refresh_server_path as _refresh_server_path
 from src.ui.web.helpers import bust_tool_caches
 
@@ -32,7 +31,7 @@ from . import audit_bp
 
 
 @audit_bp.route("/audit/install-tool", methods=["POST"])
-@run_tracked("install", "install:tool")
+@tracked("tools.installed")
 def audit_install_tool():
     """Install a missing devops tool."""
     from src.core.services.tool_install import install_tool
@@ -293,7 +292,7 @@ def tools_status():
 
 
 @audit_bp.route("/audit/update-tool", methods=["POST"])
-@run_tracked("install", "install:update")
+@tracked("tools.updated")
 def audit_update_tool():
     """Update an installed tool to its latest version.
 
@@ -366,7 +365,7 @@ def audit_tool_version():
 # ── Tool Removal ───────────────────────────────────────────────
 
 @audit_bp.route("/audit/remove-tool", methods=["POST"])
-@run_tracked("install", "install:remove-tool")
+@tracked("tools.removed")
 def audit_remove_tool():
     """Remove an installed tool.
 

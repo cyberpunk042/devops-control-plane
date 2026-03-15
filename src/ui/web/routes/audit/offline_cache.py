@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from flask import current_app, jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 
 from . import audit_bp
 
@@ -26,7 +26,7 @@ from . import audit_bp
 
 
 @audit_bp.route("/audit/install-plan/cache", methods=["POST"])
-@run_tracked("install", "install:cache-plan")
+@tracked("tools.plan.cached")
 def audit_cache_plan():
     """Pre-download plan artifacts for offline installation.
 

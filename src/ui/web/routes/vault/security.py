@@ -5,15 +5,14 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import vault
-from src.core.engine.chain_context import start_chain, end_chain
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 
 from . import vault_bp
 from .helpers import _env_path
 
 
 @vault_bp.route("/vault/lock", methods=["POST"])
-@run_tracked("setup", "setup:vault_lock")
+@tracked("vault.locked")
 def vault_lock():
     """Lock (encrypt) the .env file."""
     data = request.get_json(silent=True) or {}
@@ -25,15 +24,13 @@ def vault_lock():
 
     try:
         result = vault.lock_vault(env_path, passphrase)
-        # End vault session chain
-        end_chain("vault")
         return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
 
 @vault_bp.route("/vault/unlock", methods=["POST"])
-@run_tracked("setup", "setup:vault_unlock")
+@tracked("vault.unlocked")
 def vault_unlock():
     """Unlock (decrypt) the .env.vault file."""
     data = request.get_json(silent=True) or {}
@@ -45,17 +42,13 @@ def vault_unlock():
 
     try:
         result = vault.unlock_vault(env_path, passphrase)
-        # Start vault session chain — all vault ops until lock are steps
-        import time as _time
-        session_id = f"vault-session:{int(_time.time())}"
-        start_chain("vault", session_id)
         return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
 
 @vault_bp.route("/vault/register", methods=["POST"])
-@run_tracked("setup", "setup:vault_register")
+@tracked("vault.registered")
 def vault_register():
     """Register passphrase for auto-lock without modifying files."""
     data = request.get_json(silent=True) or {}

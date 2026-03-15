@@ -47,7 +47,7 @@ from src.core.services.content.crypto import (
     CONFIG_EXTS,
     DATA_EXTS,
 )
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import (
     project_root as _project_root,
     resolve_safe_path as _resolve_safe_path,
@@ -57,9 +57,6 @@ from src.ui.web.helpers import (
 logger = logging.getLogger(__name__)
 
 content_bp = Blueprint("content", __name__)
-
-
-
 
 
 # ── Detect content folders ──────────────────────────────────────────
@@ -164,7 +161,7 @@ def content_list():  # type: ignore[no-untyped-def]
 
 
 @content_bp.route("/content/encrypt", methods=["POST"])
-@run_tracked("setup", "setup:encrypt")
+@tracked("content.encrypted")
 def content_encrypt():  # type: ignore[no-untyped-def]
     """Encrypt a file using COVAULT format."""
     data = request.get_json(silent=True) or {}
@@ -191,7 +188,7 @@ def content_encrypt():  # type: ignore[no-untyped-def]
 
 
 @content_bp.route("/content/decrypt", methods=["POST"])
-@run_tracked("setup", "setup:decrypt")
+@tracked("content.decrypted")
 def content_decrypt():  # type: ignore[no-untyped-def]
     """Decrypt a .enc file."""
     data = request.get_json(silent=True) or {}

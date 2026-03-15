@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 changelog_bp = Blueprint("changelog", __name__)
@@ -96,7 +96,7 @@ def changelog_get():  # type: ignore[no-untyped-def]
 
 
 @changelog_bp.route("/changelog/entry", methods=["POST"])
-@run_tracked("setup", "setup:changelog_entry")
+@tracked("changelog.entry.added")
 def changelog_add_entry():  # type: ignore[no-untyped-def]
     """Add a manual entry to [Unreleased].
 
@@ -139,7 +139,7 @@ def changelog_add_entry():  # type: ignore[no-untyped-def]
 
 
 @changelog_bp.route("/changelog/entry", methods=["PUT"])
-@run_tracked("setup", "setup:changelog_edit")
+@tracked("changelog.entry.edited")
 def changelog_edit_entry():  # type: ignore[no-untyped-def]
     """Edit an entry in [Unreleased].
 
@@ -172,7 +172,7 @@ def changelog_edit_entry():  # type: ignore[no-untyped-def]
 
 
 @changelog_bp.route("/changelog/entry", methods=["DELETE"])
-@run_tracked("destroy", "destroy:changelog_entry")
+@tracked("changelog.entry.deleted")
 def changelog_delete_entry():  # type: ignore[no-untyped-def]
     """Remove an entry from [Unreleased].
 
@@ -208,7 +208,7 @@ def changelog_delete_entry():  # type: ignore[no-untyped-def]
 
 
 @changelog_bp.route("/changelog/bootstrap", methods=["POST"])
-@run_tracked("generate", "generate:changelog")
+@tracked("changelog.generated")
 def changelog_bootstrap():  # type: ignore[no-untyped-def]
     """Generate initial CHANGELOG.md from git history.
 
@@ -250,7 +250,7 @@ def changelog_bootstrap():  # type: ignore[no-untyped-def]
 
 
 @changelog_bp.route("/changelog/release", methods=["POST"])
-@run_tracked("deploy", "deploy:changelog_release")
+@tracked("changelog.released")
 def changelog_cut_release():  # type: ignore[no-untyped-def]
     """Cut a release: move [Unreleased] → [version], bump pyproject.toml, tag.
 

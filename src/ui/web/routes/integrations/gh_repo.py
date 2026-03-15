@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import git_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 from src.ui.web.routes.integrations.gh_helpers import requires_gh_auth
 
@@ -13,7 +13,7 @@ from . import integrations_bp
 
 
 @integrations_bp.route("/gh/repo/create", methods=["POST"])
-@run_tracked("setup", "setup:gh_repo")
+@tracked("github.repo.created")
 @requires_gh_auth
 def gh_repo_create():  # type: ignore[no-untyped-def]
     """Create a new GitHub repository."""
@@ -35,7 +35,7 @@ def gh_repo_create():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/repo/visibility", methods=["POST"])
-@run_tracked("setup", "setup:gh_visibility")
+@tracked("github.visibility.changed")
 @requires_gh_auth
 def gh_repo_set_visibility():  # type: ignore[no-untyped-def]
     """Change repository visibility (public/private)."""
@@ -51,7 +51,7 @@ def gh_repo_set_visibility():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/repo/default-branch", methods=["POST"])
-@run_tracked("setup", "setup:gh_default_branch")
+@tracked("github.branch.set")
 @requires_gh_auth
 def gh_repo_set_default_branch():  # type: ignore[no-untyped-def]
     """Change the default branch on GitHub."""
@@ -66,7 +66,7 @@ def gh_repo_set_default_branch():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/repo/rename", methods=["POST"])
-@run_tracked("setup", "setup:gh_repo_rename")
+@tracked("github.repo.renamed")
 @requires_gh_auth
 def gh_repo_rename():  # type: ignore[no-untyped-def]
     """Rename the GitHub repository.

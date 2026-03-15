@@ -5,14 +5,14 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services.terraform import ops as terraform_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import terraform_bp
 
 
 @terraform_bp.route("/terraform/validate", methods=["POST"])
-@run_tracked("validate", "validate:terraform")
+@tracked("terraform.validated")
 def tf_validate():  # type: ignore[no-untyped-def]
     """Validate Terraform configuration."""
     result = terraform_ops.terraform_validate(_project_root())
@@ -22,13 +22,9 @@ def tf_validate():  # type: ignore[no-untyped-def]
 
 
 @terraform_bp.route("/terraform/plan", methods=["POST"])
-@run_tracked("plan", "plan:terraform")
+@tracked("terraform.planned")
 def tf_plan():  # type: ignore[no-untyped-def]
     """Run terraform plan."""
-    from src.core.engine.chain_context import start_chain
-    import time as _time
-    start_chain("terraform", f"tf-pipeline:{int(_time.time())}")
-
     root = _project_root()
     result = terraform_ops.terraform_plan(root)
     if "error" in result:
@@ -38,7 +34,7 @@ def tf_plan():  # type: ignore[no-untyped-def]
 
 
 @terraform_bp.route("/terraform/init", methods=["POST"])
-@run_tracked("setup", "setup:terraform", chain_domain="terraform")
+@tracked("terraform.initialized")
 def tf_init():  # type: ignore[no-untyped-def]
     """Initialize Terraform."""
     data = request.get_json(silent=True) or {}
@@ -52,7 +48,7 @@ def tf_init():  # type: ignore[no-untyped-def]
 
 
 @terraform_bp.route("/terraform/apply", methods=["POST"])
-@run_tracked("deploy", "deploy:terraform", chain_domain="terraform")
+@tracked("terraform.applied")
 def tf_apply():  # type: ignore[no-untyped-def]
     """Apply Terraform plan."""
     root = _project_root()
@@ -64,7 +60,7 @@ def tf_apply():  # type: ignore[no-untyped-def]
 
 
 @terraform_bp.route("/terraform/destroy", methods=["POST"])
-@run_tracked("destroy", "destroy:terraform")
+@tracked("terraform.destroyed")
 def tf_destroy():  # type: ignore[no-untyped-def]
     """Destroy Terraform resources."""
     root = _project_root()
@@ -76,7 +72,7 @@ def tf_destroy():  # type: ignore[no-untyped-def]
 
 
 @terraform_bp.route("/terraform/generate", methods=["POST"])
-@run_tracked("generate", "generate:terraform")
+@tracked("terraform.generated")
 def tf_generate():  # type: ignore[no-untyped-def]
     """Generate Terraform scaffolding."""
     data = request.get_json(silent=True) or {}
@@ -96,7 +92,7 @@ def tf_generate():  # type: ignore[no-untyped-def]
 
 
 @terraform_bp.route("/terraform/workspace/select", methods=["POST"])
-@run_tracked("setup", "setup:terraform_ws")
+@tracked("terraform.workspace.switched")
 def tf_workspace_select():  # type: ignore[no-untyped-def]
     """Switch Terraform workspace."""
     data = request.get_json(silent=True) or {}
@@ -112,7 +108,7 @@ def tf_workspace_select():  # type: ignore[no-untyped-def]
 
 
 @terraform_bp.route("/terraform/fmt", methods=["POST"])
-@run_tracked("format", "format:terraform")
+@tracked("terraform.formatted")
 def tf_fmt():  # type: ignore[no-untyped-def]
     """Format Terraform files."""
     root = _project_root()

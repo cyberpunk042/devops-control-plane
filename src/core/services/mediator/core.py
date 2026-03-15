@@ -208,6 +208,12 @@ class QueryMediator:
         # Operation tracker (set externally via set_tracker)
         self._tracker = None
 
+        # Event store (set externally via set_event_store)
+        self._event_store = None
+
+        # Last invalidation trigger (for cascade tracking)
+        self._last_invalidation_trigger: str | None = None
+
     # ── Properties ─────────────────────────────────────────────
 
     @property
@@ -218,6 +224,10 @@ class QueryMediator:
     def set_tracker(self, tracker) -> None:
         """Set the operation tracker for computation recording."""
         self._tracker = tracker
+
+    def set_event_store(self, store) -> None:
+        """Set the event store for event sourcing."""
+        self._event_store = store
 
     @property
     def project_root(self) -> Path:
@@ -438,6 +448,9 @@ class QueryMediator:
                             entry.seq, explanation,
                         )
 
+            # Capture old cached entry for delta detection
+            _old_entry = self._get_cached(path)
+
             # Actually compute
             t0 = time.time()
             try:
@@ -492,6 +505,44 @@ class QueryMediator:
                     self._tracker.record_computation(path, elapsed, result, _status)
                 except Exception:
                     pass  # tracker errors must never break computation
+
+            # Emit rich event to event store (if attached)
+            if self._event_store is not None:
+                try:
+                    from src.core.services.events import Event, get_correlation
+                    from src.core.services.events.enrichment import (
+                        derive_event_type,
+                        extract_summary,
+                        extract_result_summary,
+                        compute_delta,
+                    )
+                    _evt_status = "error" if isinstance(result, dict) and "error" in result else "ok"
+                    _evt_type = derive_event_type(path)
+                    _summary = extract_summary(path, result)
+                    _result_summary = extract_result_summary(path, result)
+                    _delta = compute_delta(path, result, _old_entry)
+
+                    _detail = {"elapsed_s": round(elapsed, 3)}
+                    if _result_summary:
+                        _detail["result"] = _result_summary
+                    if _delta:
+                        _detail["delta"] = _delta
+                    if self._last_invalidation_trigger:
+                        _detail["triggered_by"] = self._last_invalidation_trigger
+
+                    self._event_store.append(Event(
+                        id="", ts=time.time(),
+                        type=_evt_type,
+                        correlation_id=get_correlation() or "",
+                        source="mediator",
+                        path=path,
+                        status=_evt_status,
+                        duration_ms=int(elapsed * 1000),
+                        summary=_summary,
+                        detail=_detail,
+                    ))
+                except Exception:
+                    pass  # event store errors must never break computation
 
             return self._make_result(
                 result, path, "computed", 0.0,
@@ -882,6 +933,7 @@ class QueryMediator:
             )
 
         if invalidated:
+            self._last_invalidation_trigger = trigger
             bus.publish(
                 "mediator:invalidated",
                 key=trigger,
@@ -891,6 +943,22 @@ class QueryMediator:
                     "invalidated": invalidated,
                 },
             )
+
+            # Emit invalidation to event store
+            if self._event_store is not None:
+                try:
+                    from src.core.services.events import Event, get_correlation
+                    self._event_store.append(Event(
+                        id="", ts=time.time(),
+                        type="mediator.invalidated",
+                        correlation_id=get_correlation() or "",
+                        source="mediator",
+                        path=trigger,
+                        summary=f"Invalidated {len(invalidated)} nodes",
+                        detail={"invalidated": invalidated[:20]},
+                    ))
+                except Exception:
+                    pass
 
     # ── Phase 5: Batch mode ────────────────────────────────────
 
@@ -1300,12 +1368,19 @@ class QueryMediator:
                 "status": "empty",
             }
 
-        # Capture current operation_id so worker threads inherit it
+        # Capture current operation context so worker threads inherit it
         from src.core.engine.operation_context import (
             get_operation_id,
             set_operation_id as _set_op_id,
         )
+        from src.core.services.events.correlation import (
+            get_correlation as _get_corr,
+            set_correlation as _set_corr,
+            clear_correlation as _clear_corr,
+        )
         _captured_op_id = get_operation_id()
+        _captured_corr_id = _get_corr()
+        _captured_tracker_op = self._tracker.current() if self._tracker else None
 
         if self._work_queue is not None:
             # ── Work queue path (priority-aware) ─────────────
@@ -1322,12 +1397,18 @@ class QueryMediator:
                     node = self._tree.resolve(p)
                     item_size = node.size if node is not None else 1
 
-                    def _worker(p=p, op_id=_captured_op_id):
+                    def _worker(p=p, op_id=_captured_op_id, corr_id=_captured_corr_id, t_op=_captured_tracker_op):
                         _set_op_id(op_id)
+                        _set_corr(corr_id)
+                        if self._tracker and t_op:
+                            self._tracker.resume(t_op)
                         try:
                             self._dispatch_worker(task_id, [p])
                         finally:
                             _set_op_id(None)
+                            _clear_corr()
+                            if self._tracker:
+                                self._tracker.suspend()
 
                     result.append(WorkItem(
                         priority=pri,
@@ -1412,12 +1493,18 @@ class QueryMediator:
         elif self._executor is not None:
             # ── Legacy executor path ─────────────────────────
             for p in valid_paths:
-                def _legacy_worker(p=p, op_id=_captured_op_id):
+                def _legacy_worker(p=p, op_id=_captured_op_id, corr_id=_captured_corr_id, t_op=_captured_tracker_op):
                     _set_op_id(op_id)
+                    _set_corr(corr_id)
+                    if self._tracker and t_op:
+                        self._tracker.resume(t_op)
                     try:
                         self._dispatch_worker(task_id, [p])
                     finally:
                         _set_op_id(None)
+                        _clear_corr()
+                        if self._tracker:
+                            self._tracker.suspend()
                 self._executor.submit(_legacy_worker)
         elif self._on_stale is not None:
             for p in valid_paths:

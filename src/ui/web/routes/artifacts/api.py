@@ -17,7 +17,7 @@ from pathlib import Path
 
 from flask import Response, jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 
 from . import bp
 from src.core.services.artifacts.engine import (
@@ -59,7 +59,7 @@ def list_targets():
 # ── Add target ──────────────────────────────────────────────────────
 
 @bp.route("/targets", methods=["POST"])
-@run_tracked("setup", "setup:artifact_target")
+@tracked("artifact.target.created")
 def create_target():
     """Add a new artifact target."""
     data = request.get_json(force=True)
@@ -92,7 +92,7 @@ def create_target():
 # ── Update target ───────────────────────────────────────────────────
 
 @bp.route("/targets/<name>", methods=["PUT"])
-@run_tracked("setup", "setup:artifact_target_update")
+@tracked("artifact.target.updated")
 def modify_target(name: str):
     """Update an existing artifact target."""
     data = request.get_json(force=True)
@@ -110,7 +110,7 @@ def modify_target(name: str):
 # ── Remove target ───────────────────────────────────────────────────
 
 @bp.route("/targets/<name>", methods=["DELETE"])
-@run_tracked("destroy", "destroy:artifact_target")
+@tracked("artifact.target.deleted")
 def delete_target(name: str):
     """Remove an artifact target."""
     root = _project_root()
@@ -164,7 +164,7 @@ def build_stream(name: str):
 # ── Discovery ───────────────────────────────────────────────────────
 
 @bp.route("/detect", methods=["POST"])
-@run_tracked("scan", "scan:artifact_targets")
+@tracked("artifact.detected")
 def detect_targets():
     """Auto-detect buildable artifact targets from project structure."""
     from src.core.services.artifacts.discovery import detect_artifact_targets
@@ -231,7 +231,7 @@ def makefile_evolution():
 
 
 @bp.route("/makefile/patch", methods=["POST"])
-@run_tracked("setup", "setup:makefile_patch")
+@tracked("artifact.makefile.patched")
 def makefile_patch():
     """Apply remediation patches to the Makefile.
 
@@ -427,7 +427,7 @@ def workflow_preview():
 
 
 @bp.route("/workflow/generate", methods=["POST"])
-@run_tracked("generate", "generate:release_workflow")
+@tracked("artifact.workflow.generated")
 def workflow_generate():
     """Generate and write the release.yml workflow file."""
     from src.core.services.artifacts.workflow_gen import write_release_workflow

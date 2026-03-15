@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import jsonify, request
 
 from src.core.services import git_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import integrations_bp
@@ -30,7 +30,7 @@ def _bust_gh_caches() -> None:
 
 
 @integrations_bp.route("/gh/auth/logout", methods=["POST"])
-@run_tracked("setup", "setup:gh_logout")
+@tracked("github.logged_out")
 def gh_auth_logout():  # type: ignore[no-untyped-def]
     """Logout from GitHub CLI."""
     result = git_ops.gh_auth_logout(_project_root())
@@ -40,7 +40,7 @@ def gh_auth_logout():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/auth/login", methods=["POST"])
-@run_tracked("setup", "setup:gh_login")
+@tracked("github.logged_in")
 def gh_auth_login():  # type: ignore[no-untyped-def]
     """Authenticate with GitHub CLI.
 
@@ -82,7 +82,7 @@ def gh_auth_token_route():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/auth/device", methods=["POST"])
-@run_tracked("setup", "setup:gh_device_flow")
+@tracked("github.device_flow")
 def gh_auth_device_start_route():  # type: ignore[no-untyped-def]
     """Start a GitHub device flow — returns one-time code + URL.
 

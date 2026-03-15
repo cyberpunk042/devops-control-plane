@@ -5,14 +5,14 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services.docs_svc import ops as docs_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import docs_bp
 
 
 @docs_bp.route("/docs/generate/changelog", methods=["POST"])
-@run_tracked("generate", "generate:changelog")
+@tracked("changelog.generated")
 def docs_generate_changelog():  # type: ignore[no-untyped-def]
     """Generate CHANGELOG.md from git history."""
     data = request.get_json(silent=True) or {}
@@ -27,7 +27,7 @@ def docs_generate_changelog():  # type: ignore[no-untyped-def]
 
 
 @docs_bp.route("/docs/generate/readme", methods=["POST"])
-@run_tracked("generate", "generate:readme")
+@tracked("docs.readme.generated")
 def docs_generate_readme():  # type: ignore[no-untyped-def]
     """Generate README.md template."""
     return jsonify(docs_ops.generate_readme(_project_root()))

@@ -5,14 +5,14 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import k8s_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import k8s_bp
 
 
 @k8s_bp.route("/k8s/generate/manifests", methods=["POST"])
-@run_tracked("generate", "generate:k8s_manifests")
+@tracked("k8s.manifests.generated")
 def k8s_generate_manifests():  # type: ignore[no-untyped-def]
     """Generate K8s manifests."""
     data = request.get_json(silent=True) or {}
@@ -36,7 +36,7 @@ def k8s_generate_manifests():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/generate/wizard", methods=["POST"])
-@run_tracked("generate", "generate:k8s_wizard")
+@tracked("k8s.wizard.generated")
 def k8s_generate_wizard():  # type: ignore[no-untyped-def]
     """Generate K8s manifests from wizard resource definitions."""
     data = request.get_json(silent=True) or {}

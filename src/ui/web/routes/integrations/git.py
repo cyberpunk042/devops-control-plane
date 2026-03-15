@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import git_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import requires_git_auth, project_root as _project_root
 
 from . import integrations_bp
@@ -30,7 +30,7 @@ def git_log():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/commit", methods=["POST"])
-@run_tracked("git", "git:commit")
+@tracked("git.committed")
 def git_commit():  # type: ignore[no-untyped-def]
     """Stage and commit changes.
 
@@ -40,10 +40,6 @@ def git_commit():  # type: ignore[no-untyped-def]
         changelog_entry: optional custom changelog entry text
         skip_changelog: optional bool to skip changelog update
     """
-    from src.core.engine.chain_context import start_chain
-    import time as _time
-    start_chain("git", f"git-flow:{int(_time.time())}")
-
     data = request.get_json(silent=True) or {}
     message = data.get("message", "").strip()
     if not message:
@@ -94,7 +90,7 @@ def git_commit():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/git/pull", methods=["POST"])
 @requires_git_auth
-@run_tracked("git", "git:pull", chain_domain="git")
+@tracked("git.pulled")
 def git_pull():  # type: ignore[no-untyped-def]
     """Pull from remote."""
     data = request.get_json(silent=True) or {}
@@ -108,7 +104,7 @@ def git_pull():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/git/push", methods=["POST"])
 @requires_git_auth
-@run_tracked("git", "git:push", chain_domain="git")
+@tracked("git.pushed")
 def git_push():  # type: ignore[no-untyped-def]
     """Push to remote."""
     data = request.get_json(silent=True) or {}
@@ -137,7 +133,7 @@ def git_diff_file_route():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/stash", methods=["POST"])
-@run_tracked("git", "git:stash")
+@tracked("git.stashed")
 def git_stash_route():  # type: ignore[no-untyped-def]
     """Stash working directory changes."""
     data = request.get_json(silent=True) or {}
@@ -149,7 +145,7 @@ def git_stash_route():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/stash/pop", methods=["POST"])
-@run_tracked("git", "git:stash-pop")
+@tracked("git.stash.popped")
 def git_stash_pop_route():  # type: ignore[no-untyped-def]
     """Pop the most recent stash."""
     result = git_ops.git_stash_pop(_project_root())
@@ -171,7 +167,7 @@ def git_merge_status_route():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/merge/abort", methods=["POST"])
-@run_tracked("git", "git:merge-abort")
+@tracked("git.merge.aborted")
 def git_merge_abort_route():  # type: ignore[no-untyped-def]
     """Abort a merge or rebase in progress."""
     result = git_ops.git_merge_abort(_project_root())
@@ -181,7 +177,7 @@ def git_merge_abort_route():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/checkout-file", methods=["POST"])
-@run_tracked("git", "git:checkout-file")
+@tracked("git.file.checked_out")
 def git_checkout_file_route():  # type: ignore[no-untyped-def]
     """Resolve a single conflicted file.
 

@@ -164,7 +164,8 @@ function _tlEsc(str) {
   if (!str) return '';
   return String(str)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;')
+    .replace(/`/g,'&#96;').replace(/\$/g,'&#36;');
 }
 
 function _tlFormatTime(ts) {
@@ -263,7 +264,7 @@ function _tlRenderEntry(entry, idx) {
      data-chain-role="${_tlEsc(entry.chain_role ?? '')}"
      style="border-left:3px solid ${statusColor}">
 
-  <div class="timeline-entry-header" onclick="_tlToggleDetail(${JSON.stringify(idx)})">
+  <div class="timeline-entry-header" onclick="_tlToggleDetail(${typeof idx === 'number' ? idx : "'" + _tlEsc(String(idx)) + "'"})">
     <span class="tl-status" style="color:${statusColor}">${statusIcon}</span>
     <span class="tl-locality" style="color:${localityColor}">${localityIcon}</span>
     <span class="tl-source-badge ${srcClass}">${_tlEsc(entry.source)}</span>
@@ -273,7 +274,7 @@ function _tlRenderEntry(entry, idx) {
     ${chainBadge}
     <span class="tl-time" title="${_tlEsc(String(entry.ts))}">${_tlFormatTime(entry.ts)}</span>
     ${envBadge}
-    <button class="tl-raw-btn" onclick="event.stopPropagation();_tlToggleRaw(${JSON.stringify(idx)})"
+    <button class="tl-raw-btn" onclick="event.stopPropagation();_tlToggleRaw(${typeof idx === 'number' ? idx : "'" + _tlEsc(String(idx)) + "'"})"
             title="Raw JSON">{ }</button>
   </div>
 
@@ -282,7 +283,7 @@ function _tlRenderEntry(entry, idx) {
   </div>
 
   <div id="tl-raw-${idx}" class="timeline-entry-raw" style="display:none">
-    <pre>${_tlEsc(JSON.stringify(entry, null, 2))}</pre>
+    <pre></pre>
   </div>
 
   ${chainFooter}
@@ -304,7 +305,20 @@ function _tlToggleDetail(idx) {
 function _tlToggleRaw(idx) {
   const el = document.getElementById(`tl-raw-${idx}`);
   if (!el) return;
-  el.style.display = el.style.display === 'none' ? '' : 'none';
+  if (el.style.display === 'none') {
+    // Populate raw JSON on first open (safe — no template literal)
+    const pre = el.querySelector('pre');
+    if (pre && !pre.textContent) {
+      const entries = _tlState._filteredEntries || _tlState.allEntries || [];
+      const entry = entries[idx] || entries.find(function(e) { return e.id === idx; });
+      if (entry) {
+        pre.textContent = JSON.stringify(entry, null, 2);
+      }
+    }
+    el.style.display = '';
+  } else {
+    el.style.display = 'none';
+  }
 }
 
 // ── Store integration ────────────────────────────────────────────────

@@ -17,11 +17,9 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 
 from src.core.services.dns import cdn_ops as dns_cdn_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 
 dns_bp = Blueprint("dns", __name__)
-
-
 
 
 @dns_bp.route("/dns/status")
@@ -54,7 +52,7 @@ def dns_ssl(domain: str):  # type: ignore[no-untyped-def]
 
 
 @dns_bp.route("/dns/generate", methods=["POST"])
-@run_tracked("generate", "generate:dns_records")
+@tracked("dns.records.generated")
 def dns_generate():  # type: ignore[no-untyped-def]
     """Generate DNS records."""
     data = request.get_json(silent=True) or {}

@@ -5,14 +5,14 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import docker_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import docker_bp
 
 
 @docker_bp.route("/docker/generate/dockerfile", methods=["POST"])
-@run_tracked("generate", "generate:dockerfile")
+@tracked("docker.dockerfile.generated")
 def generate_dockerfile():  # type: ignore[no-untyped-def]
     """Generate a Dockerfile for a given stack."""
     data = request.get_json(silent=True) or {}
@@ -31,7 +31,7 @@ def generate_dockerfile():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/generate/dockerignore", methods=["POST"])
-@run_tracked("generate", "generate:dockerignore")
+@tracked("docker.dockerignore.generated")
 def generate_dockerignore():  # type: ignore[no-untyped-def]
     """Generate a .dockerignore for given stacks."""
     data = request.get_json(silent=True) or {}
@@ -46,7 +46,7 @@ def generate_dockerignore():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/generate/compose", methods=["POST"])
-@run_tracked("generate", "generate:compose")
+@tracked("docker.compose.generated")
 def generate_compose():  # type: ignore[no-untyped-def]
     """Generate a docker-compose.yml from detected modules."""
     root = _project_root()
@@ -59,7 +59,7 @@ def generate_compose():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/generate/compose-wizard", methods=["POST"])
-@run_tracked("generate", "generate:compose_wizard")
+@tracked("docker.compose.wizard")
 def generate_compose_wizard():  # type: ignore[no-untyped-def]
     """Generate docker-compose.yml from custom service definitions.
 
@@ -98,7 +98,7 @@ def generate_compose_wizard():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/generate/write", methods=["POST"])
-@run_tracked("generate", "generate:docker_write")
+@tracked("docker.written")
 def write_generated():  # type: ignore[no-untyped-def]
     """Write a generated file to disk."""
     data = request.get_json(silent=True) or {}

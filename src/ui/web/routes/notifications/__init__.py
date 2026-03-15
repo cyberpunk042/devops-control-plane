@@ -17,7 +17,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 
 notifications_bp = Blueprint("notifications", __name__)
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ def list_notifications():
 
 
 @notifications_bp.route("/notifications/dismiss", methods=["POST"])
-@run_tracked("setup", "setup:notification_dismiss")
+@tracked("notification.dismissed")
 def dismiss():
     """Dismiss a notification.
 
@@ -126,7 +126,7 @@ def silence():
 
 
 @notifications_bp.route("/notifications/<notif_id>", methods=["DELETE"])
-@run_tracked("destroy", "destroy:notification")
+@tracked("notification.deleted")
 def delete(notif_id: str):
     """Delete a notification permanently.
 

@@ -5,20 +5,16 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import k8s_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import k8s_bp
 
 
 @k8s_bp.route("/k8s/apply", methods=["POST"])
-@run_tracked("deploy", "deploy:k8s")
+@tracked("k8s.applied")
 def k8s_apply():  # type: ignore[no-untyped-def]
     """Apply Kubernetes manifests."""
-    from src.core.engine.chain_context import start_chain
-    import time as _time
-    start_chain("k8s", f"k8s-deploy:{int(_time.time())}")
-
     data = request.get_json(silent=True) or {}
     file_path = data.get("path", "")
     ns = data.get("namespace", "")
@@ -29,7 +25,7 @@ def k8s_apply():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/delete", methods=["POST"])
-@run_tracked("destroy", "destroy:k8s")
+@tracked("k8s.deleted")
 def k8s_delete():  # type: ignore[no-untyped-def]
     """Delete a Kubernetes resource."""
     data = request.get_json(silent=True) or {}
@@ -45,7 +41,7 @@ def k8s_delete():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/scale", methods=["POST"])
-@run_tracked("deploy", "deploy:k8s_scale", chain_domain="k8s")
+@tracked("k8s.scaled")
 def k8s_scale():  # type: ignore[no-untyped-def]
     """Scale a deployment/statefulset."""
     data = request.get_json(silent=True) or {}

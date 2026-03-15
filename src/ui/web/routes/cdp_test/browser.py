@@ -15,7 +15,7 @@ import logging
 
 from flask import jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 
 from . import cdp_test_bp
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 @cdp_test_bp.route("/cdp-test/launch-browser", methods=["POST"])
-@run_tracked("setup", "setup:browser_launch")
+@tracked("cdp_test.browser.launched")
 def cdp_test_launch_browser():
     """Launch a separate Chrome instance for isolated test replay.
 
@@ -126,7 +126,7 @@ def cdp_test_launch_browser():
 
 
 @cdp_test_bp.route("/cdp-test/kill-browser", methods=["POST"])
-@run_tracked("destroy", "destroy:browser")
+@tracked("cdp_test.browser.killed")
 def cdp_test_kill_browser():
     """Kill a previously launched test Chrome instance.
 

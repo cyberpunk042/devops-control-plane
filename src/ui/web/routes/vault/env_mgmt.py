@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import vault, vault_env_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import vault_bp
@@ -41,7 +41,7 @@ def vault_templates():
 
 
 @vault_bp.route("/vault/create", methods=["POST"])
-@run_tracked("setup", "setup:vault")
+@tracked("vault.env.activated")
 def vault_create():
     """Create a new .env file from template sections and/or key-value pairs."""
     data = request.get_json(silent=True) or {}

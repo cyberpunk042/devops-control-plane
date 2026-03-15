@@ -67,7 +67,7 @@ class EventBus:
         self,
         *,
         buffer_size: int = 500,
-        subscriber_queue_size: int = 200,
+        subscriber_queue_size: int = 2000,
     ) -> None:
         self._lock = threading.Lock()
         self._seq: int = 0

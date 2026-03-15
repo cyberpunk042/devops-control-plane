@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import git_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 from src.ui.web.routes.integrations.gh_helpers import requires_gh_auth
 
@@ -48,7 +48,7 @@ def gh_actions_runs():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/gh/actions/dispatch", methods=["POST"])
-@run_tracked("ci", "ci:gh_dispatch")
+@tracked("ci.workflow.dispatched")
 @requires_gh_auth
 def gh_actions_dispatch():  # type: ignore[no-untyped-def]
     """Trigger a workflow via repository dispatch."""

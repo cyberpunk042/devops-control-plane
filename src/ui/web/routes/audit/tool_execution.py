@@ -22,7 +22,7 @@ from pathlib import Path
 
 from flask import current_app, jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.core.services.tool_install.path_refresh import refresh_server_path as _refresh_server_path
 from src.ui.web.helpers import bust_tool_caches
 
@@ -33,7 +33,7 @@ from . import audit_bp
 
 
 @audit_bp.route("/audit/install-plan/execute-sync", methods=["POST"])
-@run_tracked("install", "install:execute-plan-sync")
+@tracked("tools.plan.executed")
 def audit_execute_plan_sync():
     """Execute an install or update plan synchronously (non-streaming).
 
@@ -103,7 +103,7 @@ def audit_execute_plan_sync():
 
 
 @audit_bp.route("/audit/install-plan/execute", methods=["POST"])
-@run_tracked("install", "install:execute-plan")
+@tracked("tools.plan.executed")
 def audit_execute_plan():
     """Execute an install or update plan with SSE streaming.
 

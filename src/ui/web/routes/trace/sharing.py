@@ -7,7 +7,7 @@ import threading
 
 from flask import jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.core.services.git_auth import is_auth_ok
 from src.core.services.trace import (
     delete_trace,
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 @trace_bp.route("/trace/share", methods=["POST"])
-@run_tracked("git", "git:trace_share")
+@tracked("trace.shared")
 def trace_share():
     """Share a trace — commit to git so it's visible to others.
 
@@ -64,7 +64,7 @@ def trace_share():
 
 
 @trace_bp.route("/trace/unshare", methods=["POST"])
-@run_tracked("git", "git:trace_unshare")
+@tracked("trace.unshared")
 def trace_unshare():
     """Mark a trace as local-only (unshare from git).
 
@@ -94,7 +94,7 @@ def trace_unshare():
 
 
 @trace_bp.route("/trace/update", methods=["POST"])
-@run_tracked("setup", "setup:trace_update")
+@tracked("trace.updated")
 def trace_update():
     """Update trace metadata (name, classification).
 
@@ -125,7 +125,7 @@ def trace_update():
 
 
 @trace_bp.route("/trace/delete", methods=["POST"])
-@run_tracked("destroy", "destroy:trace")
+@tracked("trace.deleted")
 def trace_delete():
     """Delete a trace from local storage.
 

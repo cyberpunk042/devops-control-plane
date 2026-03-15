@@ -15,7 +15,7 @@ import logging
 
 from flask import jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import cdp_test_bp
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 @cdp_test_bp.route("/cdp-test/replay/start", methods=["POST"])
-@run_tracked("test", "test:replay_start")
+@tracked("cdp_test.replay.started")
 def cdp_test_replay_start():
     """Start replaying a saved test suite.
 
@@ -221,7 +221,7 @@ def cdp_test_replay_start():
 
 
 @cdp_test_bp.route("/cdp-test/replay/cancel", methods=["POST"])
-@run_tracked("test", "test:replay_cancel")
+@tracked("cdp_test.replay.cancelled")
 def cdp_test_replay_cancel():
     """Cancel the active replay.
 

@@ -5,14 +5,14 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services.quality import ops as quality_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import quality_bp
 
 
 @quality_bp.route("/quality/check", methods=["POST"])
-@run_tracked("validate", "validate:quality")
+@tracked("quality.validated")
 def quality_check():  # type: ignore[no-untyped-def]
     """Run quality checks."""
     data = request.get_json(silent=True) or {}
@@ -29,7 +29,7 @@ def quality_check():  # type: ignore[no-untyped-def]
 
 
 @quality_bp.route("/quality/lint", methods=["POST"])
-@run_tracked("validate", "validate:lint")
+@tracked("quality.linted")
 def quality_lint():  # type: ignore[no-untyped-def]
     """Run linters."""
     data = request.get_json(silent=True) or {}
@@ -37,21 +37,21 @@ def quality_lint():  # type: ignore[no-untyped-def]
 
 
 @quality_bp.route("/quality/typecheck", methods=["POST"])
-@run_tracked("validate", "validate:typecheck")
+@tracked("quality.typechecked")
 def quality_typecheck():  # type: ignore[no-untyped-def]
     """Run type-checkers."""
     return jsonify(quality_ops.quality_typecheck(_project_root()))
 
 
 @quality_bp.route("/quality/test", methods=["POST"])
-@run_tracked("test", "test:quality")
+@tracked("quality.tested")
 def quality_test():  # type: ignore[no-untyped-def]
     """Run tests."""
     return jsonify(quality_ops.quality_test(_project_root()))
 
 
 @quality_bp.route("/quality/format", methods=["POST"])
-@run_tracked("format", "format:quality")
+@tracked("quality.formatted")
 def quality_format():  # type: ignore[no-untyped-def]
     """Check or apply formatting."""
     data = request.get_json(silent=True) or {}
@@ -59,7 +59,7 @@ def quality_format():  # type: ignore[no-untyped-def]
 
 
 @quality_bp.route("/quality/generate/config", methods=["POST"])
-@run_tracked("generate", "generate:quality_config")
+@tracked("quality.config.generated")
 def quality_generate_config():  # type: ignore[no-untyped-def]
     """Generate quality configs for a stack."""
     data = request.get_json(silent=True) or {}

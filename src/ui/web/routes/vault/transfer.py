@@ -5,14 +5,14 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import vault
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import vault_bp
 
 
 @vault_bp.route("/vault/export", methods=["POST"])
-@run_tracked("backup", "backup:vault")
+@tracked("vault.exported")
 def vault_export():
     """Create an encrypted export of a secret file."""
     data = request.get_json(silent=True) or {}
@@ -33,7 +33,7 @@ def vault_export():
 
 
 @vault_bp.route("/vault/import", methods=["POST"])
-@run_tracked("restore", "restore:vault")
+@tracked("vault.imported")
 def vault_import():
     """Import and decrypt an exported vault file."""
     data = request.get_json(silent=True) or {}

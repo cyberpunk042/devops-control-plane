@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services.env import ops as env_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import infra_bp
@@ -59,7 +59,7 @@ def env_validate():  # type: ignore[no-untyped-def]
 
 
 @infra_bp.route("/infra/env/generate-example", methods=["POST"])
-@run_tracked("generate", "generate:env_example")
+@tracked("env.example.generated")
 def env_generate_example():  # type: ignore[no-untyped-def]
     """Generate .env.example from .env."""
     result = env_ops.generate_env_example(_project_root())
@@ -70,7 +70,7 @@ def env_generate_example():  # type: ignore[no-untyped-def]
 
 
 @infra_bp.route("/infra/env/generate-env", methods=["POST"])
-@run_tracked("generate", "generate:env")
+@tracked("env.generated")
 def env_generate_env():  # type: ignore[no-untyped-def]
     """Generate .env from .env.example."""
     result = env_ops.generate_env_from_example(_project_root())

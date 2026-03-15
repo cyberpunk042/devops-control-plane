@@ -57,7 +57,7 @@ def _on_computed(event: dict[str, Any]) -> None:
     except Exception:
         return  # EventBus not available
 
-    if isinstance(data, dict) and "error" in data:
+    if isinstance(data, dict) and "error" in data and isinstance(data["error"], str):
         bus.publish(
             "cache:error",
             key=card_key,

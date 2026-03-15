@@ -17,15 +17,13 @@ from pathlib import Path
 
 from flask import current_app, jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from . import devops_bp
 from src.ui.web.helpers import project_root as _project_root
 
 
-
-
 @devops_bp.route("/devops/audit/dismissals", methods=["POST"])
-@run_tracked("scan", "scan:dismiss_finding")
+@tracked("security.finding.dismissed")
 def audit_dismissals_add():  # type: ignore[no-untyped-def]
     """Dismiss finding(s) by writing # nosec to the source line(s).
 
@@ -51,7 +49,7 @@ def audit_dismissals_add():  # type: ignore[no-untyped-def]
 
 
 @devops_bp.route("/devops/audit/dismissals", methods=["DELETE"])
-@run_tracked("scan", "scan:undismiss_finding")
+@tracked("security.finding.undismissed")
 def audit_dismissals_remove():  # type: ignore[no-untyped-def]
     """Undismiss a finding by removing # nosec from the source line.
 

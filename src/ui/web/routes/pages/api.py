@@ -77,14 +77,12 @@ from src.core.services.pages.engine import (
     scan_project_pipelines,
 )
 from src.core.services.pages_builders import SegmentConfig
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root, requires_git_auth
 
 logger = logging.getLogger(__name__)
 
 pages_api_bp = Blueprint("pages_api", __name__)
-
-
 
 
 # ── Segments CRUD ───────────────────────────────────────────────────
@@ -102,7 +100,7 @@ def list_segments():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/segments", methods=["POST"])
-@run_tracked("setup", "setup:pages_segment_create")
+@tracked("pages.segment.created")
 def create_segment():  # type: ignore[no-untyped-def]
     """Add a new segment."""
     data = request.get_json(silent=True) or {}
@@ -128,7 +126,7 @@ def create_segment():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/segments/<name>", methods=["PUT"])
-@run_tracked("setup", "setup:pages_segment_update")
+@tracked("pages.segment.updated")
 def update_segment_route(name: str):  # type: ignore[no-untyped-def]
     """Update segment config."""
     data = request.get_json(silent=True) or {}
@@ -140,7 +138,7 @@ def update_segment_route(name: str):  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/segments/<name>", methods=["DELETE"])
-@run_tracked("destroy", "destroy:pages_segment")
+@tracked("pages.segment.deleted")
 def delete_segment_route(name: str):  # type: ignore[no-untyped-def]
     """Remove a segment."""
     remove_segment(_project_root(), name)
@@ -214,13 +212,9 @@ def install_builder_route(name: str):  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/build/<name>", methods=["POST"])
-@run_tracked("build", "build:pages_segment")
+@tracked("pages.segment.built")
 def build_segment_route(name: str):  # type: ignore[no-untyped-def]
     """Build a single segment."""
-    # Start a pages pipeline chain
-    from src.core.engine.chain_context import start_chain
-    import time as _time
-    start_chain("pages", f"pages-pipeline:{int(_time.time())}")
     result = build_segment(_project_root(), name)
     resp = {
         "ok": result.ok,
@@ -243,7 +237,7 @@ def build_status_route(name: str):  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/build-all", methods=["POST"])
-@run_tracked("build", "build:pages_all", chain_domain="pages")
+@tracked("pages.all.built")
 def build_all_route():  # type: ignore[no-untyped-def]
     """Build all segments."""
     root = _project_root()
@@ -267,7 +261,7 @@ def build_all_route():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/merge", methods=["POST"])
-@run_tracked("build", "build:pages_merge", chain_domain="pages")
+@tracked("pages.merged")
 def merge_route():  # type: ignore[no-untyped-def]
     """Merge all built segments into a single output."""
     return jsonify(merge_segments(_project_root()))
@@ -275,7 +269,7 @@ def merge_route():  # type: ignore[no-untyped-def]
 
 @pages_api_bp.route("/pages/deploy", methods=["POST"])
 @requires_git_auth
-@run_tracked("deploy", "deploy:pages", chain_domain="pages")
+@tracked("pages.deployed")
 def deploy_route():  # type: ignore[no-untyped-def]
     """Deploy merged output to gh-pages."""
     return jsonify(deploy_to_ghpages(_project_root()))
@@ -285,7 +279,7 @@ def deploy_route():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/init", methods=["POST"])
-@run_tracked("setup", "setup:pages")
+@tracked("pages.initialized")
 def init_pages():  # type: ignore[no-untyped-def]
     """Initialize pages config from project.yml content_folders."""
     data = request.get_json(silent=True) or {}
@@ -423,7 +417,7 @@ def list_previews_route():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/ci", methods=["POST"])
-@run_tracked("generate", "generate:pages_ci")
+@tracked("pages.ci.generated")
 def generate_ci_route():  # type: ignore[no-untyped-def]
     """Generate GitHub Actions workflow for Pages deployment."""
     return jsonify(generate_ci_workflow(_project_root()))

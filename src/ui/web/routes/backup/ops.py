@@ -5,7 +5,7 @@ import logging
 from flask import jsonify, request
 
 from src.core.services.backup import ops as backup_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from . import backup_bp
 from src.ui.web.helpers import project_root as _project_root
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 @backup_bp.route("/backup/upload-release", methods=["POST"])
-@run_tracked("backup", "backup:upload_release", chain_domain="backup")
+@tracked("backup.release.uploaded")
 def api_upload_release():  # type: ignore[no-untyped-def]
     """Upload a file to a GitHub Release as an artifact."""
     data = request.get_json(silent=True) or {}
@@ -34,7 +34,7 @@ def api_upload_release():  # type: ignore[no-untyped-def]
 
 
 @backup_bp.route("/backup/encrypt", methods=["POST"])
-@run_tracked("setup", "setup:encrypt_backup", chain_domain="backup")
+@tracked("backup.encrypted")
 def api_encrypt_backup():  # type: ignore[no-untyped-def]
     """Encrypt an existing .tar.gz backup in place."""
     data = request.get_json(silent=True) or {}
@@ -52,7 +52,7 @@ def api_encrypt_backup():  # type: ignore[no-untyped-def]
 
 
 @backup_bp.route("/backup/decrypt", methods=["POST"])
-@run_tracked("setup", "setup:decrypt_backup")
+@tracked("backup.decrypted")
 def api_decrypt_backup():  # type: ignore[no-untyped-def]
     """Decrypt an existing .tar.gz.enc backup in place."""
     data = request.get_json(silent=True) or {}
@@ -73,7 +73,7 @@ def api_decrypt_backup():  # type: ignore[no-untyped-def]
 
 
 @backup_bp.route("/backup/delete-release", methods=["POST"])
-@run_tracked("destroy", "destroy:backup_release")
+@tracked("backup.release.deleted")
 def api_delete_release():  # type: ignore[no-untyped-def]
     """Delete a file's GitHub Release artifact."""
     data = request.get_json(silent=True) or {}
@@ -91,7 +91,7 @@ def api_delete_release():  # type: ignore[no-untyped-def]
 
 
 @backup_bp.route("/backup/rename", methods=["POST"])
-@run_tracked("setup", "setup:backup_rename")
+@tracked("backup.renamed")
 def api_rename_backup():  # type: ignore[no-untyped-def]
     """Rename a backup archive file."""
     data = request.get_json(silent=True) or {}
@@ -117,7 +117,7 @@ def api_rename_backup():  # type: ignore[no-untyped-def]
 
 
 @backup_bp.route("/backup/mark-special", methods=["POST"])
-@run_tracked("setup", "setup:backup_special")
+@tracked("backup.marked")
 def api_mark_special():  # type: ignore[no-untyped-def]
     """Force-add a backup to git (git add -f), bypassing .gitignore."""
     data = request.get_json(silent=True) or {}

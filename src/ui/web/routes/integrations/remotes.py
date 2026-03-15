@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import git_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import integrations_bp
@@ -18,7 +18,7 @@ def git_remotes():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/remote/add", methods=["POST"])
-@run_tracked("setup", "setup:git_remote")
+@tracked("git.remote.added")
 def git_remote_add():  # type: ignore[no-untyped-def]
     """Add a new git remote."""
     data = request.get_json(silent=True) or {}
@@ -33,7 +33,7 @@ def git_remote_add():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/remote/remove", methods=["POST"])
-@run_tracked("destroy", "destroy:git_remote")
+@tracked("git.remote.removed")
 def git_remote_remove():  # type: ignore[no-untyped-def]
     """Remove a git remote by name (defaults to origin)."""
     data = request.get_json(silent=True) or {}
@@ -45,7 +45,7 @@ def git_remote_remove():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/remote/rename", methods=["POST"])
-@run_tracked("setup", "setup:git_remote_rename")
+@tracked("git.remote.renamed")
 def git_remote_rename():  # type: ignore[no-untyped-def]
     """Rename a git remote."""
     data = request.get_json(silent=True) or {}
@@ -60,7 +60,7 @@ def git_remote_rename():  # type: ignore[no-untyped-def]
 
 
 @integrations_bp.route("/git/remote/set-url", methods=["POST"])
-@run_tracked("setup", "setup:git_remote_url")
+@tracked("git.remote.url_set")
 def git_remote_set_url():  # type: ignore[no-untyped-def]
     """Change the URL of a git remote."""
     data = request.get_json(silent=True) or {}

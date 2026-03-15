@@ -5,14 +5,14 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services.testing import ops as testing_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import testing_bp
 
 
 @testing_bp.route("/testing/run", methods=["POST"])
-@run_tracked("test", "test:run")
+@tracked("testing.ran")
 def testing_run():  # type: ignore[no-untyped-def]
     """Run tests."""
     data = request.get_json(silent=True) or {}
@@ -30,7 +30,7 @@ def testing_run():  # type: ignore[no-untyped-def]
 
 
 @testing_bp.route("/testing/coverage", methods=["POST"])
-@run_tracked("test", "test:coverage")
+@tracked("testing.coverage")
 def testing_coverage():  # type: ignore[no-untyped-def]
     """Run tests with coverage."""
     root = _project_root()
@@ -39,7 +39,7 @@ def testing_coverage():  # type: ignore[no-untyped-def]
 
 
 @testing_bp.route("/testing/generate/template", methods=["POST"])
-@run_tracked("generate", "generate:test_template")
+@tracked("testing.template.generated")
 def testing_generate_template():  # type: ignore[no-untyped-def]
     """Generate test template."""
     data = request.get_json(silent=True) or {}

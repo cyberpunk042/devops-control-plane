@@ -5,14 +5,14 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import git_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import requires_git_auth, project_root as _project_root
 
 from . import integrations_bp
 
 
 @integrations_bp.route("/git/gc", methods=["POST"])
-@run_tracked("git", "git:gc")
+@tracked("git.gc")
 def git_gc_route():  # type: ignore[no-untyped-def]
     """Run git gc to optimise the repository.
 
@@ -30,7 +30,7 @@ def git_gc_route():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/git/history-reset", methods=["POST"])
 @requires_git_auth
-@run_tracked("git", "git:history-reset")
+@tracked("git.history.reset")
 def git_history_reset_route():  # type: ignore[no-untyped-def]
     """Reset git history to a single commit (orphan branch).
 
@@ -53,7 +53,7 @@ def git_history_reset_route():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/git/filter-repo", methods=["POST"])
 @requires_git_auth
-@run_tracked("git", "git:filter-repo")
+@tracked("git.filtered")
 def git_filter_repo_route():  # type: ignore[no-untyped-def]
     """Scrub specific files/paths from entire git history.
 

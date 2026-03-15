@@ -20,7 +20,7 @@ from __future__ import annotations
 from flask import jsonify, request, send_file
 
 from src.core.services.content import file_ops as content_file_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 
 from . import content_bp
 from .helpers import project_root as _project_root, resolve_safe_path as _resolve_safe_path, get_enc_key as _get_enc_key
@@ -30,7 +30,7 @@ from .helpers import project_root as _project_root, resolve_safe_path as _resolv
 
 
 @content_bp.route("/content/create-folder", methods=["POST"])
-@run_tracked("setup", "setup:content_create_folder")
+@tracked("content.folder.created")
 def content_create_folder():  # type: ignore[no-untyped-def]
     """Create a content folder in the project root."""
     data = request.get_json(silent=True) or {}
@@ -51,7 +51,7 @@ def content_create_folder():  # type: ignore[no-untyped-def]
 
 
 @content_bp.route("/content/delete", methods=["POST"])
-@run_tracked("destroy", "destroy:content_file")
+@tracked("content.deleted")
 def content_delete():  # type: ignore[no-untyped-def]
     """Delete a file from a content folder."""
     data = request.get_json(silent=True) or {}
@@ -92,7 +92,7 @@ def content_download():  # type: ignore[no-untyped-def]
 
 
 @content_bp.route("/content/upload", methods=["POST"])
-@run_tracked("setup", "setup:content_upload")
+@tracked("content.uploaded")
 def content_upload():  # type: ignore[no-untyped-def]
     """Upload a file to a content folder."""
     from werkzeug.utils import secure_filename

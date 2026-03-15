@@ -108,7 +108,7 @@ docker_ops.docker_logs(root, "web", tail=100)
 ```
 POST /api/docker/build  { service: "web", no_cache: true }
      │
-     ├── @run_tracked("build", "build:docker")
+     ├── @tracked("docker.built")
      │   └── Records action in run history for audit trail
      │
      ▼
@@ -141,7 +141,7 @@ Request → @run_tracked( category, label ) → docker_ops.function()
 ```
 POST /api/docker/generate/dockerfile  { stack: "python", base_image: "python:3.12-slim" }
      │
-     ├── @run_tracked("generate", "generate:dockerfile")
+     ├── @tracked("docker.dockerfile.generated")
      │
      ▼
 docker_ops.generate_dockerfile(root, "python", base_image="python:3.12-slim")
@@ -162,7 +162,7 @@ POST /api/docker/generate/compose-wizard
   ]
 }
      │
-     ├── @run_tracked("generate", "generate:compose_wizard")
+     ├── @tracked("docker.compose.wizard")
      │
      ▼
 docker_ops.generate_compose_from_wizard(root, services, project_name="my-app")
@@ -299,7 +299,7 @@ All action endpoints follow the same pattern:
 
 ```python
 @docker_bp.route("/docker/build", methods=["POST"])
-@run_tracked("build", "build:docker")
+@tracked("docker.built")
 def docker_build():
     data = request.get_json(silent=True) or {}
     service = data.get("service")
@@ -703,10 +703,10 @@ Every action and generation endpoint uses the `@run_tracked` decorator
 to record the operation in the run history:
 
 ```python
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 
 @docker_bp.route("/docker/build", methods=["POST"])
-@run_tracked("build", "build:docker")
+@tracked("docker.built")
 def docker_build():
     ...
 ```

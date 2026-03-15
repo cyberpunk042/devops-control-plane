@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import k8s_ops
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import k8s_bp
@@ -33,7 +33,7 @@ def helm_values():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/helm/install", methods=["POST"])
-@run_tracked("install", "install:helm", chain_domain="k8s")
+@tracked("k8s.helm.installed")
 def helm_install():  # type: ignore[no-untyped-def]
     """Install a Helm chart."""
     data = request.get_json(silent=True) or {}
@@ -56,7 +56,7 @@ def helm_install():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/helm/upgrade", methods=["POST"])
-@run_tracked("deploy", "deploy:helm_upgrade", chain_domain="k8s")
+@tracked("k8s.helm.upgraded")
 def helm_upgrade():  # type: ignore[no-untyped-def]
     """Upgrade a Helm release."""
     data = request.get_json(silent=True) or {}
@@ -79,7 +79,7 @@ def helm_upgrade():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/helm/template", methods=["POST"])
-@run_tracked("plan", "plan:helm_template")
+@tracked("k8s.helm.templated")
 def helm_template():  # type: ignore[no-untyped-def]
     """Render Helm templates locally."""
     data = request.get_json(silent=True) or {}

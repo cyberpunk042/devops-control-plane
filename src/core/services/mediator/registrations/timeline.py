@@ -58,32 +58,13 @@ logger = logging.getLogger(__name__)
 
 # ── Path constants ──────────────────────────────────────────────────
 
-_ALL_SOURCES = [
-    "timeline.source.scan_activity",
-    "timeline.source.cli_ops",
+# External adapter sources (data NOT produced by the tool)
+_EXTERNAL_SOURCES = [
     "timeline.source.git_log",
     "timeline.source.ledger_runs",
     "timeline.source.ledger_audits",
     "timeline.source.chat",
-    "timeline.source.runs",
-    "timeline.source.mediator",
     "timeline.source.github",
-    "timeline.source.operations",
-]
-
-_LOCAL_SOURCES = [
-    "timeline.source.scan_activity",
-    "timeline.source.cli_ops",
-    "timeline.source.runs",
-    "timeline.source.mediator",
-    "timeline.source.operations",
-]
-
-_SHARED_SOURCES = [
-    "timeline.source.git_log",
-    "timeline.source.ledger_runs",
-    "timeline.source.ledger_audits",
-    "timeline.source.chat",
 ]
 
 _SECURITY_SOURCES_SET = frozenset({
@@ -94,113 +75,9 @@ _SECURITY_SOURCES_SET = frozenset({
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
-def _get_entries(mediator: QueryMediator, paths: list[str]) -> list[TimelineEntry]:
-    """Collect and merge TimelineEntry lists from multiple mediator nodes."""
-    merged: list[TimelineEntry] = []
-    for path in paths:
-        try:
-            data = mediator.get(path)["data"]
-            if isinstance(data, list):
-                merged.extend(data)
-        except Exception as exc:
-            logger.warning("timeline: failed to get %s: %s", path, exc)
-    return merged
 
-
-
-def _get_entries_by_adapter(
-    mediator: QueryMediator,
-) -> list[tuple[str, TimelineEntry]]:
-    """Fetch entries from all sources, tagged with their adapter name.
-
-    Returns a list of (adapter_name, entry) tuples.
-
-    For most sources, adapter name is the short name from the path:
-      timeline.source.git_log → "git_log"
-
-    For mediator entries, the adapter name is derived from the entry's
-    ref (mediator path) using _MEDIATOR_DOMAIN_MAP so entries appear
-    under their domain: devops.docker → "docker", posture.full → "posture".
-    """
-    result: list[tuple[str, TimelineEntry]] = []
-    for path in _ALL_SOURCES:
-        adapter_name = path.split(".")[-1]  # e.g. "scan_activity"
-        try:
-            data = mediator.get(path)["data"]
-            if isinstance(data, list):
-                for entry in data:
-                    if adapter_name in ("mediator", "operations") and entry.ref:
-                        # Tag by domain, not generic "mediator"/"operations"
-                        domain = _mediator_domain(entry.ref)
-                        result.append((domain, entry))
-                    else:
-                        result.append((adapter_name, entry))
-        except Exception as exc:
-            logger.warning("timeline: failed to get %s: %s", path, exc)
-    return result
-
-
-# ── Mediator path → domain mapping ───────────────────────────────────
-#
-# devops.* nodes use the suffix as domain (devops.docker → "docker")
-# All other prefixes use the prefix as domain (audit.scores → "audit")
-
-_DEVOPS_LIKE = ("devops.", "catalog.")
-
-
-def _mediator_domain(ref: str) -> str:
-    """Derive the domain adapter name from a mediator path.
-
-    devops.docker → "docker"   (suffix — devops is a bag of integrations)
-    catalog.tools → "tools"    (suffix — same pattern)
-    audit.scores  → "audit"    (prefix — audit is a cohesive domain)
-    posture.full  → "posture"  (prefix)
-    github.pulls  → "github"   (prefix)
-    index.scan    → "index"    (prefix)
-    """
-    if "." not in ref:
-        return ref
-    prefix, suffix = ref.split(".", 1)
-    if any(ref.startswith(p) for p in _DEVOPS_LIKE):
-        return suffix
-    return prefix
-
-
-def _build_facets(
-    tagged_entries: list[tuple[str, TimelineEntry]],
-) -> dict[str, Any]:
-    """Compute facet counts from adapter-tagged entries.
-
-    Returns:
-        by_source:   {source_value: count}
-        by_status:   {status_value: count}
-        by_severity: {severity_value: count}
-        by_adapter:  {adapter_name: {subtype_value: count}}
-    """
-    by_source: dict[str, int] = {}
-    by_status: dict[str, int] = {}
-    by_severity: dict[str, int] = {}
-    by_adapter: dict[str, dict[str, int]] = {}
-
-    for adapter, e in tagged_entries:
-        src = e.source.value
-        sub = e.subtype or ""
-        by_source[src] = by_source.get(src, 0) + 1
-        by_status[e.status.value] = by_status.get(e.status.value, 0) + 1
-        sev_key = e.severity.value if e.severity else "none"
-        by_severity[sev_key] = by_severity.get(sev_key, 0) + 1
-
-        # Nested: adapter → subtype
-        if adapter not in by_adapter:
-            by_adapter[adapter] = {}
-        by_adapter[adapter][sub] = by_adapter[adapter].get(sub, 0) + 1
-
-    return {
-        "by_source": by_source,
-        "by_status": by_status,
-        "by_severity": by_severity,
-        "by_adapter": by_adapter,
-    }
+# (Dead functions removed: _get_entries, _get_entries_by_adapter,
+#  _mediator_domain, _build_facets — replaced by event store projections)
 
 
 def _build_chains(entries: list[TimelineEntry]) -> list[dict[str, Any]]:
@@ -299,31 +176,10 @@ def register_timeline(mediator: QueryMediator) -> None:
     root = mediator.project_root
 
     # ================================================================
-    # CATEGORY 1 — Source nodes (6)
-    # Raw data readers. Each wraps an adapter.load() call.
+    # CATEGORY 1 — External source nodes
+    # These read data NOT produced by the tool (external state).
+    # Event store handles everything the tool itself does.
     # ================================================================
-
-    tree.register(TreeRegistration(
-        path="timeline.source.scan_activity",
-        resolver=lambda: __import__(
-            "src.core.services.timeline.adapters",
-            fromlist=["ScanActivityAdapter"],
-        ).ScanActivityAdapter(root).load(),
-        mtime_paths=[".state/audit_activity.json"],
-        persist=False,
-        size=1,
-    ))
-
-    tree.register(TreeRegistration(
-        path="timeline.source.cli_ops",
-        resolver=lambda: __import__(
-            "src.core.services.timeline.adapters",
-            fromlist=["CliOpsAdapter"],
-        ).CliOpsAdapter(root).load(),
-        mtime_paths=[".state/audit.ndjson"],
-        persist=False,
-        size=2,
-    ))
 
     tree.register(TreeRegistration(
         path="timeline.source.git_log",
@@ -370,28 +226,6 @@ def register_timeline(mediator: QueryMediator) -> None:
     ))
 
     tree.register(TreeRegistration(
-        path="timeline.source.runs",
-        resolver=lambda: __import__(
-            "src.core.services.timeline.adapters",
-            fromlist=["RunsAdapter"],
-        ).RunsAdapter(root).load(),
-        mtime_paths=[".state/runs.jsonl"],
-        persist=False,
-        size=2,
-    ))
-
-    tree.register(TreeRegistration(
-        path="timeline.source.mediator",
-        resolver=lambda: __import__(
-            "src.core.services.mediator.subscribers.mediator_timeline",
-            fromlist=["get_entries"],
-        ).get_entries(),
-        ttl=10,
-        persist=False,
-        size=3,
-    ))
-
-    tree.register(TreeRegistration(
         path="timeline.source.github",
         resolver=lambda: __import__(
             "src.core.services.timeline.adapters",
@@ -400,21 +234,6 @@ def register_timeline(mediator: QueryMediator) -> None:
         ttl=120,
         persist=False,
         size=2,
-    ))
-
-    def _resolve_operations():
-        """Return timeline entries from the operation tracker."""
-        tracker = mediator._tracker
-        if tracker is None:
-            return []
-        return tracker.get_timeline_entries()
-
-    tree.register(TreeRegistration(
-        path="timeline.source.operations",
-        resolver=_resolve_operations,
-        ttl=10,
-        persist=False,
-        size=3,
     ))
 
     # ================================================================
@@ -426,35 +245,140 @@ def register_timeline(mediator: QueryMediator) -> None:
     def _resolve_data() -> dict[str, Any]:
         """Single computation: entries + facets + chains + calendar.
 
-        All data comes from the same source fetch — guaranteed consistent.
-        Entries are sorted newest-first, no time filter (the full dataset).
-        Filtering (time, source, status, etc.) happens client-side or in
-        TimelineService.query() for the paginated API.
-        """
-        tagged = _get_entries_by_adapter(mediator)
-        tagged.sort(key=lambda t: t[1].ts, reverse=True)
+        Two data sources merged:
+        1. Event store projections (everything the tool does)
+        2. External adapters (git log, chat, github — external data)
 
-        entries = [e for _, e in tagged]
-        entry_dicts = []
-        for adapter, e in tagged:
-            d = e.to_dict()
-            d["adapter"] = adapter
-            entry_dicts.append(d)
+        Entries are sorted newest-first, no time filter (the full dataset).
+        """
+        all_tagged: list[tuple[str, TimelineEntry]] = []
+        all_entry_dicts: list[dict] = []
+
+        # ── Source 1: Event store projections ─────────────────────
+        event_store = mediator._event_store
+        if event_store and event_store.count() > 0:
+            from src.core.services.events.projections.timeline import TimelineProjection
+            tl_proj = TimelineProjection(event_store)
+            for domain, entry, entry_dict in tl_proj.build():
+                all_tagged.append((domain, entry))
+                all_entry_dicts.append(entry_dict)
+
+        # ── Source 2: External adapters (git, chat, github, ledger) ──
+        _EXTERNAL_SOURCES = [
+            "timeline.source.git_log",
+            "timeline.source.chat",
+            "timeline.source.github",
+            "timeline.source.ledger_runs",
+            "timeline.source.ledger_audits",
+        ]
+        for path in _EXTERNAL_SOURCES:
+            adapter_name = path.split(".")[-1]
+            try:
+                data = mediator.get(path)["data"]
+                if isinstance(data, list):
+                    for entry in data:
+                        all_tagged.append((adapter_name, entry))
+                        d = entry.to_dict()
+                        d["adapter"] = adapter_name
+                        all_entry_dicts.append(d)
+            except Exception as exc:
+                logger.warning("timeline: failed to get %s: %s", path, exc)
+
+        # ── Build facets from tagged entries ──────────────────────
+        # Sort newest first
+        all_tagged.sort(key=lambda t: t[1].ts, reverse=True)
+        all_entry_dicts.sort(key=lambda d: d.get("ts", 0), reverse=True)
+
+        # ── Build chains and calendar from event store ────────────
+        chains_data = []
+        calendar_data = []
+        if event_store and event_store.count() > 0:
+            from src.core.services.events.projections.chains import ChainProjection
+            from src.core.services.events.projections.calendar import CalendarProjection
+            chains_data = ChainProjection(event_store).build()
+            calendar_data = CalendarProjection(event_store).build()
+
+        # Also build chains from external adapter entries (git, chat)
+        external_entries = [e for a, e in all_tagged
+                          if a in ("git_log", "chat", "github",
+                                   "ledger_runs", "ledger_audits")]
+        if external_entries:
+            ext_chains = _build_chains(external_entries)
+            # Merge: deduplicate by chain_id
+            existing_ids = {c["chain_id"] for c in chains_data}
+            for ec in ext_chains:
+                if ec["chain_id"] not in existing_ids:
+                    chains_data.append(ec)
+                    existing_ids.add(ec["chain_id"])
+            # Merge calendar
+            ext_calendar = _build_calendar(external_entries)
+            # Merge by date
+            cal_by_date = {c["date"]: c for c in calendar_data}
+            for ec in ext_calendar:
+                if ec["date"] in cal_by_date:
+                    cal_by_date[ec["date"]]["count"] += ec["count"]
+                    if ec.get("has_failure"):
+                        cal_by_date[ec["date"]]["has_failure"] = True
+                else:
+                    cal_by_date[ec["date"]] = ec
+            calendar_data = sorted(cal_by_date.values(),
+                                   key=lambda c: c["date"], reverse=True)
+
+        # Sort chains newest first
+        chains_data.sort(key=lambda c: c.get("last_ts", 0), reverse=True)
+
+        # Build facets: start from event store, merge external adapters
+        if event_store and event_store.count() > 0:
+            from src.core.services.events.projections.domains import DomainProjection
+            facets = DomainProjection(event_store).build()
+
+            # Create "mediator" aggregate view from event store domains
+            mediator_subs: dict[str, int] = {}
+            for domain, subtypes in facets.get("by_adapter", {}).items():
+                for sub, count in subtypes.items():
+                    mediator_subs[sub] = mediator_subs.get(sub, 0) + count
+            if mediator_subs:
+                facets["by_adapter"]["mediator"] = mediator_subs
+        else:
+            facets = {"by_source": {}, "by_status": {}, "by_severity": {}, "by_adapter": {}}
+
+        # Merge ONLY external adapter facets (event store already counted above)
+        for adapter, e in all_tagged:
+            if adapter in ("git_log", "chat", "github", "ledger_runs", "ledger_audits"):
+                src = e.source.value
+                sub = e.subtype or ""
+                facets["by_source"][src] = facets["by_source"].get(src, 0) + 1
+                facets["by_status"][e.status.value] = facets["by_status"].get(e.status.value, 0) + 1
+                sev_key = e.severity.value if e.severity else "none"
+                facets["by_severity"][sev_key] = facets["by_severity"].get(sev_key, 0) + 1
+                if adapter not in facets["by_adapter"]:
+                    facets["by_adapter"][adapter] = {}
+                facets["by_adapter"][adapter][sub] = facets["by_adapter"][adapter].get(sub, 0) + 1
 
         return {
-            "entries": entry_dicts,
-            "facets": _build_facets(tagged),
-            "chains": _build_chains(entries),
-            "calendar": _build_calendar(entries),
+            "entries": all_entry_dicts,
+            "facets": facets,
+            "chains": chains_data,
+            "calendar": calendar_data,
         }
 
+    # timeline.data depends on index.scan so it recomputes after every
+    # index cycle. When index.scan changes → cascade invalidates timeline.data
+    # → resolver runs → cache:done fires → SSE pushes to frontend → LIVE.
     tree.register(TreeRegistration(
         path="timeline.data",
         resolver=_resolve_data,
-        ttl=30,
-        persist=True,
+        ttl=5,  # short TTL — recomputes frequently so SSE pushes live updates
+        persist=False,
         size=5,
-        depends_on=_ALL_SOURCES,
+        depends_on=[
+            "index.scan",
+            "timeline.source.git_log",
+            "timeline.source.chat",
+            "timeline.source.github",
+            "timeline.source.ledger_runs",
+            "timeline.source.ledger_audits",
+        ],
     ))
 
     # ================================================================

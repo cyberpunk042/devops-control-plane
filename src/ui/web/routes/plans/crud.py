@@ -22,7 +22,7 @@ import logging
 
 from flask import jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import plans_bp
@@ -62,7 +62,7 @@ def plans_get(plan_id: str):
 
 
 @plans_bp.route("/plans", methods=["POST"])
-@run_tracked("setup", "setup:plan_create")
+@tracked("plan.created")
 def plans_create():
     """Create a new execution plan.
 
@@ -89,7 +89,7 @@ def plans_create():
 
 
 @plans_bp.route("/plans/<plan_id>", methods=["PUT"])
-@run_tracked("setup", "setup:plan_update")
+@tracked("plan.updated")
 def plans_update(plan_id: str):
     """Update an existing execution plan.
 
@@ -133,7 +133,7 @@ def plans_update(plan_id: str):
 
 
 @plans_bp.route("/plans/<plan_id>", methods=["DELETE"])
-@run_tracked("destroy", "destroy:plan")
+@tracked("plan.deleted")
 def plans_delete(plan_id: str):
     """Delete an execution plan."""
     from src.core.services.scripts.plan_storage import delete_plan
@@ -149,7 +149,7 @@ def plans_delete(plan_id: str):
 
 
 @plans_bp.route("/plans/<plan_id>/duplicate", methods=["POST"])
-@run_tracked("setup", "setup:plan_duplicate")
+@tracked("plan.duplicated")
 def plans_duplicate(plan_id: str):
     """Clone a plan with a new ID.
 
@@ -192,7 +192,7 @@ def plans_duplicate(plan_id: str):
 
 
 @plans_bp.route("/plans/add-to-git", methods=["POST"])
-@run_tracked("git", "git:plan_add")
+@tracked("plan.git.added")
 def plans_add_to_git():
     """Add an execution plan to the ledger (git) branch.
 
@@ -224,7 +224,7 @@ def plans_add_to_git():
 
 
 @plans_bp.route("/plans/sync-to-git", methods=["POST"])
-@run_tracked("git", "git:plan_sync")
+@tracked("plan.git.synced")
 def plans_sync_to_git():
     """Sync local plan changes to the ledger (git) branch.
 
@@ -262,7 +262,7 @@ def plans_sync_to_git():
 
 
 @plans_bp.route("/plans/remove-from-git", methods=["POST"])
-@run_tracked("git", "git:plan_remove")
+@tracked("plan.git.removed")
 def plans_remove_from_git():
     """Remove a plan from the ledger (git) branch.
 

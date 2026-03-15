@@ -7,7 +7,7 @@ import threading
 
 from flask import jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.core.services.chat import (
     create_thread,
     delete_thread,
@@ -71,7 +71,7 @@ def chat_threads():
 @chat_bp.route("/chat/threads/create", methods=["POST"])
 @requires_gh_auth
 @requires_git_auth
-@run_tracked("setup", "setup:chat_thread")
+@tracked("chat.thread.created")
 def chat_thread_create():
     """Create a new chat thread."""
     try:
@@ -114,7 +114,7 @@ def chat_thread_create():
 @chat_bp.route("/chat/delete-thread", methods=["POST"])
 @requires_gh_auth
 @requires_git_auth
-@run_tracked("destroy", "destroy:chat_thread")
+@tracked("chat.thread.deleted")
 def chat_delete_thread():
     """Delete an entire thread and all its messages.
 

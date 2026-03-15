@@ -325,10 +325,41 @@ def _poll_loop(
                 _slow_index = _get_slow_index()
                 _all_index = _FAST_INDEX + _slow_index
 
-                # Set cycle operation context so scan_activity entries
-                # chain to this index cycle
+                # Start a tracked index cycle
                 import datetime as _dt
                 _cycle_id = f"cycle-{_dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+                _cycle_op = None
+                try:
+                    tracker = mediator._tracker
+                    if tracker:
+                        _cycle_op = tracker.begin(
+                            "system", _cycle_id,
+                            chain_id=_cycle_id,
+                        )
+                except Exception:
+                    pass
+                # Set correlation context for event sourcing
+                try:
+                    from src.core.services.events.correlation import set_correlation
+                    set_correlation(_cycle_id)
+                except Exception:
+                    pass
+                # Emit cycle started event
+                try:
+                    _es = mediator._event_store
+                    if _es:
+                        from src.core.services.events.models import Event as _Evt
+                        _es.append(_Evt(
+                            id="", ts=time.time(),
+                            type="index.cycle.started",
+                            correlation_id=_cycle_id,
+                            source="watcher",
+                            path="",
+                            summary=f"Index cycle started: {len(_all_index)} fast nodes",
+                        ))
+                except Exception:
+                    pass
+                # Also set legacy operation_id for backward compat
                 try:
                     from src.core.engine.operation_context import set_operation_id
                     set_operation_id(_cycle_id)
@@ -460,9 +491,10 @@ def _poll_loop(
                         if p not in INDEX_PASSIVE
                     ]
 
-                # T5: aggregates
+                # T5: aggregates (exclude timeline.data — computed after all tiers)
                 timeline_paths = [
-                    p for p in all_paths if p.startswith("timeline.")
+                    p for p in all_paths
+                    if p.startswith("timeline.") and p != "timeline.data"
                 ]
                 tier5_paths = (
                     [p for p in all_paths if p in _T5_PATHS]
@@ -549,7 +581,14 @@ def _poll_loop(
                     logger.debug(
                         "[IndexWatcher] no tiers to dispatch",
                     )
-                    # Clear cycle operation context — no tiers to run
+                    # End the tracked cycle operation — no tiers
+                    try:
+                        tracker = mediator._tracker
+                        if tracker and _cycle_op:
+                            tracker.end(_cycle_op, "ok", "Index cycle: fast only")
+                    except Exception:
+                        pass
+                    # Clear legacy operation context
                     try:
                         from src.core.engine.operation_context import set_operation_id
                         set_operation_id(None)
@@ -571,7 +610,43 @@ def _poll_loop(
                             _publish_progress("index:tiers:done", {
                                 "total_dispatched": total_dispatched[0],
                             })
-                            # Clear cycle operation context — all tiers done
+                            # End the tracked cycle operation
+                            try:
+                                tracker = mediator._tracker
+                                if tracker and _cycle_op:
+                                    tracker.end(
+                                        _cycle_op, "ok",
+                                        f"Index cycle: {total_dispatched[0]} nodes",
+                                    )
+                            except Exception:
+                                pass
+                            # Emit cycle completed event
+                            try:
+                                _es = mediator._event_store
+                                if _es:
+                                    from src.core.services.events.models import Event as _Evt
+                                    _es.append(_Evt(
+                                        id="", ts=time.time(),
+                                        type="index.cycle.completed",
+                                        correlation_id=_cycle_id,
+                                        source="watcher",
+                                        summary=f"Index cycle: {total_dispatched[0]} nodes dispatched",
+                                    ))
+                            except Exception:
+                                pass
+                            # Force recompute timeline.data so SSE pushes new events.
+                            try:
+                                mediator.get("timeline.data", force=True)
+                                logger.info("[IndexWatcher] timeline.data recomputed for SSE push")
+                            except Exception as _tl_exc:
+                                logger.warning("[IndexWatcher] timeline.data recompute failed: %s", _tl_exc)
+                            # Clear correlation context
+                            try:
+                                from src.core.services.events.correlation import clear_correlation
+                                clear_correlation()
+                            except Exception:
+                                pass
+                            # Clear legacy operation context
                             try:
                                 from src.core.engine.operation_context import set_operation_id
                                 set_operation_id(None)
@@ -597,7 +672,20 @@ def _poll_loop(
                         )
 
                         def _on_tier_complete() -> None:
-                            # Re-set cycle_id so next tier's dispatch captures it
+                            # Resume tracker on this thread for the next tier dispatch
+                            try:
+                                tracker = mediator._tracker
+                                if tracker and _cycle_op:
+                                    tracker.resume(_cycle_op)
+                            except Exception:
+                                pass
+                            # Re-set correlation for event sourcing
+                            try:
+                                from src.core.services.events.correlation import set_correlation
+                                set_correlation(_cycle_id)
+                            except Exception:
+                                pass
+                            # Re-set legacy cycle_id so next tier's dispatch captures it
                             try:
                                 from src.core.engine.operation_context import set_operation_id
                                 set_operation_id(_cycle_id)

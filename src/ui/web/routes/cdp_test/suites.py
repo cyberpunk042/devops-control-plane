@@ -25,7 +25,7 @@ import logging
 
 from flask import jsonify, request
 
-from src.core.services.run_tracker import run_tracked
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import cdp_test_bp
@@ -65,7 +65,7 @@ def cdp_test_get_suite(suite_id: str):
 
 
 @cdp_test_bp.route("/cdp-test/suites", methods=["POST"])
-@run_tracked("setup", "setup:test_suite_create")
+@tracked("cdp_test.suite.created")
 def cdp_test_create_suite():
     """Create a new test suite.
 
@@ -92,7 +92,7 @@ def cdp_test_create_suite():
 
 
 @cdp_test_bp.route("/cdp-test/suites/<suite_id>", methods=["PUT"])
-@run_tracked("setup", "setup:test_suite_update")
+@tracked("cdp_test.suite.updated")
 def cdp_test_update_suite(suite_id: str):
     """Update an existing test suite.
 
@@ -137,7 +137,7 @@ def cdp_test_update_suite(suite_id: str):
 
 
 @cdp_test_bp.route("/cdp-test/suites/<suite_id>", methods=["DELETE"])
-@run_tracked("destroy", "destroy:test_suite")
+@tracked("cdp_test.suite.deleted")
 def cdp_test_delete_suite(suite_id: str):
     """Delete a test suite."""
     from src.core.services.cdp_test.storage import delete_suite
@@ -153,7 +153,7 @@ def cdp_test_delete_suite(suite_id: str):
 
 
 @cdp_test_bp.route("/cdp-test/suites/<suite_id>/duplicate", methods=["POST"])
-@run_tracked("setup", "setup:test_suite_duplicate")
+@tracked("cdp_test.suite.duplicated")
 def cdp_test_duplicate_suite(suite_id: str):
     """Clone a test suite with a new ID.
 
@@ -196,7 +196,7 @@ def cdp_test_duplicate_suite(suite_id: str):
 
 
 @cdp_test_bp.route("/cdp-test/suites/add-to-git", methods=["POST"])
-@run_tracked("git", "git:test_suite_add")
+@tracked("cdp_test.git.added")
 def cdp_test_add_suite_to_git():
     """Add a test suite to the ledger (git) branch.
 
@@ -228,7 +228,7 @@ def cdp_test_add_suite_to_git():
 
 
 @cdp_test_bp.route("/cdp-test/suites/sync-to-git", methods=["POST"])
-@run_tracked("git", "git:test_suite_sync")
+@tracked("cdp_test.git.synced")
 def cdp_test_sync_suite_to_git():
     """Sync local suite changes to the ledger (git) branch.
 
@@ -266,7 +266,7 @@ def cdp_test_sync_suite_to_git():
 
 
 @cdp_test_bp.route("/cdp-test/suites/remove-from-git", methods=["POST"])
-@run_tracked("git", "git:test_suite_remove")
+@tracked("cdp_test.git.removed")
 def cdp_test_remove_suite_from_git():
     """Remove a test suite from the ledger (git) branch.
 

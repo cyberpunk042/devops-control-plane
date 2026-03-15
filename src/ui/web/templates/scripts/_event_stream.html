@@ -97,6 +97,7 @@
             'index:tier:start', 'index:tier:done', 'index:tiers:done',
             'wq:worker:start', 'wq:worker:done', 'wq:worker:failed',
             'timeline:entry',
+            'timeline:refresh',
         ],
 
         /** Open the SSE connection. Safe to call multiple times. */
@@ -254,6 +255,16 @@
                 case 'timeline:entry': {
                     const entry = (payload.data || {});
                     if (typeof _tlOnLiveEntry === 'function') _tlOnLiveEntry(entry);
+                    break;
+                }
+
+                // Timeline data refreshed — fetch fresh data from API
+                case 'timeline:refresh': {
+                    fetch('/api/timeline/data')
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            storeSet('timeline', data);
+                        });
                     break;
                 }
 
