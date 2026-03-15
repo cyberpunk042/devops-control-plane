@@ -15,7 +15,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _ACTIVITY_FILE = ".state/audit_activity.json"
-_ACTIVITY_MAX = 200  # keep last N entries
+_ACTIVITY_MAX = 1000  # keep last N entries (~15 full index cycles)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────

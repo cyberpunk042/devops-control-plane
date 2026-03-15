@@ -5,6 +5,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import vault_env_ops
+from src.core.services.run_tracker import run_tracked
 
 from . import vault_bp
 from .helpers import _env_path
@@ -18,6 +19,7 @@ def vault_keys():
 
 
 @vault_bp.route("/vault/add-keys", methods=["POST"])
+@run_tracked("setup", "setup:vault_add_keys", chain_domain="vault")
 def vault_add_keys():
     """Add or update key-value pairs in an existing .env file."""
     data = request.get_json(silent=True) or {}
@@ -38,6 +40,7 @@ def vault_add_keys():
 
 
 @vault_bp.route("/vault/update-key", methods=["POST"])
+@run_tracked("setup", "setup:vault_update_key", chain_domain="vault")
 def vault_update_key():
     """Update a single key's value in the .env file."""
     data = request.get_json(silent=True) or {}
@@ -54,6 +57,7 @@ def vault_update_key():
 
 
 @vault_bp.route("/vault/delete-key", methods=["POST"])
+@run_tracked("destroy", "destroy:vault_key", chain_domain="vault")
 def vault_delete_key():
     """Remove a key from the .env file."""
     data = request.get_json(silent=True) or {}
@@ -70,6 +74,7 @@ def vault_delete_key():
 
 
 @vault_bp.route("/vault/move-key", methods=["POST"])
+@run_tracked("setup", "setup:vault_move_key", chain_domain="vault")
 def vault_move_key():
     """Move a key from its current section to a different one."""
     data = request.get_json(silent=True) or {}
@@ -87,6 +92,7 @@ def vault_move_key():
 
 
 @vault_bp.route("/vault/rename-section", methods=["POST"])
+@run_tracked("setup", "setup:vault_rename_section", chain_domain="vault")
 def vault_rename_section():
     """Rename a section comment in .env."""
     data = request.get_json(silent=True) or {}
@@ -120,6 +126,7 @@ def vault_raw_value():
 
 
 @vault_bp.route("/vault/toggle-local-only", methods=["POST"])
+@run_tracked("setup", "setup:vault_local_only", chain_domain="vault")
 def vault_toggle_local_only():
     """Toggle the # local-only comment on a .env key."""
     data = request.get_json(silent=True) or {}
@@ -137,6 +144,7 @@ def vault_toggle_local_only():
 
 
 @vault_bp.route("/vault/set-meta", methods=["POST"])
+@run_tracked("setup", "setup:vault_meta", chain_domain="vault")
 def vault_set_meta():
     """Set or update @ metadata tags on a .env key."""
     data = request.get_json(silent=True) or {}

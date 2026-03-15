@@ -461,9 +461,13 @@ def _poll_loop(
                     ]
 
                 # T5: aggregates
+                timeline_paths = [
+                    p for p in all_paths if p.startswith("timeline.")
+                ]
                 tier5_paths = (
                     [p for p in all_paths if p in _T5_PATHS]
                     + posture_paths
+                    + timeline_paths
                     + [p for p in all_paths if p in AUDIT_L0L1]
                 )
                 # T6: deep audit
@@ -593,6 +597,13 @@ def _poll_loop(
                         )
 
                         def _on_tier_complete() -> None:
+                            # Re-set cycle_id so next tier's dispatch captures it
+                            try:
+                                from src.core.engine.operation_context import set_operation_id
+                                set_operation_id(_cycle_id)
+                            except Exception:
+                                pass
+
                             _publish_progress("index:tier:done", {
                                 "tier": tier_name,
                                 "count": len(tier_paths),

@@ -28,15 +28,16 @@ Usage::
 
 from __future__ import annotations
 
-_current_operation_id: str | None = None
+import threading
+
+_local = threading.local()
 
 
 def set_operation_id(op_id: str | None) -> None:
-    """Set the current operation_id (called by executor)."""
-    global _current_operation_id
-    _current_operation_id = op_id
+    """Set the current operation_id for this thread."""
+    _local.operation_id = op_id
 
 
 def get_operation_id() -> str | None:
     """Get the current operation_id, or None if no operation is active."""
-    return _current_operation_id
+    return getattr(_local, "operation_id", None)

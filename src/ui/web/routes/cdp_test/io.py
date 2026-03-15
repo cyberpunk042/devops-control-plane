@@ -17,6 +17,8 @@ import logging
 
 from flask import jsonify, request
 
+from src.core.services.run_tracker import run_tracked
+
 from . import cdp_test_bp
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,7 @@ _VALUE_ACTIONS = {"navigate", "type", "select", "keypress", "inject_js"}
 
 
 @cdp_test_bp.route("/cdp-test/io/configure", methods=["POST"])
+@run_tracked("setup", "setup:test_io_configure")
 def cdp_test_io_configure():
     """Configure I/O binding on a step.
 

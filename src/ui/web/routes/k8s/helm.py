@@ -33,7 +33,7 @@ def helm_values():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/helm/install", methods=["POST"])
-@run_tracked("install", "install:helm")
+@run_tracked("install", "install:helm", chain_domain="k8s")
 def helm_install():  # type: ignore[no-untyped-def]
     """Install a Helm chart."""
     data = request.get_json(silent=True) or {}
@@ -56,7 +56,7 @@ def helm_install():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/helm/upgrade", methods=["POST"])
-@run_tracked("deploy", "deploy:helm_upgrade")
+@run_tracked("deploy", "deploy:helm_upgrade", chain_domain="k8s")
 def helm_upgrade():  # type: ignore[no-untyped-def]
     """Upgrade a Helm release."""
     data = request.get_json(silent=True) or {}

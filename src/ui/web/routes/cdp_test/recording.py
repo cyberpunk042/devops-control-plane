@@ -22,6 +22,8 @@ import logging
 
 from flask import jsonify, request
 
+from src.core.services.run_tracker import run_tracked
+
 from . import cdp_test_bp
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,7 @@ def _add_pna_cors(resp):
 
 
 @cdp_test_bp.route("/cdp-test/record/start", methods=["POST"])
+@run_tracked("test", "test:record_start")
 def cdp_test_record_start():
     """Start a recording session.
 
@@ -143,6 +146,7 @@ def cdp_test_record_start():
 
 
 @cdp_test_bp.route("/cdp-test/record/stop", methods=["POST"])
+@run_tracked("test", "test:record_stop")
 def cdp_test_record_stop():
     """Stop the active recording session.
 

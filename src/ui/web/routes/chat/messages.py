@@ -7,6 +7,7 @@ import threading
 
 from flask import jsonify, request
 
+from src.core.services.run_tracker import run_tracked
 from src.core.services.chat import (
     delete_message,
     list_messages,
@@ -76,6 +77,7 @@ def chat_messages():
 @chat_bp.route("/chat/send", methods=["POST"])
 @requires_gh_auth
 @requires_git_auth
+@run_tracked("setup", "setup:chat_send")
 def chat_send():
     """Send a chat message.
 
@@ -141,6 +143,7 @@ def chat_send():
 @chat_bp.route("/chat/delete-message", methods=["POST"])
 @requires_gh_auth
 @requires_git_auth
+@run_tracked("destroy", "destroy:chat_message")
 def chat_delete_message():
     """Delete a chat message by ID.
 
@@ -178,6 +181,7 @@ def chat_delete_message():
 @chat_bp.route("/chat/update-message", methods=["POST"])
 @requires_gh_auth
 @requires_git_auth
+@run_tracked("setup", "setup:chat_message_update")
 def chat_update_message():
     """Update flags on an existing chat message.
 
@@ -232,6 +236,7 @@ def chat_update_message():
 @chat_bp.route("/chat/move-message", methods=["POST"])
 @requires_gh_auth
 @requires_git_auth
+@run_tracked("setup", "setup:chat_message_move")
 def chat_move_message():
     """Move or copy a message to a different thread.
 

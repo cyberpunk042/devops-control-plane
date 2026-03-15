@@ -102,6 +102,7 @@ def list_segments():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/segments", methods=["POST"])
+@run_tracked("setup", "setup:pages_segment_create")
 def create_segment():  # type: ignore[no-untyped-def]
     """Add a new segment."""
     data = request.get_json(silent=True) or {}
@@ -127,6 +128,7 @@ def create_segment():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/segments/<name>", methods=["PUT"])
+@run_tracked("setup", "setup:pages_segment_update")
 def update_segment_route(name: str):  # type: ignore[no-untyped-def]
     """Update segment config."""
     data = request.get_json(silent=True) or {}
@@ -138,6 +140,7 @@ def update_segment_route(name: str):  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/segments/<name>", methods=["DELETE"])
+@run_tracked("destroy", "destroy:pages_segment")
 def delete_segment_route(name: str):  # type: ignore[no-untyped-def]
     """Remove a segment."""
     remove_segment(_project_root(), name)
@@ -214,6 +217,10 @@ def install_builder_route(name: str):  # type: ignore[no-untyped-def]
 @run_tracked("build", "build:pages_segment")
 def build_segment_route(name: str):  # type: ignore[no-untyped-def]
     """Build a single segment."""
+    # Start a pages pipeline chain
+    from src.core.engine.chain_context import start_chain
+    import time as _time
+    start_chain("pages", f"pages-pipeline:{int(_time.time())}")
     result = build_segment(_project_root(), name)
     resp = {
         "ok": result.ok,
@@ -236,7 +243,7 @@ def build_status_route(name: str):  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/build-all", methods=["POST"])
-@run_tracked("build", "build:pages_all")
+@run_tracked("build", "build:pages_all", chain_domain="pages")
 def build_all_route():  # type: ignore[no-untyped-def]
     """Build all segments."""
     root = _project_root()
@@ -260,7 +267,7 @@ def build_all_route():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/merge", methods=["POST"])
-@run_tracked("build", "build:pages_merge")
+@run_tracked("build", "build:pages_merge", chain_domain="pages")
 def merge_route():  # type: ignore[no-untyped-def]
     """Merge all built segments into a single output."""
     return jsonify(merge_segments(_project_root()))
@@ -268,7 +275,7 @@ def merge_route():  # type: ignore[no-untyped-def]
 
 @pages_api_bp.route("/pages/deploy", methods=["POST"])
 @requires_git_auth
-@run_tracked("deploy", "deploy:pages")
+@run_tracked("deploy", "deploy:pages", chain_domain="pages")
 def deploy_route():  # type: ignore[no-untyped-def]
     """Deploy merged output to gh-pages."""
     return jsonify(deploy_to_ghpages(_project_root()))

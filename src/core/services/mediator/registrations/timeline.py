@@ -45,6 +45,7 @@ from typing import Any
 from src.core.services.mediator.core import QueryMediator
 from src.core.services.mediator.tree import TreeRegistration
 from src.core.services.timeline.models import (
+    Actor,
     ChainRole,
     EntryStatus,
     Locality,
@@ -64,11 +65,18 @@ _ALL_SOURCES = [
     "timeline.source.ledger_runs",
     "timeline.source.ledger_audits",
     "timeline.source.chat",
+    "timeline.source.runs",
+    "timeline.source.mediator",
+    "timeline.source.github",
+    "timeline.source.operations",
 ]
 
 _LOCAL_SOURCES = [
     "timeline.source.scan_activity",
     "timeline.source.cli_ops",
+    "timeline.source.runs",
+    "timeline.source.mediator",
+    "timeline.source.operations",
 ]
 
 _SHARED_SOURCES = [
@@ -99,14 +107,20 @@ def _get_entries(mediator: QueryMediator, paths: list[str]) -> list[TimelineEntr
     return merged
 
 
+
 def _get_entries_by_adapter(
     mediator: QueryMediator,
 ) -> list[tuple[str, TimelineEntry]]:
     """Fetch entries from all sources, tagged with their adapter name.
 
     Returns a list of (adapter_name, entry) tuples.
-    Adapter name is the short name from the source path:
-      timeline.source.scan_activity → scan_activity
+
+    For most sources, adapter name is the short name from the path:
+      timeline.source.git_log → "git_log"
+
+    For mediator entries, the adapter name is derived from the entry's
+    ref (mediator path) using _MEDIATOR_DOMAIN_MAP so entries appear
+    under their domain: devops.docker → "docker", posture.full → "posture".
     """
     result: list[tuple[str, TimelineEntry]] = []
     for path in _ALL_SOURCES:
@@ -115,10 +129,41 @@ def _get_entries_by_adapter(
             data = mediator.get(path)["data"]
             if isinstance(data, list):
                 for entry in data:
-                    result.append((adapter_name, entry))
+                    if adapter_name in ("mediator", "operations") and entry.ref:
+                        # Tag by domain, not generic "mediator"/"operations"
+                        domain = _mediator_domain(entry.ref)
+                        result.append((domain, entry))
+                    else:
+                        result.append((adapter_name, entry))
         except Exception as exc:
             logger.warning("timeline: failed to get %s: %s", path, exc)
     return result
+
+
+# ── Mediator path → domain mapping ───────────────────────────────────
+#
+# devops.* nodes use the suffix as domain (devops.docker → "docker")
+# All other prefixes use the prefix as domain (audit.scores → "audit")
+
+_DEVOPS_LIKE = ("devops.", "catalog.")
+
+
+def _mediator_domain(ref: str) -> str:
+    """Derive the domain adapter name from a mediator path.
+
+    devops.docker → "docker"   (suffix — devops is a bag of integrations)
+    catalog.tools → "tools"    (suffix — same pattern)
+    audit.scores  → "audit"    (prefix — audit is a cohesive domain)
+    posture.full  → "posture"  (prefix)
+    github.pulls  → "github"   (prefix)
+    index.scan    → "index"    (prefix)
+    """
+    if "." not in ref:
+        return ref
+    prefix, suffix = ref.split(".", 1)
+    if any(ref.startswith(p) for p in _DEVOPS_LIKE):
+        return suffix
+    return prefix
 
 
 def _build_facets(
@@ -169,12 +214,14 @@ def _build_chains(entries: list[TimelineEntry]) -> list[dict[str, Any]]:
 
         # Chain summary
         if e.chain_id not in chain_map:
+            # For cycle/operation chains, use the chain_id as the label
+            default_summary = e.chain_id if e.chain_id.startswith(("cycle-", "run_")) else e.summary
             chain_map[e.chain_id] = {
                 "chain_id": e.chain_id,
                 "entry_count": 0,
                 "first_ts": e.ts,
                 "last_ts": e.ts,
-                "summary": e.summary,
+                "summary": default_summary,
                 "sources": set(),
             }
         c = chain_map[e.chain_id]
@@ -322,6 +369,54 @@ def register_timeline(mediator: QueryMediator) -> None:
         size=1,
     ))
 
+    tree.register(TreeRegistration(
+        path="timeline.source.runs",
+        resolver=lambda: __import__(
+            "src.core.services.timeline.adapters",
+            fromlist=["RunsAdapter"],
+        ).RunsAdapter(root).load(),
+        mtime_paths=[".state/runs.jsonl"],
+        persist=False,
+        size=2,
+    ))
+
+    tree.register(TreeRegistration(
+        path="timeline.source.mediator",
+        resolver=lambda: __import__(
+            "src.core.services.mediator.subscribers.mediator_timeline",
+            fromlist=["get_entries"],
+        ).get_entries(),
+        ttl=10,
+        persist=False,
+        size=3,
+    ))
+
+    tree.register(TreeRegistration(
+        path="timeline.source.github",
+        resolver=lambda: __import__(
+            "src.core.services.timeline.adapters",
+            fromlist=["GitHubAdapter"],
+        ).GitHubAdapter(root).load(),
+        ttl=120,
+        persist=False,
+        size=2,
+    ))
+
+    def _resolve_operations():
+        """Return timeline entries from the operation tracker."""
+        tracker = mediator._tracker
+        if tracker is None:
+            return []
+        return tracker.get_timeline_entries()
+
+    tree.register(TreeRegistration(
+        path="timeline.source.operations",
+        resolver=_resolve_operations,
+        ttl=10,
+        persist=False,
+        size=3,
+    ))
+
     # ================================================================
     # CATEGORY 2 — Aggregate node (1)
     # Single UI data surface. Replaces the 10 view nodes.
@@ -370,7 +465,7 @@ def register_timeline(mediator: QueryMediator) -> None:
 
     def _resolve_security_posture() -> list[TimelineEntry]:
         """Security posture signals: SECURITY, AUDIT, POSTURE entries with severity."""
-        raw = mediator.get("timeline.data")["data"]
+        raw = (mediator.peek("timeline.data") or {}).get("data", {"entries": []})
         entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         return [e for e in entries
                 if e.source in _SECURITY_SOURCES_SET and e.severity is not None]
@@ -386,7 +481,7 @@ def register_timeline(mediator: QueryMediator) -> None:
 
     def _resolve_pkg_health() -> list[TimelineEntry]:
         """Package health signals: PKG entries with warning or failed status."""
-        raw = mediator.get("timeline.data")["data"]
+        raw = (mediator.peek("timeline.data") or {}).get("data", {"entries": []})
         entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         return sorted(
             (e for e in entries if e.source == Source.PKG and e.status != EntryStatus.OK),
@@ -404,7 +499,7 @@ def register_timeline(mediator: QueryMediator) -> None:
 
     def _resolve_tool_lifecycle() -> list[TimelineEntry]:
         """Tool lifecycle signals: TOOLS and STACK entries."""
-        raw = mediator.get("timeline.data")["data"]
+        raw = (mediator.peek("timeline.data") or {}).get("data", {"entries": []})
         entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         return sorted(
             (e for e in entries if e.source in (Source.TOOLS, Source.STACK)),
@@ -422,7 +517,7 @@ def register_timeline(mediator: QueryMediator) -> None:
 
     def _resolve_stack_health() -> list[TimelineEntry]:
         """Stack health signals: STACK entries with non-ok status."""
-        raw = mediator.get("timeline.data")["data"]
+        raw = (mediator.peek("timeline.data") or {}).get("data", {"entries": []})
         entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         return sorted(
             (e for e in entries if e.source == Source.STACK and e.status != EntryStatus.OK),
@@ -444,7 +539,7 @@ def register_timeline(mediator: QueryMediator) -> None:
         Returns a simple dict with score (0-100) and contributing signals.
         Full scoring formula is designed in E9 (M4) — this is the data surface.
         """
-        raw = mediator.get("timeline.data")["data"]
+        raw = (mediator.peek("timeline.data") or {}).get("data", {"entries": []})
         entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         failures = [e for e in entries
                     if e.status in (EntryStatus.FAILED, EntryStatus.WARNING, EntryStatus.ATTENTION)]
@@ -477,7 +572,7 @@ def register_timeline(mediator: QueryMediator) -> None:
 
     def _resolve_changelog() -> list[dict[str, Any]]:
         """Changelog feed: GIT + PLAN entries formatted for changelog rendering."""
-        raw = mediator.get("timeline.data")["data"]
+        raw = (mediator.peek("timeline.data") or {}).get("data", {"entries": []})
         entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         result = []
         for e in sorted(entries, key=lambda x: x.ts, reverse=True):
@@ -503,7 +598,7 @@ def register_timeline(mediator: QueryMediator) -> None:
 
     def _resolve_notifications() -> list[dict[str, Any]]:
         """Notification candidates: failures + security posture with severity."""
-        raw = mediator.get("timeline.data")["data"]
+        raw = (mediator.peek("timeline.data") or {}).get("data", {"entries": []})
         entries = [TimelineEntry.from_dict(d) for d in raw["entries"]]
         failures = [e for e in entries
                     if e.status in (EntryStatus.FAILED, EntryStatus.WARNING, EntryStatus.ATTENTION)]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from flask import jsonify, request
 
 from src.core.services import vault
+from src.core.engine.chain_context import start_chain, end_chain
 from src.core.services.run_tracker import run_tracked
 
 from . import vault_bp
@@ -24,6 +25,8 @@ def vault_lock():
 
     try:
         result = vault.lock_vault(env_path, passphrase)
+        # End vault session chain
+        end_chain("vault")
         return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -42,6 +45,10 @@ def vault_unlock():
 
     try:
         result = vault.unlock_vault(env_path, passphrase)
+        # Start vault session chain — all vault ops until lock are steps
+        import time as _time
+        session_id = f"vault-session:{int(_time.time())}"
+        start_chain("vault", session_id)
         return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400

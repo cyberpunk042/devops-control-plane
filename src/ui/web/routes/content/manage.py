@@ -26,6 +26,7 @@ import logging
 from flask import jsonify, request
 
 from src.core.services.content import file_ops as content_file_ops
+from src.core.services.run_tracker import run_tracked
 
 from . import content_bp
 from .helpers import project_root as _project_root, resolve_safe_path as _resolve_safe_path
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 @content_bp.route("/content/setup-enc-key", methods=["POST"])
+@run_tracked("setup", "setup:content_enc_key")
 def content_setup_enc_key():  # type: ignore[no-untyped-def]
     """Set CONTENT_VAULT_ENC_KEY in .env."""
     data = request.get_json(silent=True) or {}
@@ -57,6 +59,7 @@ def content_setup_enc_key():  # type: ignore[no-untyped-def]
 
 
 @content_bp.route("/content/save", methods=["POST"])
+@run_tracked("setup", "setup:content_save")
 def content_save():  # type: ignore[no-untyped-def]
     """Save text content to a file."""
     data = request.get_json(silent=True) or {}
@@ -98,6 +101,7 @@ def content_save():  # type: ignore[no-untyped-def]
 
 
 @content_bp.route("/content/rename", methods=["POST"])
+@run_tracked("setup", "setup:content_rename")
 def content_rename():  # type: ignore[no-untyped-def]
     """Rename a file in-place."""
     data = request.get_json(silent=True) or {}
@@ -119,6 +123,7 @@ def content_rename():  # type: ignore[no-untyped-def]
 
 
 @content_bp.route("/content/move", methods=["POST"])
+@run_tracked("setup", "setup:content_move")
 def content_move():  # type: ignore[no-untyped-def]
     """Move a file to another content folder."""
     data = request.get_json(silent=True) or {}

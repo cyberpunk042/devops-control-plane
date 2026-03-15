@@ -11,6 +11,8 @@ import logging
 
 from flask import Blueprint, current_app, jsonify, request
 
+from src.core.services.run_tracker import run_tracked
+
 logger = logging.getLogger(__name__)
 
 server_bp = Blueprint("server", __name__)
@@ -36,6 +38,7 @@ def server_status_route():  # type: ignore[no-untyped-def]
 
 
 @server_bp.route("/server/restart", methods=["POST"])
+@run_tracked("setup", "setup:server_restart")
 def server_restart_route():  # type: ignore[no-untyped-def]
     """Request a graceful server restart.
 
@@ -63,6 +66,7 @@ def server_restart_route():  # type: ignore[no-untyped-def]
 
 
 @server_bp.route("/server/factory-reset", methods=["POST"])
+@run_tracked("destroy", "destroy:factory_reset")
 def server_factory_reset_route():  # type: ignore[no-untyped-def]
     """Factory reset: clear .state/ folder and restart.
 
@@ -105,6 +109,7 @@ def server_settings_get():  # type: ignore[no-untyped-def]
 
 
 @server_bp.route("/server/settings", methods=["PUT"])
+@run_tracked("setup", "setup:server_settings")
 def server_settings_put():  # type: ignore[no-untyped-def]
     """Update server-side feature toggle settings.
 

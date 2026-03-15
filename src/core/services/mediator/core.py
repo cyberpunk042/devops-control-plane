@@ -205,12 +205,19 @@ class QueryMediator:
         # Phase 7: priority work queue
         self._work_queue = work_queue
 
+        # Operation tracker (set externally via set_tracker)
+        self._tracker = None
+
     # ── Properties ─────────────────────────────────────────────
 
     @property
     def tree(self) -> DataTree:
         """The data tree (read-only after init)."""
         return self._tree
+
+    def set_tracker(self, tracker) -> None:
+        """Set the operation tracker for computation recording."""
+        self._tracker = tracker
 
     @property
     def project_root(self) -> Path:
@@ -477,6 +484,14 @@ class QueryMediator:
                     "computed_at": entry.computed_at,
                 },
             )
+
+            # Record in operation tracker (if attached)
+            if self._tracker is not None:
+                try:
+                    _status = "error" if isinstance(result, dict) and "error" in result else "ok"
+                    self._tracker.record_computation(path, elapsed, result, _status)
+                except Exception:
+                    pass  # tracker errors must never break computation
 
             return self._make_result(
                 result, path, "computed", 0.0,
@@ -1285,6 +1300,13 @@ class QueryMediator:
                 "status": "empty",
             }
 
+        # Capture current operation_id so worker threads inherit it
+        from src.core.engine.operation_context import (
+            get_operation_id,
+            set_operation_id as _set_op_id,
+        )
+        _captured_op_id = get_operation_id()
+
         if self._work_queue is not None:
             # ── Work queue path (priority-aware) ─────────────
             from .config import tier_priority_for_path
@@ -1299,13 +1321,19 @@ class QueryMediator:
                 for p in paths:
                     node = self._tree.resolve(p)
                     item_size = node.size if node is not None else 1
+
+                    def _worker(p=p, op_id=_captured_op_id):
+                        _set_op_id(op_id)
+                        try:
+                            self._dispatch_worker(task_id, [p])
+                        finally:
+                            _set_op_id(None)
+
                     result.append(WorkItem(
                         priority=pri,
                         size=item_size,
                         path=p,
-                        resolver=lambda p=p: self._dispatch_worker(
-                            task_id, [p],
-                        ),
+                        resolver=_worker,
                         callback=None,
                         error_callback=lambda exc, p=p: logger.exception(
                             "dispatch %s: work_queue failed for %s",
@@ -1384,9 +1412,13 @@ class QueryMediator:
         elif self._executor is not None:
             # ── Legacy executor path ─────────────────────────
             for p in valid_paths:
-                self._executor.submit(
-                    self._dispatch_worker, task_id, [p],
-                )
+                def _legacy_worker(p=p, op_id=_captured_op_id):
+                    _set_op_id(op_id)
+                    try:
+                        self._dispatch_worker(task_id, [p])
+                    finally:
+                        _set_op_id(None)
+                self._executor.submit(_legacy_worker)
         elif self._on_stale is not None:
             for p in valid_paths:
                 try:

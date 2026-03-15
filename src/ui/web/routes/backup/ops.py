@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 @backup_bp.route("/backup/upload-release", methods=["POST"])
-@run_tracked("backup", "backup:upload_release")
+@run_tracked("backup", "backup:upload_release", chain_domain="backup")
 def api_upload_release():  # type: ignore[no-untyped-def]
     """Upload a file to a GitHub Release as an artifact."""
     data = request.get_json(silent=True) or {}
@@ -34,7 +34,7 @@ def api_upload_release():  # type: ignore[no-untyped-def]
 
 
 @backup_bp.route("/backup/encrypt", methods=["POST"])
-@run_tracked("setup", "setup:encrypt_backup")
+@run_tracked("setup", "setup:encrypt_backup", chain_domain="backup")
 def api_encrypt_backup():  # type: ignore[no-untyped-def]
     """Encrypt an existing .tar.gz backup in place."""
     data = request.get_json(silent=True) or {}

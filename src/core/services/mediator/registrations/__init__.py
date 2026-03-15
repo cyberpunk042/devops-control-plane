@@ -61,9 +61,18 @@ def register_all(mediator: QueryMediator) -> None:
     from src.core.services.mediator.subscribers.timeline import (
         register_timeline_subscriber,
     )
+    from src.core.services.mediator.subscribers.mediator_timeline import (
+        register_mediator_timeline_subscriber,
+    )
     register_activity_subscriber(mediator)
     register_eventbus_bridge(mediator)
     register_timeline_subscriber(mediator)
+    register_mediator_timeline_subscriber(mediator)
+
+    # ── Operation Tracker (after all nodes + subscribers) ─────────
+    from src.core.services.operation_tracker import OperationTracker
+    tracker = OperationTracker()
+    mediator.set_tracker(tracker)
 
     logger.info(
         "mediator: registered %d nodes (%s)",

@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # card key may be exact or a prefix (ends with ':')
 
 _CARD_MAP: dict[str, tuple[Source, str | None]] = {
+    # DevOps domain
     "packages":   (Source.PKG,      None),
     "security":   (Source.SECURITY, "finding"),
     "vault":      (Source.VAULT,    None),
@@ -45,16 +46,45 @@ _CARD_MAP: dict[str, tuple[Source, str | None]] = {
     "testing":    (Source.TESTS,    "scan"),
     "tools":      (Source.TOOLS,    None),
     "wiz:detect": (Source.WIZARD,   "detect"),
+    # Index nodes
+    "scan":       (Source.PLATFORM, "index:scan"),
+    "delta":      (Source.PLATFORM, "index:delta"),
+    "files":      (Source.PLATFORM, "index:files"),
+    "dirs":       (Source.PLATFORM, "index:dirs"),
+    "paths":      (Source.PLATFORM, "index:paths"),
+    "classify":   (Source.PLATFORM, "index:classify"),
+    "symbols":    (Source.PLATFORM, "index:symbols"),
+    "stats":      (Source.PLATFORM, "index:stats"),
+    "view":       (Source.PLATFORM, "index:view"),
+    "peek":       (Source.PLATFORM, "index:peek"),
+    "runtime":    (Source.PLATFORM, "runtime"),
+    # GitHub
+    "gh-pulls":   (Source.GIT,      "pulls"),
+    "gh-runs":    (Source.CI,       "runs"),
+    "gh-workflows": (Source.CI,     "workflows"),
+    "github":     (Source.GIT,      "github"),
+    # Catalog
+    "builders":   (Source.TOOLS,    "builders"),
+    "scripts":    (Source.TOOLS,    "scripts"),
+    "pages":      (Source.PLATFORM, "pages"),
+    # Project
+    "project-status": (Source.PLATFORM, "status"),
+    "project":    (Source.PLATFORM, "project"),
+    "docs":       (Source.PLATFORM, "docs"),
+    "dns":        (Source.PLATFORM, "dns"),
+    "quality":    (Source.TESTS,    "quality"),
+    "toolchain":  (Source.TOOLS,    "toolchain"),
 }
 
-# Cards that are signal regardless of status (always kept)
-_ALWAYS_SIGNAL_CARDS = frozenset({
-    "wizard", "security", "vault", "env", "packages", "stack",
-})
-
-# Cards that are noise when status=ok and no action (pure refresh scans)
-_NOISE_SCAN_CARDS = frozenset({
-    "docker", "k8s", "terraform", "git", "ci", "testing", "platform",
+# Internal mediator nodes — always suppressed (meta-computation, not user-visible)
+_INTERNAL_CARDS = frozenset({
+    "timeline", "source.scan_activity", "source.cli_ops",
+    "source.git_log", "source.ledger_runs", "source.ledger_audits",
+    "source.chat", "source.runs",
+    "feed.changelog", "feed.pkg_health", "feed.readiness",
+    "feed.security_posture", "feed.stack_health",
+    "feed.tool_lifecycle", "feed.notifications",
+    "tabmesh:cdp_status",
 })
 
 # Audit card prefix
@@ -136,8 +166,18 @@ def _derive_severity(
 
 
 def _is_noise(card: str, status: str, action: str | None) -> bool:
-    """Return True if this entry should be dropped per the noise contract."""
-    if card in _NOISE_SCAN_CARDS and status == "ok" and action is None:
+    """Return True if this entry should be dropped.
+
+    Mediator computations (no action) are now captured directly by
+    timeline.source.mediator — skip them here to avoid duplicates.
+    Only keep entries from record_event() (which have an action field)
+    and internal cards that should always be suppressed.
+    """
+    if card in _INTERNAL_CARDS:
+        return True
+    # Mediator computations are handled by timeline.source.mediator now.
+    # Only keep user-initiated events (record_event sets action field).
+    if action is None:
         return True
     return False
 

@@ -6,6 +6,7 @@ import logging
 
 from flask import jsonify, request
 
+from src.core.services.run_tracker import run_tracked
 from src.core.services.trace import (
     active_recordings,
     save_trace,
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 @trace_bp.route("/trace/start", methods=["POST"])
+@run_tracked("setup", "setup:trace_start")
 def trace_start():
     """Start a recording session.
 
@@ -45,6 +47,7 @@ def trace_start():
 
 
 @trace_bp.route("/trace/stop", methods=["POST"])
+@run_tracked("setup", "setup:trace_stop")
 def trace_stop():
     """Stop a recording session and optionally save to ledger.
 

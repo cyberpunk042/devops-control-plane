@@ -40,6 +40,10 @@ def git_commit():  # type: ignore[no-untyped-def]
         changelog_entry: optional custom changelog entry text
         skip_changelog: optional bool to skip changelog update
     """
+    from src.core.engine.chain_context import start_chain
+    import time as _time
+    start_chain("git", f"git-flow:{int(_time.time())}")
+
     data = request.get_json(silent=True) or {}
     message = data.get("message", "").strip()
     if not message:
@@ -90,7 +94,7 @@ def git_commit():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/git/pull", methods=["POST"])
 @requires_git_auth
-@run_tracked("git", "git:pull")
+@run_tracked("git", "git:pull", chain_domain="git")
 def git_pull():  # type: ignore[no-untyped-def]
     """Pull from remote."""
     data = request.get_json(silent=True) or {}
@@ -104,7 +108,7 @@ def git_pull():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/git/push", methods=["POST"])
 @requires_git_auth
-@run_tracked("git", "git:push")
+@run_tracked("git", "git:push", chain_domain="git")
 def git_push():  # type: ignore[no-untyped-def]
     """Push to remote."""
     data = request.get_json(silent=True) or {}

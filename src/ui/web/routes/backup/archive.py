@@ -15,6 +15,10 @@ from src.ui.web.helpers import project_root as _project_root
 @run_tracked("backup", "backup:export")
 def api_export():  # type: ignore[no-untyped-def]
     """Create a backup archive from selected files/folders."""
+    from src.core.engine.chain_context import start_chain
+    import time as _time
+    start_chain("backup", f"backup:{int(_time.time())}")
+
     data = request.get_json(silent=True) or {}
     root = _project_root()
     target_folder = data.get("target_folder", "").strip()

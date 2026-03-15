@@ -1158,9 +1158,15 @@ def register_index(mediator: QueryMediator) -> None:
         # Fetch classify data
         classification = mediator.get("index.classify")["data"]
 
-        # Fetch symbol count
-        symbols = mediator.get("index.symbols")["data"]
-        symbol_count = sum(len(v) for v in symbols.values())
+        # Fetch symbol count — use peek() to avoid triggering a 30s recompute
+        symbol_count = 0
+        try:
+            sym_result = mediator.peek("index.symbols")
+            if sym_result is not None:
+                symbols = sym_result.get("data", {})
+                symbol_count = sum(len(v) for v in symbols.values())
+        except Exception:
+            pass
 
         return {
             "file_count": len(scan),

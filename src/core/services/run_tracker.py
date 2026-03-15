@@ -151,6 +151,9 @@ def tracked_run(
     subtype: str,
     *,
     summary: str = "",
+    chain_id: str | None = None,
+    chain_role: str | None = None,
+    chain_parent_ref: str | None = None,
     **metadata: Any,
 ):
     """Context manager — creates, tracks, and records a Run.
@@ -199,6 +202,13 @@ def tracked_run(
         "started_at": _now_iso(),
     }
 
+    # Set operation_id so downstream scan_activity entries chain to this run
+    try:
+        from src.core.engine.operation_context import set_operation_id
+        set_operation_id(run_model.run_id)
+    except Exception:
+        pass
+
     t0 = time.time()
 
     # Emit start event
@@ -231,11 +241,29 @@ def tracked_run(
         if isinstance(bag_metadata, dict) and bag_metadata:
             run_model.metadata.update(bag_metadata)
 
+        # Store chain info in metadata (RunsAdapter reads these)
+        _chain_id = run_bag.get("_chain_id") or chain_id
+        _chain_role = run_bag.get("_chain_role") or chain_role
+        _chain_parent = run_bag.get("_chain_parent_ref") or chain_parent_ref
+        if _chain_id:
+            run_model.metadata["_chain_id"] = _chain_id
+        if _chain_role:
+            run_model.metadata["_chain_role"] = _chain_role
+        if _chain_parent:
+            run_model.metadata["_chain_parent_ref"] = _chain_parent
+
         # Record to local ephemeral storage
         try:
             _append_run_local(project_root, run_model)
         except Exception as e:
             logger.warning("Failed to record run %s locally: %s", run_model.run_id, e)
+
+        # Clear operation_id
+        try:
+            from src.core.engine.operation_context import set_operation_id
+            set_operation_id(None)
+        except Exception:
+            pass
 
         # Emit completed event (include metadata for trace capture)
         _publish_event("run:completed", {
@@ -247,6 +275,15 @@ def tracked_run(
             "duration_ms": duration_ms,
             "metadata": run_model.metadata or {},
         })
+
+        # Invalidate timeline source so SSE pushes the new run to the frontend
+        try:
+            from flask import current_app
+            mediator = current_app.config.get("MEDIATOR")
+            if mediator:
+                mediator.invalidate("timeline.source.runs")
+        except Exception:
+            pass
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -260,6 +297,7 @@ def run_tracked(
     *,
     summary_key: str = "summary",
     ok_key: str = "ok",
+    chain_domain: str | None = None,
 ):
     """Decorator for Flask route handlers that should create a Run.
 
@@ -295,7 +333,20 @@ def run_tracked(
                 # Can't get project root — skip tracking, run handler normally
                 return fn(*args, **kwargs)
 
-            with tracked_run(project_root, run_type, subtype) as run:
+            # Resolve chain context if a domain is specified
+            _cid = None
+            _crole = "step"
+            if chain_domain:
+                try:
+                    from src.core.engine.chain_context import get_chain
+                    _cid = get_chain(chain_domain)
+                except Exception:
+                    pass
+
+            with tracked_run(
+                project_root, run_type, subtype,
+                chain_id=_cid, chain_role=_crole if _cid else None,
+            ) as run:
                 # Call the original handler
                 response = fn(*args, **kwargs)
 

@@ -21,6 +21,7 @@ from pathlib import Path
 
 from flask import Response, jsonify, request
 
+from src.core.services.run_tracker import run_tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import scripts_bp
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 @scripts_bp.route("/scripts/run", methods=["POST"])
+@run_tracked("script", "script:run")
 def scripts_run():
     """Execute a script with parameters (synchronous).
 

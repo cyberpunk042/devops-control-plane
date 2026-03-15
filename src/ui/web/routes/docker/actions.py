@@ -15,6 +15,10 @@ from . import docker_bp
 @run_tracked("build", "build:docker")
 def docker_build():  # type: ignore[no-untyped-def]
     """Build images via compose."""
+    from src.core.engine.chain_context import start_chain
+    import time as _time
+    start_chain("docker", f"docker-pipeline:{int(_time.time())}")
+
     data = request.get_json(silent=True) or {}
     service = data.get("service")
     no_cache = data.get("no_cache", False)
@@ -29,7 +33,7 @@ def docker_build():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/up", methods=["POST"])
-@run_tracked("deploy", "deploy:docker_up")
+@run_tracked("deploy", "deploy:docker_up", chain_domain="docker")
 def docker_up():  # type: ignore[no-untyped-def]
     """Start compose services."""
     data = request.get_json(silent=True) or {}
@@ -61,7 +65,7 @@ def docker_down():  # type: ignore[no-untyped-def]
 
 
 @docker_bp.route("/docker/restart", methods=["POST"])
-@run_tracked("deploy", "deploy:docker_restart")
+@run_tracked("deploy", "deploy:docker_restart", chain_domain="docker")
 def docker_restart():  # type: ignore[no-untyped-def]
     """Restart compose services."""
     data = request.get_json(silent=True) or {}

@@ -19,6 +19,7 @@ import logging
 
 from flask import jsonify, request
 
+from src.core.services.run_tracker import run_tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import plans_bp
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 @plans_bp.route("/plans/<plan_id>/execute", methods=["POST"])
+@run_tracked("script", "script:plan_execute")
 def plans_execute(plan_id: str):
     """Start execution of an execution plan.
 
@@ -111,6 +113,7 @@ def plans_execute(plan_id: str):
 
 
 @plans_bp.route("/plans/run/<run_id>/cancel", methods=["POST"])
+@run_tracked("script", "script:plan_cancel")
 def plans_cancel(run_id: str):
     """Cancel the active plan run."""
     from src.core.services.scripts.plan_executor import (
@@ -133,6 +136,7 @@ def plans_cancel(run_id: str):
 
 
 @plans_bp.route("/plans/run/<run_id>/resume", methods=["POST"])
+@run_tracked("script", "script:plan_resume")
 def plans_resume(run_id: str):
     """Resume a paused plan execution.
 
@@ -157,6 +161,7 @@ def plans_resume(run_id: str):
 
 
 @plans_bp.route("/plans/run/<run_id>/skip", methods=["POST"])
+@run_tracked("script", "script:plan_skip")
 def plans_skip(run_id: str):
     """Skip the current step in a paused interactive plan."""
     from src.core.services.scripts.plan_executor import skip_step

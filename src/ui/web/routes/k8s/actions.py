@@ -15,6 +15,10 @@ from . import k8s_bp
 @run_tracked("deploy", "deploy:k8s")
 def k8s_apply():  # type: ignore[no-untyped-def]
     """Apply Kubernetes manifests."""
+    from src.core.engine.chain_context import start_chain
+    import time as _time
+    start_chain("k8s", f"k8s-deploy:{int(_time.time())}")
+
     data = request.get_json(silent=True) or {}
     file_path = data.get("path", "")
     ns = data.get("namespace", "")
@@ -41,7 +45,7 @@ def k8s_delete():  # type: ignore[no-untyped-def]
 
 
 @k8s_bp.route("/k8s/scale", methods=["POST"])
-@run_tracked("deploy", "deploy:k8s_scale")
+@run_tracked("deploy", "deploy:k8s_scale", chain_domain="k8s")
 def k8s_scale():  # type: ignore[no-untyped-def]
     """Scale a deployment/statefulset."""
     data = request.get_json(silent=True) or {}

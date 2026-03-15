@@ -25,6 +25,10 @@ def tf_validate():  # type: ignore[no-untyped-def]
 @run_tracked("plan", "plan:terraform")
 def tf_plan():  # type: ignore[no-untyped-def]
     """Run terraform plan."""
+    from src.core.engine.chain_context import start_chain
+    import time as _time
+    start_chain("terraform", f"tf-pipeline:{int(_time.time())}")
+
     root = _project_root()
     result = terraform_ops.terraform_plan(root)
     if "error" in result:
@@ -34,7 +38,7 @@ def tf_plan():  # type: ignore[no-untyped-def]
 
 
 @terraform_bp.route("/terraform/init", methods=["POST"])
-@run_tracked("setup", "setup:terraform")
+@run_tracked("setup", "setup:terraform", chain_domain="terraform")
 def tf_init():  # type: ignore[no-untyped-def]
     """Initialize Terraform."""
     data = request.get_json(silent=True) or {}
@@ -48,7 +52,7 @@ def tf_init():  # type: ignore[no-untyped-def]
 
 
 @terraform_bp.route("/terraform/apply", methods=["POST"])
-@run_tracked("deploy", "deploy:terraform")
+@run_tracked("deploy", "deploy:terraform", chain_domain="terraform")
 def tf_apply():  # type: ignore[no-untyped-def]
     """Apply Terraform plan."""
     root = _project_root()
