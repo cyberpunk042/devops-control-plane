@@ -313,11 +313,29 @@ function _tlToggleDetail(idx) {
     el.style.display = '';
     if (raw) raw.style.display = 'none';
     _tlState.selectedEntry = idx;
+    // Expand domain tree to this entry
+    _tlRevealInNav(idx);
   } else {
     el.style.display = 'none';
     _tlState.selectedEntry = null;
   }
   _tlPushState();
+}
+
+function _tlRevealInNav(entryId) {
+  const entries = _tlState._filteredEntries || _tlState.allEntries || [];
+  const entry = entries.find(e => e.id === entryId);
+  if (!entry) return;
+
+  if (_tlState.navMode === 'domains') {
+    _tlHighlightDomainEntry(entryId);
+  } else if (_tlState.navMode === 'chains' && entry.chain_id) {
+    // Expand the chain in chain view
+    _tlNavExpanded.add(entry.chain_id);
+    _tlNavRender();
+  } else if (_tlState.navMode === 'calendar') {
+    _tlHighlightCalendarDate(entry.ts);
+  }
 }
 
 function _tlToggleRaw(idx) {
@@ -409,6 +427,8 @@ function _tlRenderFiltered() {
       if (detail) detail.style.display = '';
       const entryEl = document.getElementById('tl-entry-' + selId);
       if (entryEl) setTimeout(function() { entryEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 100);
+      // Expand nav tree to this entry
+      _tlRevealInNav(selId);
     }
   }
 
@@ -1023,7 +1043,8 @@ function _tlNavRenderDomains() {
               const statusIcon = { ok:'●', warning:'◑', attention:'⚠', failed:'✕' }[e.status] ?? '●';
               const statusColor = { ok:'var(--success)', warning:'var(--warning)',
                 attention:'var(--warning)', failed:'var(--error)' }[e.status] ?? 'var(--text-muted)';
-              return `<div class="tl-nav-chain" style="padding:1px 0;cursor:pointer"
+              return `<div class="tl-nav-chain tl-domain-leaf" style="padding:1px 0;cursor:pointer"
+                           data-domain-entry="${_tlEsc(e.id)}"
                            onclick="event.stopPropagation();_tlScrollToEntry('${_tlEsc(e.id)}')"
                            title="${_tlEsc(e.id)}">
                 <div class="tl-nav-chain-header" style="padding:2px 8px">
@@ -1208,6 +1229,7 @@ function _tlNavRenderCalendar() {
               _tlState.dateFrom === new Date(d.date + 'T00:00:00Z').getTime() / 1000 &&
               (_tlState.dateTo - _tlState.dateFrom) < 86401;
             return `<div class="tl-cal-row ${dayActive ? 'tl-nav-chain--active' : ''}"
+                         data-cal-date="${_tlEsc(d.date)}"
                          onclick="_tlJumpToDate('${_tlEsc(d.date)}')"
                          title="${_tlEsc(d.date)} — ${d.count} entries">
               <span class="tl-cal-dot" style="background:${dotColor}"></span>
@@ -1393,15 +1415,89 @@ function _tlNavResizeEnd() {
 // ── Scroll sync ──────────────────────────────────────────────────────
 
 function _tlSyncNavFromScroll() {
-  if (_tlState.navMode !== 'chains') return;
-  const entries = document.querySelectorAll('.timeline-entry[data-chain]');
-  const mid = window.scrollY + window.innerHeight / 2;
+  // Find the entry closest to the viewport center
+  const main = document.getElementById('timeline-main');
+  if (!main) return;
+  const entries = main.querySelectorAll('.timeline-entry');
+  const midY = main.clientHeight / 2;
   let closest = null, closestDist = Infinity;
   entries.forEach(el => {
-    const dist = Math.abs(el.getBoundingClientRect().top - mid);
+    const rect = el.getBoundingClientRect();
+    const mainRect = main.getBoundingClientRect();
+    const dist = Math.abs((rect.top - mainRect.top) - midY);
     if (dist < closestDist) { closest = el; closestDist = dist; }
   });
-  if (closest) _tlNavScrollTo(closest.dataset.chain);
+  if (!closest) return;
+
+  if (_tlState.navMode === 'chains') {
+    const chain = closest.dataset.chain;
+    if (chain) _tlNavScrollTo(chain);
+  } else if (_tlState.navMode === 'domains') {
+    const entryId = closest.id.replace('tl-entry-', '');
+    _tlHighlightDomainEntry(entryId);
+  } else if (_tlState.navMode === 'calendar') {
+    const entryId = closest.id.replace('tl-entry-', '');
+    const allEntries = _tlState._filteredEntries || _tlState.allEntries || [];
+    const entry = allEntries.find(e => e.id === entryId);
+    if (entry) _tlHighlightCalendarDate(entry.ts);
+  }
+}
+
+function _tlHighlightDomainEntry(entryId) {
+  if (!entryId) return;
+  const allEntries = _tlState._filteredEntries || _tlState.allEntries || [];
+  const entry = allEntries.find(e => e.id === entryId);
+  if (!entry) return;
+
+  const adapter = entry.adapter || '';
+  const subtype = entry.subtype || '';
+  if (!adapter) return;
+
+  // Expand tree nodes
+  let changed = false;
+  if (!_tlDomainExpanded.has(adapter)) { _tlDomainExpanded.add(adapter); changed = true; }
+  if (subtype) {
+    const subKey = adapter + ':' + subtype;
+    if (!_tlDomainExpanded.has(subKey)) { _tlDomainExpanded.add(subKey); changed = true; }
+  }
+  if (changed) _tlNavRender();
+
+  // Remove previous highlight
+  document.querySelectorAll('#tl-nav-tree .tl-domain-active').forEach(el => el.classList.remove('tl-domain-active'));
+
+  // Highlight the matching leaf
+  const leafEl = document.querySelector(`#tl-nav-tree [data-domain-entry="${entryId}"]`);
+  if (leafEl) {
+    leafEl.classList.add('tl-domain-active');
+    leafEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
+function _tlHighlightCalendarDate(ts) {
+  if (!ts) return;
+  const d = new Date(ts * 1000);
+  const dateKey = d.toISOString().slice(0, 10); // YYYY-MM-DD
+  const year = String(d.getFullYear());
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+
+  // Expand year and month in calendar tree
+  _tlCalExpanded.add(year);
+  _tlCalExpanded.add(year + '-' + month);
+
+  // Re-render nav to apply expansion
+  _tlNavRender();
+
+  // Highlight the date node
+  setTimeout(() => {
+    // Remove previous highlight
+    document.querySelectorAll('#tl-nav-tree .tl-cal-active').forEach(el => el.classList.remove('tl-cal-active'));
+    // Find and highlight the date node
+    const dateEl = document.querySelector(`#tl-nav-tree [data-cal-date="${dateKey}"]`);
+    if (dateEl) {
+      dateEl.classList.add('tl-cal-active');
+      dateEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, 20);
 }
 
 // ── Init ─────────────────────────────────────────────────────────────

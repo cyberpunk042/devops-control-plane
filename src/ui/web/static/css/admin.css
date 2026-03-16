@@ -9369,6 +9369,8 @@ select option {
 .tl-cal-row               { display:flex; align-items:center; gap:6px; padding:3px 12px;
                             font-size:0.68rem; cursor:pointer; border-radius:var(--radius-sm); }
 .tl-cal-row:hover         { background:var(--bg-card-hover); }
+.tl-cal-row.tl-cal-active { background:var(--accent-bg, rgba(99,102,241,0.12)); outline:1px solid var(--accent); }
+.tl-domain-leaf.tl-domain-active { background:var(--accent-bg, rgba(99,102,241,0.12)); outline:1px solid var(--accent); border-radius:var(--radius-sm); }
 .tl-cal-dot               { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
 .tl-cal-day               { font-weight:600; color:var(--text-primary); min-width:20px; }
 .tl-cal-count             { color:var(--text-muted); font-size:0.62rem; }
