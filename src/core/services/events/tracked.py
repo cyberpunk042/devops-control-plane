@@ -114,6 +114,52 @@ _EVENT_LABELS: dict[str, str] = {
     "plan.resumed": "Plan resumed",
     "plan.step.skipped": "Plan step skipped",
     "plan.git.synced": "Plan synced to git",
+    # Scripts
+    "script.executed": "Script run",
+    "script.stream.started": "Script started",
+    "script.stream.completed": "Script completed",
+    "script.stream.failed": "Script failed",
+    # Docker actions
+    "docker.action.started": "Docker action",
+    "docker.action.completed": "Docker action done",
+    "docker.action.failed": "Docker action failed",
+    # Artifacts
+    "artifact.build.started": "Artifact build",
+    "artifact.build.completed": "Artifact built",
+    "artifact.build.failed": "Artifact build failed",
+    # Builder install
+    "pages.builder.install.started": "Builder install",
+    "pages.builder.install.completed": "Builder installed",
+    "pages.builder.install.failed": "Builder install failed",
+    # Tool plan resume + remediation
+    "tools.plan.resumed": "Install plan resumed",
+    "tools.remediated": "Tool remediation",
+    "tools.remediation.completed": "Remediation done",
+    "tools.remediation.failed": "Remediation failed",
+    # Artifact publish
+    "artifact.publish.started": "Artifact publish",
+    "artifact.publish.completed": "Artifact published",
+    "artifact.publish.failed": "Artifact publish failed",
+    # Ledger operations
+    "ledger.committed": "Ledger commit",
+    "ledger.commit.failed": "Ledger commit failed",
+    "ledger.push.completed": "Ledger pushed",
+    "ledger.push.failed": "Ledger push failed",
+    "ledger.pushed": "Ledger push",
+    "ledger.conflict.resolved": "Ledger conflict resolved",
+    # Audit scan + staging
+    "audit.scan.started": "Audit scan",
+    "audit.scan.completed": "Audit scan done",
+    "audit.scan.failed": "Audit scan failed",
+    "audit.deep_detect": "Deep detection",
+    "audit.snapshot.saved": "Audit saved",
+    "audit.snapshot.discarded": "Audit discarded",
+    "audit.snapshot.deleted": "Audit deleted",
+    # Posture
+    "posture.rescanned": "Posture rescan",
+    "posture.tool.rescanned": "Posture tool rescan",
+    # Content
+    "content.saved.encrypted": "Encrypted content saved",
 }
 
 

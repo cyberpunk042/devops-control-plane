@@ -54,6 +54,7 @@ def audit_install_tool():
 
 
 @audit_bp.route("/audit/remediate", methods=["POST"])
+@tracked("tools.remediated")
 def audit_remediate():
     """Execute a remediation action with streaming output (SSE)."""
     import json as _json
@@ -95,6 +96,12 @@ def audit_remediate():
             proc.wait()
 
             ok = proc.returncode == 0
+            from src.core.services.events.emit import emit_event
+            emit_event(
+                "tools.remediation.completed" if ok else "tools.remediation.failed",
+                summary=f"Remediation: {tool or 'command'} — {'done' if ok else 'exit ' + str(proc.returncode)}",
+                status="ok" if ok else "error",
+                detail={"tool": tool, "exit_code": proc.returncode})
             yield f"data: {_json.dumps({'done': True, 'ok': ok, 'exit_code': proc.returncode})}\n\n"
 
             # Bust caches on success
@@ -102,6 +109,13 @@ def audit_remediate():
                 _refresh_server_path()
                 bust_tool_caches()
         except Exception as exc:
+            try:
+                from src.core.services.events.emit import emit_event
+                emit_event("tools.remediation.failed",
+                            summary=f"Remediation crashed: {tool or 'command'} — {str(exc)[:60]}",
+                            status="error", detail={"tool": tool, "error": str(exc)[:200]})
+            except Exception:
+                pass
             yield f"data: {_json.dumps({'done': True, 'ok': False, 'error': str(exc)})}\n\n"
 
     return Response(

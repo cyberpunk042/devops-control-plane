@@ -68,6 +68,14 @@ def _friendly_chain_name(cid: str, group: list) -> str:
     if cid.startswith("pages-build:"):
         return "Pages Build"
 
+    # Script execution chain: "script:abc123" → "Script Run"
+    if cid.startswith("script:"):
+        return "Script Run"
+
+    # Ledger operations: "ledger:abc123" → "Ledger Sync"
+    if cid.startswith("ledger:"):
+        return "Ledger Sync"
+
     # Plan execution: "plan:abc123" → "Plan Execution"
     if cid.startswith("plan:"):
         return "Plan Execution"

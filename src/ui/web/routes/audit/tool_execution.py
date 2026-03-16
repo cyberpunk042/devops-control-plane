@@ -378,6 +378,9 @@ def audit_execute_plan():
                 )
                 cmd = step.get("command", [])
                 if not cmd:
+                    _emit_completion_event(
+                        "tools.plan.failed", tool, mode, ok=False,
+                        detail={"error": "Empty command", "step": i, "plan_id": plan_id})
                     yield _sse({"type": "step_failed", "step": i, "error": "No command"})
                     yield _sse({"type": "done", "ok": False, "plan_id": plan_id, "error": "Empty command"})
                     return
@@ -702,6 +705,7 @@ def audit_pending_plans():
 
 
 @audit_bp.route("/audit/install-plan/resume", methods=["POST"])
+@tracked("tools.plan.resumed")
 def audit_resume_plan():
     """Resume a paused or failed installation plan via SSE.
 
@@ -778,6 +782,10 @@ def audit_resume_plan():
                     "step": i,
                     "error": str(exc),
                 })
+                _emit_completion_event(
+                    "tools.plan.failed", tool, "install", ok=False,
+                    detail={"error": f"Step {step_index + 1} crashed: {exc}",
+                            "plan_id": plan_id, "step": step_index})
                 yield _sse({
                     "type": "done",
                     "ok": False,
@@ -839,6 +847,9 @@ def audit_resume_plan():
                     pass
 
                 if result.get("needs_sudo"):
+                    _emit_completion_event(
+                        "tools.plan.failed", tool, "install", ok=False,
+                        detail={"error": "Sudo required", "step": i, "plan_id": plan_id})
                     yield _sse({
                         "type": "step_failed",
                         "step": i,
@@ -854,6 +865,10 @@ def audit_resume_plan():
                     })
                     return
 
+                _emit_completion_event(
+                    "tools.plan.failed", tool, "install", ok=False,
+                    detail={"error": result.get("error", "Step failed"),
+                            "step": i, "step_label": step_label, "plan_id": plan_id})
                 yield _sse({
                     "type": "step_failed",
                     "step": i,
@@ -883,6 +898,11 @@ def audit_resume_plan():
 
         bust_tool_caches()
 
+        _emit_completion_event(
+            "tools.plan.completed", tool, "install", ok=True,
+            detail={"message": f"{tool} resumed and completed",
+                    "steps_completed": len(steps), "plan_id": plan_id},
+        )
         yield _sse({
             "type": "done",
             "ok": True,

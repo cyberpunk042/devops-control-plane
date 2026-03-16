@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
+from src.core.services.events.tracked import tracked
+
 posture_bp = Blueprint("posture", __name__)
 
 
@@ -254,6 +256,7 @@ def posture_summary():  # type: ignore[no-untyped-def]
 
 
 @posture_bp.route("/posture/rescan", methods=["POST"])
+@tracked("posture.rescanned")
 def posture_rescan():  # type: ignore[no-untyped-def]
     """Force a full posture rescan.
 
@@ -293,6 +296,7 @@ def posture_rescan():  # type: ignore[no-untyped-def]
 
 
 @posture_bp.route("/posture/rescan-tool", methods=["POST"])
+@tracked("posture.tool.rescanned")
 def posture_rescan_tool():  # type: ignore[no-untyped-def]
     """Lightweight single-tool cache invalidation.
 

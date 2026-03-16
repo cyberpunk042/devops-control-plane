@@ -118,6 +118,60 @@ def register_posture(mediator: QueryMediator) -> None:
             scan_duration_ms=round((_time.time() - t0) * 1000),
         )
         posture.recompute_overall()
+
+        # Detect rank changes → emit timeline events
+        try:
+            old = mediator.peek("posture.full")
+            if old is not None:
+                old_data = old.get("data")
+                # Only compare when old_data is a real SystemPosture with computed ranks
+                # (skip on first computation after startup or disk hydration)
+                if (old_data
+                        and hasattr(old_data, "pillars")
+                        and hasattr(old_data, "overall_rank")
+                        and hasattr(old_data.overall_rank, "severity")):
+                    from src.core.services.events.emit import emit_event
+                    for pname, new_pillar in posture.pillars.items():
+                        old_pillar = old_data.pillars.get(pname)
+                        if old_pillar is None or not hasattr(old_pillar, "rank"):
+                            continue
+                        old_rank = old_pillar.rank
+                        new_rank = new_pillar.rank
+                        if (not hasattr(old_rank, "severity")
+                                or not hasattr(new_rank, "severity")):
+                            continue
+                        if old_rank != new_rank:
+                            direction = "degraded" if new_rank.severity > old_rank.severity else "improved"
+                            emit_event(
+                                f"posture.rank.{direction}",
+                                summary=f"Posture {pname}: {old_rank.value} → {new_rank.value}",
+                                status="warning" if direction == "degraded" else "ok",
+                                detail={
+                                    "pillar": pname,
+                                    "was": old_rank.value,
+                                    "now": new_rank.value,
+                                    "direction": direction,
+                                },
+                            )
+                    # Overall rank change
+                    if (hasattr(old_data, "overall_rank")
+                            and old_data.overall_rank != posture.overall_rank):
+                        direction = ("degraded"
+                                     if posture.overall_rank.severity > old_data.overall_rank.severity
+                                     else "improved")
+                        emit_event(
+                            f"posture.overall.{direction}",
+                            summary=f"Posture overall: {old_data.overall_rank.value} → {posture.overall_rank.value}",
+                            status="warning" if direction == "degraded" else "ok",
+                            detail={
+                                "was": old_data.overall_rank.value,
+                                "now": posture.overall_rank.value,
+                                "status": posture.overall_status,
+                            },
+                        )
+        except Exception:
+            pass  # posture events are supplementary, never break computation
+
         return posture
 
     tree.register(TreeRegistration(

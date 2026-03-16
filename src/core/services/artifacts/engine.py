@@ -212,6 +212,13 @@ def build_target_stream(
     """
     target = get_target(project_root, name)
     if not target:
+        try:
+            from src.core.services.events.emit import emit_event
+            emit_event("artifact.build.failed",
+                        summary=f"Artifact build: {name} — target not found",
+                        status="error", detail={"target": name, "error": "not found"})
+        except Exception:
+            pass
         yield json.dumps({"type": "pipeline_start", "stages": []})
         yield json.dumps({
             "type": "pipeline_done", "ok": False,
@@ -224,6 +231,14 @@ def build_target_stream(
 
     builder = get_builder(target.builder)
     if not builder:
+        try:
+            from src.core.services.events.emit import emit_event
+            emit_event("artifact.build.failed",
+                        summary=f"Artifact build: {name} — builder '{target.builder}' not found",
+                        status="error",
+                        detail={"target": name, "builder": target.builder, "error": "builder not found"})
+        except Exception:
+            pass
         yield json.dumps({"type": "pipeline_start", "stages": []})
         yield json.dumps({
             "type": "pipeline_done", "ok": False,
@@ -249,6 +264,23 @@ def build_target_stream(
 
     # Save build metadata
     _save_build_status(project_root, name, result)
+
+    # Emit timeline event
+    try:
+        from src.core.services.events.emit import emit_event
+        ok = result.ok if result else False
+        dur = result.duration_ms if result and hasattr(result, "duration_ms") else 0
+        err = result.error if result and hasattr(result, "error") else ""
+        summary = f"Artifact build: {name}" + (f" ({dur}ms)" if ok else f" — {err[:60]}")
+        emit_event(
+            "artifact.build.completed" if ok else "artifact.build.failed",
+            summary=summary, status="ok" if ok else "error",
+            duration_ms=dur or 0,
+            detail={"target": name, "builder": target.builder,
+                    "ok": ok, "error": err[:200] if err else ""},
+        )
+    except Exception:
+        pass
 
 
 # ── Publish support ─────────────────────────────────────────────────
@@ -575,8 +607,12 @@ def publish_target_stream(
         release_notes: Release notes markdown.
         tag_name: Override tag name.
     """
+    from src.core.services.events.emit import emit_event as _emit
+
     target = get_target(project_root, target_name)
     if not target:
+        _emit("artifact.publish.failed", summary=f"Publish: {target_name} — not found",
+              status="error", detail={"target": target_name, "error": "not found"})
         yield json.dumps({"type": "pipeline_start", "stages": []})
         yield json.dumps({
             "type": "pipeline_done", "ok": False,
@@ -589,6 +625,9 @@ def publish_target_stream(
 
     publisher = get_publisher(publish_target)
     if not publisher:
+        _emit("artifact.publish.failed",
+              summary=f"Publish: {target_name} — publisher '{publish_target}' not found",
+              status="error", detail={"target": target_name, "error": "publisher not found"})
         yield json.dumps({"type": "pipeline_start", "stages": []})
         yield json.dumps({
             "type": "pipeline_done", "ok": False,
@@ -624,14 +663,29 @@ def publish_target_stream(
         result = e.value
 
     if result is None:
+        _emit("artifact.publish.failed",
+              summary=f"Publish: {target_name} — no result",
+              status="error", detail={"target": target_name, "error": "no result"})
         yield json.dumps({
             "type": "pipeline_done", "ok": False,
             "error": "Publisher returned no result",
             "total_ms": 0, "stages": [],
         })
 
-    # Save publish metadata
+    # Save publish metadata + emit event
     if result:
+        ok = result.ok if hasattr(result, "ok") else False
+        dur = result.duration_ms if hasattr(result, "duration_ms") else 0
+        ver = result.version if hasattr(result, "version") else ""
+        url = result.url if hasattr(result, "url") else ""
+        err = result.error if hasattr(result, "error") and not ok else ""
+        summary = f"Published: {target_name} v{ver}" if ok else f"Publish failed: {target_name}"
+        if err:
+            summary += f" — {err[:60]}"
+        _emit("artifact.publish.completed" if ok else "artifact.publish.failed",
+              summary=summary, status="ok" if ok else "error", duration_ms=dur or 0,
+              detail={"target": target_name, "version": ver, "url": url,
+                      "publisher": publish_target, "error": err[:200] if err else ""})
         workspace = project_root / ARTIFACTS_WORKSPACE / target_name
         workspace.mkdir(parents=True, exist_ok=True)
         meta_path = workspace / ".publish_meta.json"

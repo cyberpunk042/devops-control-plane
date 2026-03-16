@@ -71,6 +71,7 @@ def scripts_run():
 
 
 @scripts_bp.route("/scripts/run/stream", methods=["POST"])
+@tracked("script.stream.started")
 def scripts_run_stream():
     """Execute a script with SSE streaming output.
 
@@ -98,6 +99,10 @@ def scripts_run_stream():
 
     params = data.get("params", {})
     output_target = data.get("output")
+
+    import uuid as _uuid
+    from src.core.services.events.emit import emit_event
+    _chain_id = f"script:{_uuid.uuid4().hex[:8]}"
 
     def _sse(event_type: str, **kw) -> str:
         """Format one SSE frame."""
@@ -133,6 +138,10 @@ def scripts_run_stream():
             yield _sse("stage_error", stage="validate",
                        error=f"Missing tools: {', '.join(missing_tools)}")
             total_ms = int((time.monotonic() - pipeline_start) * 1000)
+            emit_event("script.stream.failed",
+                        summary=f"Script: {meta.name} — missing tools: {', '.join(missing_tools)}",
+                        correlation_id=_chain_id, status="error", duration_ms=total_ms,
+                        detail={"script_id": script_id, "error": f"Missing tools: {', '.join(missing_tools)}"})
             yield _sse("pipeline_done", ok=False, total_ms=total_ms,
                        error=f"Missing tools: {', '.join(missing_tools)}")
             return
@@ -144,6 +153,10 @@ def scripts_run_stream():
             yield _sse("stage_error", stage="validate",
                        error=f"Missing params: {', '.join(missing_params)}")
             total_ms = int((time.monotonic() - pipeline_start) * 1000)
+            emit_event("script.stream.failed",
+                        summary=f"Script: {meta.name} — missing params: {', '.join(missing_params)}",
+                        correlation_id=_chain_id, status="error", duration_ms=total_ms,
+                        detail={"script_id": script_id, "error": f"Missing params: {', '.join(missing_params)}"})
             yield _sse("pipeline_done", ok=False, total_ms=total_ms,
                        error=f"Missing params: {', '.join(missing_params)}")
             return
@@ -220,8 +233,15 @@ def scripts_run_stream():
             except (ValueError, OSError):
                 pass
 
+        ok = result["ok"]
+        _evt_type = "script.stream.completed" if ok else "script.stream.failed"
+        _summary = f"Script: {meta.name} — {'done' if ok else 'failed'} ({total_ms}ms)"
+        emit_event(_evt_type, summary=_summary, correlation_id=_chain_id,
+                    status="ok" if ok else "error", duration_ms=total_ms,
+                    detail={"script_id": script_id, "exit_code": result.get("exit_code"),
+                            "output": output_relative, "lines": len(lines)})
         yield _sse("pipeline_done",
-                    ok=result["ok"],
+                    ok=ok,
                     total_ms=total_ms,
                     exit_code=result.get("exit_code", -1),
                     output_path=output_path,
@@ -233,7 +253,7 @@ def scripts_run_stream():
                     stages=[
                         {"name": "validate", "status": "done"},
                         {"name": "execute",
-                         "status": "done" if result["ok"] else "error"},
+                         "status": "done" if ok else "error"},
                         {"name": "capture", "status": "done"},
                     ])
 

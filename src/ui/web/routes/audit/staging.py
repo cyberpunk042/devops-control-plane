@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import audit_bp
@@ -42,6 +43,7 @@ def audits_pending_detail(snapshot_id):
 
 
 @audit_bp.route("/audits/save", methods=["POST"])
+@tracked("audit.snapshot.saved")
 def audits_save():
     """Save pending snapshots to the git ledger.
 
@@ -67,6 +69,7 @@ def audits_save():
 
 
 @audit_bp.route("/audits/discard", methods=["POST"])
+@tracked("audit.snapshot.discarded")
 def audits_discard():
     """Discard pending snapshots (cache unaffected).
 
@@ -105,6 +108,7 @@ def audits_saved_detail(snapshot_id):
 
 
 @audit_bp.route("/audits/saved/<snapshot_id>", methods=["DELETE"])
+@tracked("audit.snapshot.deleted")
 def audits_saved_delete(snapshot_id):
     """Delete a saved audit snapshot from the ledger branch."""
     from src.core.services.ledger.ledger_ops import delete_saved_audit

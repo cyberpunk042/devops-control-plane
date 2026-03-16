@@ -50,11 +50,17 @@ def build_segment_stream(
 
     segment = get_segment(project_root, name)
     if segment is None:
+        emit_event("pages.build.failed", summary=f"Build failed: {name} — segment not found",
+                    status="error", detail={"segment": name, "error": "segment not found"})
         yield {"type": "error", "message": f"Segment not found: {name}"}
         return
 
     builder = get_builder(segment.builder)
     if builder is None or not builder.detect():
+        emit_event("pages.build.failed",
+                    summary=f"Build failed: {name} — builder '{segment.builder}' not available",
+                    status="error",
+                    detail={"segment": name, "builder": segment.builder, "error": "builder not available"})
         yield {"type": "error", "message": f"Builder '{segment.builder}' not available"}
         return
 
@@ -69,6 +75,10 @@ def build_segment_stream(
             for sf in smart_list
         )
         if not is_virtual:
+            emit_event("pages.build.failed",
+                        summary=f"Build failed: {name} — source not found: {segment.source}",
+                        status="error",
+                        detail={"segment": name, "error": f"source not found: {segment.source}"})
             yield {"type": "error", "message": f"Source not found: {segment.source}"}
             return
         # Virtual source — builder will stage from smart folder sources

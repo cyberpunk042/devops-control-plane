@@ -7,6 +7,7 @@ import json
 from flask import Response, jsonify, request
 
 from src.core.services import docker_ops
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import docker_bp
@@ -16,6 +17,7 @@ _ALLOWED_STREAM_ACTIONS = frozenset({"up", "down", "restart", "build", "build-nc
 
 
 @docker_bp.route("/docker/stream/<action>", methods=["POST"])
+@tracked("docker.action.started")
 def docker_stream(action: str):  # type: ignore[no-untyped-def]
     """SSE stream for a Docker action (up, down, restart, build, prune).
 

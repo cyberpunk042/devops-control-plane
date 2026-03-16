@@ -29,6 +29,7 @@ from flask import jsonify, request
 
 
 from src.core.services.event_bus import bus
+from src.core.services.events.tracked import tracked
 from src.ui.web.helpers import project_root as _project_root
 
 from . import audit_bp
@@ -194,6 +195,17 @@ def _run_scan(task: ScanTask, root: Path, force: bool) -> None:
             },
         )
 
+        try:
+            from src.core.services.events.emit import emit_event
+            emit_event("audit.scan.completed",
+                        summary=f"Audit scan: {len(results)} phases ({task.duration_ms}ms)",
+                        duration_ms=task.duration_ms,
+                        detail={"task_id": task.task_id,
+                                "phases": list(results.keys()),
+                                "duration_ms": task.duration_ms})
+        except Exception:
+            pass
+
         log.info(
             "Audit scan %s completed in %dms (%d phases)",
             task.task_id, task.duration_ms, len(results),
@@ -214,6 +226,15 @@ def _run_scan(task: ScanTask, root: Path, force: bool) -> None:
                 "duration_ms": task.duration_ms,
             },
         )
+
+        try:
+            from src.core.services.events.emit import emit_event
+            emit_event("audit.scan.failed",
+                        summary=f"Audit scan failed: {str(exc)[:60]}",
+                        status="error", duration_ms=task.duration_ms,
+                        detail={"task_id": task.task_id, "error": str(exc)[:200]})
+        except Exception:
+            pass
 
         log.error("Audit scan %s failed: %s", task.task_id, exc)
 
@@ -243,6 +264,7 @@ def _get_compute_fn(phase: str, root: Path):
 # ═══════════════════════════════════════════════════════════════════
 
 @audit_bp.route("/audit/scan", methods=["POST"])
+@tracked("audit.scan.started")
 def audit_scan_start():
     """Start a background audit scan.
 

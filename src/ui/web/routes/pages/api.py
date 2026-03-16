@@ -190,6 +190,7 @@ def list_features_route():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/builders/<name>/install", methods=["POST"])
+@tracked("pages.builder.install.started")
 def install_builder_route(name: str):  # type: ignore[no-untyped-def]
     """Install a builder's dependencies (SSE stream)."""
     preflight = install_builder_stream(name)
@@ -200,10 +201,33 @@ def install_builder_route(name: str):  # type: ignore[no-untyped-def]
         )
         return jsonify(preflight), status
 
-    # Stream installation events
+    # Stream installation events, emit timeline event at completion
     def sse():  # type: ignore[no-untyped-def]
-        for event in install_builder_events(name):
-            yield f"data: {json.dumps(event)}\n\n"
+        from src.core.services.events.emit import emit_event
+        last_done = None
+        try:
+            for event in install_builder_events(name):
+                if event.get("type") == "done":
+                    last_done = event
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as exc:
+            emit_event("pages.builder.install.failed",
+                        summary=f"Builder install crashed: {name} — {str(exc)[:60]}",
+                        status="error",
+                        detail={"builder": name, "error": str(exc)[:200]})
+            yield f"data: {json.dumps({'type': 'done', 'ok': False, 'error': str(exc)})}\n\n"
+            return
+
+        # Emit timeline event from the final done event
+        if last_done is not None:
+            ok = last_done.get("ok", False)
+            msg = last_done.get("message", "") or last_done.get("error", "")
+            emit_event(
+                "pages.builder.install.completed" if ok else "pages.builder.install.failed",
+                summary=f"Builder install: {name} — {msg[:60]}",
+                status="ok" if ok else "error",
+                detail={"builder": name, "ok": ok, "message": msg[:200]},
+            )
 
     return Response(sse(), mimetype="text/event-stream")
 
@@ -427,6 +451,7 @@ def generate_ci_route():  # type: ignore[no-untyped-def]
 
 
 @pages_api_bp.route("/pages/build-stream/<name>", methods=["POST"])
+@tracked("pages.build.started")
 def build_stream_route(name: str):  # type: ignore[no-untyped-def]
     """Build a segment with stage-aware SSE streaming."""
     root = _project_root()

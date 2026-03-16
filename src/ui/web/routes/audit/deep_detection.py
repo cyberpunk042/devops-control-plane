@@ -11,10 +11,13 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
+from src.core.services.events.tracked import tracked
+
 from . import audit_bp
 
 
 @audit_bp.route("/audit/system/deep-detect", methods=["POST"])
+@tracked("audit.deep_detect")
 def audit_deep_detect():
     """Run deep system detection (GPU, kernel, hardware, build tools, network).
 

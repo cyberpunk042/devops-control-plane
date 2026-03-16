@@ -140,6 +140,7 @@ def target_build_status(name: str):
 # ── Build stream (SSE) ──────────────────────────────────────────────
 
 @bp.route("/build/<name>/stream", methods=["POST"])
+@tracked("artifact.build.started")
 def build_stream(name: str):
     """Build an artifact target with SSE streaming output."""
     root = _project_root()
@@ -359,6 +360,7 @@ def publishable_artifacts(name: str):
 
 
 @bp.route("/publish/<name>/stream", methods=["POST"])
+@tracked("artifact.publish.started")
 def publish_stream(name: str):
     """Publish an artifact with SSE streaming output."""
     from src.core.services.artifacts.engine import publish_target_stream

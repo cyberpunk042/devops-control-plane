@@ -19,6 +19,8 @@ from pathlib import Path
 
 from flask import jsonify, request
 
+from src.core.services.events.tracked import tracked
+
 from . import content_bp
 from .helpers import project_root as _project_root, resolve_safe_path as _resolve_safe_path, get_enc_key as _get_enc_key
 from src.core.services.content.crypto import (
@@ -259,6 +261,7 @@ def content_preview_encrypted():  # type: ignore[no-untyped-def]
 
 
 @content_bp.route("/content/save-encrypted", methods=["POST"])
+@tracked("content.saved.encrypted")
 def content_save_encrypted():  # type: ignore[no-untyped-def]
     """Save edited content back to an encrypted file."""
     from src.core.services.content.file_ops import save_encrypted_content

@@ -105,6 +105,13 @@ def docker_action_stream(
     """
     cfg = _STREAMABLE_ACTIONS.get(action)
     if not cfg:
+        try:
+            from src.core.services.events.emit import emit_event
+            emit_event("docker.action.failed",
+                        summary=f"Docker {action} — unknown action",
+                        status="error", detail={"action": action, "error": "unknown action"})
+        except Exception:
+            pass
         yield {"type": "error", "message": f"Unknown action: {action}"}
         return
 
@@ -112,6 +119,14 @@ def docker_action_stream(
     if cfg["cmd"] == "compose":
         compose_file = find_compose_file(project_root)
         if not compose_file:
+            try:
+                from src.core.services.events.emit import emit_event
+                emit_event("docker.action.failed",
+                            summary=f"Docker {action} — no compose file found",
+                            status="error",
+                            detail={"action": action, "error": "no compose file"})
+            except Exception:
+                pass
             yield {"type": "error", "message": "No compose file found"}
             return
 
@@ -139,14 +154,24 @@ def docker_action_stream(
 
     duration_ms = int((time.monotonic() - t0) * 1000)
 
+    target = service or "all"
+
     if exit_code == 0:
-        target = service or "all"
         _audit(
             f"{cfg['audit_icon']} {cfg['audit_title']}",
             f"Compose {cfg['audit_verb']}" + (f" ({service})" if service else ""),
             action=cfg["audit_verb"],
             target=target,
         )
+        try:
+            from src.core.services.events.emit import emit_event
+            emit_event("docker.action.completed",
+                        summary=f"Docker {action}: {target} ({duration_ms}ms)",
+                        status="ok", duration_ms=duration_ms,
+                        detail={"action": action, "service": target,
+                                "duration_ms": duration_ms})
+        except Exception:
+            pass
         yield {
             "type": "done",
             "ok": True,
@@ -154,6 +179,15 @@ def docker_action_stream(
             "message": f"{cfg['audit_title']} completed successfully",
         }
     else:
+        try:
+            from src.core.services.events.emit import emit_event
+            emit_event("docker.action.failed",
+                        summary=f"Docker {action}: {target} — exit {exit_code}",
+                        status="error", duration_ms=duration_ms,
+                        detail={"action": action, "service": target,
+                                "exit_code": exit_code, "duration_ms": duration_ms})
+        except Exception:
+            pass
         yield {
             "type": "error",
             "message": f"{cfg['audit_title']} failed (exit code {exit_code})",

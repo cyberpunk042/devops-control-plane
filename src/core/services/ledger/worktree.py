@@ -1058,7 +1058,23 @@ def ledger_add_and_commit(project_root: Path, paths: list[str], message: str) ->
             )
 
         logger.error("Ledger commit failed: %s", stderr)
+        try:
+            from src.core.services.events.emit import emit_event
+            emit_event("ledger.commit.failed",
+                        summary=f"Ledger commit failed: {message[:50]}",
+                        status="error",
+                        detail={"message": message, "paths": paths[:5], "error": stderr[:200]})
+        except Exception:
+            pass
         return False
+
+    try:
+        from src.core.services.events.emit import emit_event
+        emit_event("ledger.committed",
+                    summary=f"Ledger: {message[:60]}",
+                    detail={"message": message, "paths": paths[:10]})
+    except Exception:
+        pass
     return True
 
 
@@ -1154,7 +1170,23 @@ def push_ledger_branch(project_root: Path) -> bool:
     )
     if r.returncode != 0:
         logger.error("Ledger push failed: %s", r.stderr.strip())
+        try:
+            from src.core.services.events.emit import emit_event
+            emit_event("ledger.push.failed",
+                        summary=f"Ledger push failed: {r.stderr.strip()[:60]}",
+                        status="error",
+                        detail={"error": r.stderr.strip()[:200]})
+        except Exception:
+            pass
         return False
+
+    try:
+        from src.core.services.events.emit import emit_event
+        emit_event("ledger.push.completed",
+                    summary="Ledger pushed to origin",
+                    detail={"branch": LEDGER_BRANCH})
+    except Exception:
+        pass
     return True
 
 

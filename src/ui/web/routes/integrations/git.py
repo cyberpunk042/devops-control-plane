@@ -198,6 +198,7 @@ def git_checkout_file_route():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/ledger/resolve-conflict", methods=["POST"])
 @requires_git_auth
+@tracked("ledger.conflict.resolved")
 def ledger_resolve_conflict_route():  # type: ignore[no-untyped-def]
     """Resolve a ledger rebase conflict.
 
@@ -229,6 +230,7 @@ def ledger_sync_status_route():  # type: ignore[no-untyped-def]
 
 @integrations_bp.route("/ledger/push", methods=["POST"])
 @requires_git_auth
+@tracked("ledger.pushed")
 def ledger_push_route():  # type: ignore[no-untyped-def]
     """Push the ledger branch to origin (fetch + rebase + push).
 
