@@ -10,6 +10,7 @@ build/
 
 # ── Virtual environments ────────────────────────────────────────────
 .venv/
+.venv-ft/
 venv/
 ENV/
 
@@ -53,3 +54,5 @@ Thumbs.db
 
 # Artifact build workspace
 .artifacts/
+
+.benchmarks/
