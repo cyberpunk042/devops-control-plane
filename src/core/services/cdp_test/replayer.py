@@ -2802,6 +2802,54 @@ def start_replay(
             )
             result_holder.append(result)
 
+            # Emit completion event to the event store
+            try:
+                from src.core.services.mediator import get_mediator
+                import time as _time
+                m = get_mediator()
+                if m and hasattr(m, "_event_store") and m._event_store:
+                    from src.core.services.events.models import Event
+                    passed = result.passed_steps
+                    failed = result.failed_steps
+                    total = result.total_steps
+                    status_str = "ok" if result.status == "passed" else "error"
+                    summary = (
+                        f"Test replay: {suite.name} — "
+                        f"{passed}/{total} passed"
+                    )
+                    if failed:
+                        summary += f", {failed} failed"
+                    m._event_store.append(Event(
+                        id="",
+                        ts=_time.time(),
+                        type="cdp_test.replay.completed",
+                        correlation_id=f"cdp_test:{run_id[:8]}",
+                        source="route",
+                        path="cdp_test.replay.completed",
+                        status=status_str,
+                        duration_ms=result.duration_ms or 0,
+                        summary=summary,
+                        detail={
+                            "run_id": run_id,
+                            "suite_id": suite.id,
+                            "suite_name": suite.name,
+                            "status": result.status,
+                            "passed": passed,
+                            "failed": failed,
+                            "skipped": result.skipped_steps,
+                            "total": total,
+                            "duration_ms": result.duration_ms,
+                        },
+                        origin="user",
+                        actor="user",
+                    ))
+                    try:
+                        m.get("timeline.data", force=True)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
             # Save result to storage
             if project_root:
                 try:
@@ -2829,6 +2877,32 @@ def start_replay(
                 "run_id": run_id,
                 "error": f"Replay crashed: {exc}",
             })
+            try:
+                from src.core.services.mediator import get_mediator
+                import time as _time
+                m = get_mediator()
+                if m and hasattr(m, "_event_store") and m._event_store:
+                    from src.core.services.events.models import Event
+                    m._event_store.append(Event(
+                        id="",
+                        ts=_time.time(),
+                        type="cdp_test.replay.failed",
+                        correlation_id=f"cdp_test:{run_id[:8]}",
+                        source="route",
+                        path="cdp_test.replay.failed",
+                        status="error",
+                        summary=f"Test replay crashed: {suite.name} — {str(exc)[:80]}",
+                        detail={"run_id": run_id, "suite_id": suite.id,
+                                "error": str(exc)[:200]},
+                        origin="user",
+                        actor="user",
+                    ))
+                    try:
+                        m.get("timeline.data", force=True)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         finally:
             with _run_lock:
                 global _active_run

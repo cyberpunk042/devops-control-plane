@@ -29,6 +29,54 @@ from src.ui.web.helpers import bust_tool_caches
 from . import audit_bp
 
 
+def _emit_completion_event(
+    event_type: str, tool: str, mode: str,
+    ok: bool, detail: dict,
+):
+    """Emit a rich event at the END of a streaming operation."""
+    import time as _time
+    try:
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        if not m or not hasattr(m, "_event_store") or not m._event_store:
+            return
+        from src.core.services.events.models import Event
+        from src.core.services.events.correlation import get_correlation
+
+        verb = "updated" if mode == "update" else "installed"
+        if not ok:
+            summary = f"{tool} {mode} failed"
+            if detail.get("error"):
+                summary += f": {detail['error'][:80]}"
+        else:
+            summary = detail.get("message", f"{tool} {verb} successfully")
+            steps = detail.get("steps_completed")
+            if steps:
+                summary += f" ({steps} steps)"
+
+        m._event_store.append(Event(
+            id="",
+            ts=_time.time(),
+            type=event_type,
+            correlation_id=get_correlation(),
+            source="route",
+            path=event_type,
+            status="ok" if ok else "error",
+            duration_ms=detail.get("elapsed_ms", 0),
+            summary=summary,
+            detail=detail,
+            origin="user",
+            actor="user",
+        ))
+        # Force timeline recompute
+        try:
+            m.get("timeline.data", force=True)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 # ── Phase 3: Plan execution ───────────────────────────────────
 
 
@@ -282,12 +330,19 @@ def audit_execute_plan():
                     result = event[1]
                     # Bust caches
                     bust_tool_caches()
+                    dag_ok = result.get("ok", False)
+                    dag_msg = (f"{tool} installed successfully"
+                               if dag_ok else result.get("error", "DAG execution failed"))
+                    _emit_completion_event(
+                        "tools.plan.completed" if dag_ok else "tools.plan.failed",
+                        tool, mode, ok=dag_ok,
+                        detail={"message": dag_msg, "plan_id": plan_id},
+                    )
                     yield _sse({
                         "type": "done",
-                        "ok": result.get("ok", False),
+                        "ok": dag_ok,
                         "plan_id": plan_id,
-                        "message": f"{tool} installed successfully"
-                            if result.get("ok") else result.get("error", "DAG execution failed"),
+                        "message": dag_msg,
                         "paused": result.get("paused", False),
                         "pause_reason": result.get("pause_reason"),
                     })
@@ -391,6 +446,11 @@ def audit_execute_plan():
                         "step": i,
                         "error": str(exc),
                     })
+                    _emit_completion_event(
+                        "tools.plan.failed", tool, mode, ok=False,
+                        detail={"error": f"Step {i + 1} crashed: {exc}",
+                                "step": i, "plan_id": plan_id},
+                    )
                     yield _sse({
                         "type": "done",
                         "ok": False,
@@ -455,6 +515,11 @@ def audit_execute_plan():
 
                 # Check for sudo needed
                 if result.get("needs_sudo"):
+                    _emit_completion_event(
+                        "tools.plan.failed", tool, mode, ok=False,
+                        detail={"error": "Sudo required", "step": i,
+                                "plan_id": plan_id},
+                    )
                     yield _sse({
                         "type": "step_failed",
                         "step": i,
@@ -518,6 +583,12 @@ def audit_execute_plan():
                 }
                 if remediation:
                     done_event["remediation"] = remediation
+                _emit_completion_event(
+                    "tools.plan.failed", tool, mode, ok=False,
+                    detail={"error": done_event["error"],
+                            "step": i, "step_label": step_label,
+                            "plan_id": plan_id},
+                )
                 yield _sse(done_event)
                 return
 
@@ -603,6 +674,14 @@ def audit_execute_plan():
             done_event["restart"] = restart_needs
             done_event["restart_actions"] = restart_actions
 
+        _emit_completion_event(
+            "tools.plan.completed", tool, mode, ok=True,
+            detail={"message": done_event["message"],
+                    "steps_completed": len(steps),
+                    "plan_id": plan_id,
+                    "method": plan.get("method", ""),
+                    **version_info},
+        )
         yield _sse(done_event)
 
     return Response(
