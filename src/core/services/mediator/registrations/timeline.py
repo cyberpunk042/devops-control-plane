@@ -363,8 +363,11 @@ def register_timeline(mediator: QueryMediator) -> None:
         ttl=5,  # short TTL — recomputes frequently so SSE pushes live updates
         persist=False,
         size=5,
+        # No depends_on for index.scan — timeline.data is force-recomputed
+        # at the END of the index cycle (_on_tier_complete) to ensure it has
+        # ALL events. Cascade from index.scan would trigger mid-cycle with
+        # partial data, causing empty domains in the UI.
         depends_on=[
-            "index.scan",
             "timeline.source.git_log",
             "timeline.source.chat",
             "timeline.source.github",

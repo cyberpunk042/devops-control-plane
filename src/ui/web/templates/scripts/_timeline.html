@@ -402,6 +402,9 @@ function _tlOnData(data) {
 
   // Apply current filters and render entry list
   _tlRenderFiltered();
+
+  // Re-apply nav highlight after full re-render
+  _tlReapplyNavHighlight();
 }
 
 function _tlRenderFiltered() {
@@ -1112,6 +1115,11 @@ function _tlNavRenderDomains() {
           const matching = _tlState.allEntries.filter(e =>
             e.adapter === adapter && (e.subtype || '') === sub
           );
+          if (!matching.length) {
+            entriesHtml = `<div style="padding-left:20px;font-size:0.58rem;color:var(--text-muted);padding:4px 8px;font-style:italic">
+              No entries yet
+            </div>`;
+          } else {
           entriesHtml = `<div style="padding-left:20px">` +
             matching.slice(0, 50).map(e => {
               const statusIcon = { ok:'●', warning:'◑', attention:'⚠', failed:'✕' }[e.status] ?? '●';
@@ -1130,6 +1138,7 @@ function _tlNavRenderDomains() {
             }).join('') +
             (matching.length > 50 ? `<div style="font-size:0.58rem;color:var(--text-muted);padding:2px 8px">+${matching.length - 50} more</div>` : '') +
             `</div>`;
+          } // end else (has matching entries)
         }
 
         return `<div style="padding-left:12px">
@@ -1525,6 +1534,19 @@ function _tlSyncNavFromScroll() {
   }
 }
 
+function _tlReapplyNavHighlight() {
+  if (!_tlLastScrollEntry) return;
+  if (_tlState.navMode === 'chains') {
+    _tlHighlightChainEntry(_tlLastScrollEntry);
+  } else if (_tlState.navMode === 'domains') {
+    _tlHighlightDomainEntry(_tlLastScrollEntry);
+  } else if (_tlState.navMode === 'calendar') {
+    const allEntries = _tlState._filteredEntries || _tlState.allEntries || [];
+    const entry = allEntries.find(e => e.id === _tlLastScrollEntry);
+    if (entry) _tlHighlightCalendarDate(entry.ts);
+  }
+}
+
 function _tlHighlightChainEntry(entryId) {
   if (!entryId) return;
   // Remove previous highlights
@@ -1600,12 +1622,12 @@ function _tlHighlightCalendarDate(ts) {
   const year = String(d.getFullYear());
   const month = String(d.getMonth() + 1).padStart(2, '0');
 
-  // Expand year and month in calendar tree
-  _tlCalExpanded.add(year);
-  _tlCalExpanded.add(year + '-' + month);
-
-  // Re-render nav to apply expansion
-  _tlNavRender();
+  // Expand year and month in calendar tree (only re-render if changed)
+  let changed = false;
+  if (!_tlCalExpanded.has(year)) { _tlCalExpanded.add(year); changed = true; }
+  const mk = year + '-' + month;
+  if (!_tlCalExpanded.has(mk)) { _tlCalExpanded.add(mk); changed = true; }
+  if (changed) _tlNavRender();
 
   // Highlight the date node
   setTimeout(() => {
