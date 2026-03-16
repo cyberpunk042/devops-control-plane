@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+import subprocess
 import time
 from typing import Any
 
@@ -267,7 +268,26 @@ def resolve_choices(
 
     # Check if already installed
     cli = recipe.get("cli", tool)
-    if shutil.which(cli):
+    cli_verify = recipe.get("cli_verify_args")
+    if cli_verify and shutil.which(cli):
+        # Run the full verify command to check if deps are actually working
+        try:
+            subprocess.run(
+                [cli] + list(cli_verify),
+                capture_output=True, timeout=10,
+            ).check_returncode()
+            return {
+                "tool": tool,
+                "label": recipe["label"],
+                "already_installed": True,
+                "auto_resolve": True,
+                "choices": [],
+                "inputs": [],
+                "defaults": {},
+            }
+        except Exception:
+            pass  # verify failed — not fully installed
+    elif shutil.which(cli):
         return {
             "tool": tool,
             "label": recipe["label"],

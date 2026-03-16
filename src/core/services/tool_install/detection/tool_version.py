@@ -15,7 +15,7 @@ import sys
 from src.core.services.tool_install.data.recipes import TOOL_RECIPES
 from src.core.services.tool_install.resolver.method_selection import get_update_map
 
-_PIP: list[str] = [sys.executable, "-m", "pip"]
+from src.core.services.tool_install.data.constants import _PIP
 
 VERSION_COMMANDS: dict[str, tuple[list[str], str]] = {
     # pip tools

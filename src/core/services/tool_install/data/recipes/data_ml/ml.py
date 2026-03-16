@@ -221,11 +221,12 @@ _ML_RECIPES: dict[str, dict] = {
     },
     "pytesseract": {
         "label": "pytesseract (Python OCR wrapper)",
-        "cli_verify_args": ["-c", "import pytesseract; print(pytesseract.get_tesseract_version())"],
+        "cli": sys.executable,  # verify via Python import, not PATH lookup
+        "cli_verify_args": ["-c", "import pytesseract; from PIL import Image; print('OCR deps OK')"],
         "category": "ml",
         "risk": "low",
         "install": {
-            "_default": _PIP + ["install", "pytesseract"],
+            "_default": _PIP + ["install", "pytesseract", "Pillow"],
         },
         "needs_sudo": {"_default": False},
         "install_via": {"_default": "pip"},
@@ -233,6 +234,6 @@ _ML_RECIPES: dict[str, dict] = {
             "binaries": ["tesseract"],  # Resolver recurses → installs system tesseract first
         },
         "verify": [sys.executable, "-c",
-                    "import pytesseract; print(pytesseract.get_tesseract_version())"],
+                    "import pytesseract; from PIL import Image; print('OCR deps OK')"],
     },
 }

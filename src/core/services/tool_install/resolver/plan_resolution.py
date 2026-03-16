@@ -13,6 +13,8 @@ import os
 import shutil
 from typing import Any
 
+import subprocess
+
 from src.core.services.tool_install.data.recipes import TOOL_RECIPES
 from src.core.services.tool_install.detection.condition import _evaluate_condition
 from src.core.services.tool_install.detection.tool_version import (
@@ -72,7 +74,24 @@ def resolve_install_plan(
 
     cli = recipe.get("cli", tool)
     cli_path = shutil.which(cli)
+    cli_verified = False
     if cli_path and _is_linux_binary(cli_path):
+        # If recipe has cli_verify_args, run the full verify command
+        # to confirm deps actually work (e.g. pytesseract needs Pillow)
+        cli_verify = recipe.get("cli_verify_args")
+        if cli_verify:
+            try:
+                subprocess.run(
+                    [cli] + list(cli_verify),
+                    capture_output=True, timeout=10,
+                ).check_returncode()
+                cli_verified = True
+            except Exception:
+                pass  # verify failed — not fully installed
+        else:
+            cli_verified = True
+
+    if cli_verified:
         # ── Check version constraint before declaring "already installed" ──
         min_ver = recipe.get("minimum_version")
         vc = recipe.get("version_constraint")
@@ -501,12 +520,24 @@ def resolve_install_plan_with_choices(
     cli = recipe.get("cli", tool)
     cli_path = shutil.which(cli)
     if cli_path and _is_linux_binary(cli_path):
-        return {
-            "tool": tool,
-            "label": recipe["label"],
-            "already_installed": True,
-            "steps": [],
-        }
+        # If recipe has cli_verify_args, run full verify first
+        cli_verify = recipe.get("cli_verify_args")
+        actually_installed = True
+        if cli_verify:
+            try:
+                subprocess.run(
+                    [cli] + list(cli_verify),
+                    capture_output=True, timeout=10,
+                ).check_returncode()
+            except Exception:
+                actually_installed = False
+        if actually_installed:
+            return {
+                "tool": tool,
+                "label": recipe["label"],
+                "already_installed": True,
+                "steps": [],
+            }
 
     # Apply choices → flatten recipe branches
     resolved_recipe = _apply_choices(recipe, answers)

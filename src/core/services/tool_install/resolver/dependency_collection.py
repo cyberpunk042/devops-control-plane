@@ -105,8 +105,22 @@ def _collect_deps(
     cli = recipe.get("cli", tool_id)
 
     # Skip if already installed
-    if shutil.which(cli):
-        return
+    cli_path = shutil.which(cli)
+    if cli_path:
+        # If recipe has cli_verify_args, run full verify to confirm
+        # deps actually work (e.g. pytesseract where cli=sys.executable)
+        cli_verify = recipe.get("cli_verify_args")
+        if cli_verify:
+            try:
+                subprocess.run(
+                    [cli] + list(cli_verify),
+                    capture_output=True, timeout=10,
+                ).check_returncode()
+                return  # fully installed
+            except Exception:
+                pass  # verify failed — need to install
+        else:
+            return  # no verify args — binary exists, good enough
 
     pm = system_profile.get("package_manager", {}).get("primary", "apt")
     family = system_profile.get("distro", {}).get("family", "debian")

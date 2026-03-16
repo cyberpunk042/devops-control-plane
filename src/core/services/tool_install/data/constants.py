@@ -8,9 +8,36 @@ from __future__ import annotations
 
 import sys
 
-# Resolve pip via the current interpreter — avoids "pip not found" when
-# running inside a venv where bare `pip` isn't on the system PATH.
-_PIP: list[str] = [sys.executable, "-m", "pip"]
+# Resolve pip via the current interpreter.
+# In free-threaded Python (.venv-ft), pip isn't installed — use uv instead.
+import shutil as _shutil
+
+def _resolve_pip() -> list[str]:
+    """Return the command to run pip in the current environment."""
+    # Check if python -m pip works
+    import subprocess
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "--version"],
+            capture_output=True, timeout=5,
+        ).check_returncode()
+        return [sys.executable, "-m", "pip"]
+    except Exception:
+        pass
+    # Fall back to uv pip (free-threaded venv)
+    uv = _shutil.which("uv")
+    if uv:
+        # Ensure VIRTUAL_ENV is set so uv targets the right env,
+        # even when the server was started without exporting it.
+        import os
+        venv_dir = os.path.dirname(os.path.dirname(sys.executable))
+        if os.path.isfile(os.path.join(venv_dir, "pyvenv.cfg")):
+            os.environ.setdefault("VIRTUAL_ENV", venv_dir)
+        return [uv, "pip"]
+    # Last resort
+    return [sys.executable, "-m", "pip"]
+
+_PIP: list[str] = _resolve_pip()
 
 # Architecture name normalization.
 #

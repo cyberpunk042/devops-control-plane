@@ -1375,6 +1375,36 @@ def _execute_screenshot_assertion(
         lines.append("")
         lines.append("Install these dependencies to enable OCR screenshot assertions.")
 
+        install_plan = {
+            "tool": "pytesseract",
+            "steps": [d for d in missing_deps],
+            "can_auto_install": all(
+                d["type"] == "pip" for d in missing_deps
+            ),
+        }
+
+        # Emit notification so the UI shows an install prompt
+        try:
+            from src.core.services.notifications import create_notification
+            from pathlib import Path
+            # Use the first pip-installable dep as the primary recipe
+            pip_dep = next((d for d in missing_deps if d["type"] == "pip"), missing_deps[0])
+            create_notification(
+                Path("."),
+                notif_type="missing_ocr_deps",
+                title="OCR dependencies missing",
+                message="\n".join(lines),
+                meta={
+                    "action": "install_dependency",
+                    "recipe_id": pip_dep.get("recipe_id", "pytesseract"),
+                    "recipe_label": pip_dep.get("name", "pytesseract"),
+                    "install_plan": install_plan,
+                    "missing_dependencies": missing_deps,
+                },
+            )
+        except Exception:
+            pass
+
         return {
             "status": "failed",
             "duration_ms": elapsed_ms,
@@ -1382,13 +1412,7 @@ def _execute_screenshot_assertion(
             "details": {
                 "screenshot_path": screenshot_path,
                 "missing_dependencies": missing_deps,
-                "install_plan": {
-                    "tool": "pytesseract",
-                    "steps": [d for d in missing_deps],
-                    "can_auto_install": all(
-                        d["type"] == "pip" for d in missing_deps
-                    ),
-                },
+                "install_plan": install_plan,
             },
         }
 
