@@ -112,10 +112,10 @@ def tracked(
 
                 # Force timeline recompute so SSE pushes the update live
                 try:
-                    from flask import current_app
-                    mediator = current_app.config.get("MEDIATOR")
-                    if mediator:
-                        mediator.get("timeline.data", force=True)
+                    from src.core.services.mediator import get_mediator
+                    m = get_mediator()
+                    if m:
+                        m.get("timeline.data", force=True)
                 except Exception:
                     pass
 
@@ -148,10 +148,10 @@ def tracked(
 
 
 def _get_store():
-    """Get event store from Flask app's mediator."""
+    """Get event store from the mediator singleton."""
     try:
-        from flask import current_app
-        mediator = current_app.config.get("MEDIATOR")
+        from src.core.services.mediator import get_mediator
+        mediator = get_mediator()
         if mediator and hasattr(mediator, "_event_store"):
             return mediator._event_store
     except Exception:
@@ -160,10 +160,10 @@ def _get_store():
 
 
 def _get_tracker():
-    """Get operation tracker from Flask app's mediator."""
+    """Get operation tracker from the mediator singleton."""
     try:
-        from flask import current_app
-        mediator = current_app.config.get("MEDIATOR")
+        from src.core.services.mediator import get_mediator
+        mediator = get_mediator()
         if mediator and hasattr(mediator, "_tracker"):
             return mediator._tracker
     except Exception:
