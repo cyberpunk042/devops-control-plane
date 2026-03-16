@@ -12,12 +12,43 @@ import shutil
 import time
 from pathlib import Path
 
+import logging
+import uuid
+
 from src.core.services.pages_builders import get_builder
 from .engine import (
     PAGES_WORKSPACE,
     ensure_gitignore,
     get_segment,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _emit_event(event_type, correlation_id, summary, detail=None, status="ok", duration_ms=0):
+    """Emit an event to the event store for timeline tracking."""
+    try:
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        if not m or not hasattr(m, "_event_store") or not m._event_store:
+            return
+        from src.core.services.events.models import Event
+        m._event_store.append(Event(
+            id="",
+            ts=time.time(),
+            type=event_type,
+            correlation_id=correlation_id,
+            source="route",
+            path=event_type,
+            status=status,
+            duration_ms=duration_ms,
+            summary=summary,
+            detail=detail or {},
+            origin="user",
+            actor="user",
+        ))
+    except Exception:
+        pass
 
 
 def build_segment_stream(
@@ -91,6 +122,14 @@ def build_segment_stream(
         builder._segment = segment
 
     stages_info = builder.pipeline_stages()
+    chain_id = f"pages-build:{uuid.uuid4().hex[:8]}"
+
+    _emit_event(
+        "pages.build.started", chain_id,
+        f"Build started: {name} ({segment.builder})",
+        detail={"segment": name, "builder": segment.builder,
+                "stages": len(stages_info)},
+    )
 
     yield {
         "type": "pipeline_start",
@@ -131,11 +170,26 @@ def build_segment_stream(
         })
 
         if status == "done":
+            _emit_event(
+                "pages.build.stage.done", chain_id,
+                f"Stage done: {si.label} ({stage_ms}ms)",
+                detail={"segment": name, "stage": si.name,
+                        "label": si.label, "duration_ms": stage_ms},
+                duration_ms=stage_ms,
+            )
             yield {
                 "type": "stage_done", "stage": si.name,
                 "label": si.label, "duration_ms": stage_ms,
             }
         else:
+            _emit_event(
+                "pages.build.stage.failed", chain_id,
+                f"Stage failed: {si.label} — {error[:80]}",
+                detail={"segment": name, "stage": si.name,
+                        "label": si.label, "error": error[:200],
+                        "duration_ms": stage_ms},
+                status="error", duration_ms=stage_ms,
+            )
             yield {
                 "type": "stage_error", "stage": si.name,
                 "label": si.label, "error": error, "duration_ms": stage_ms,
@@ -166,6 +220,39 @@ def build_segment_stream(
         (workspace / "build.json").write_text(
             json.dumps(meta, indent=2), encoding="utf-8",
         )
+
+    completed_stages = [s for s in stage_results if s["status"] == "done"]
+    failed_stages = [s for s in stage_results if s["status"] == "error"]
+
+    if all_ok:
+        summary = f"Build complete: {name} — {len(completed_stages)} stages ({total_ms}ms)"
+    else:
+        fail_name = failed_stages[0]["label"] if failed_stages else "?"
+        summary = f"Build failed: {name} — {fail_name}"
+
+    _emit_event(
+        "pages.build.completed" if all_ok else "pages.build.failed",
+        chain_id, summary,
+        detail={
+            "segment": name, "builder": segment.builder,
+            "stages_completed": len(completed_stages),
+            "stages_failed": len(failed_stages),
+            "total_stages": len(stages_info),
+            "duration_ms": total_ms,
+            "serve_url": serve_url,
+        },
+        status="ok" if all_ok else "error",
+        duration_ms=total_ms,
+    )
+
+    # Force timeline recompute for live SSE push
+    try:
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        if m:
+            m.get("timeline.data", force=True)
+    except Exception:
+        pass
 
     yield {
         "type": "pipeline_done",

@@ -406,7 +406,7 @@
                 for (const msg of results) {
                     toast(msg, msg.startsWith('❌') ? 'error' : 'success');
                 }
-                cardInvalidate('pages');
+                cardInvalidate('int:pages');
             },
             successMessage: 'Pages setup complete!',
         });
