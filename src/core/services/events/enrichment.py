@@ -159,15 +159,6 @@ def extract_summary(path: str, data: Any) -> str:
         if rank:
             return f"{path.split('.')[-1]}: {rank}"
 
-    try:
-        from src.core.services.devops.activity import _extract_summary
-        card_key = _path_to_card_key(path)
-        result = _extract_summary(card_key, data)
-        if result and result != "completed":
-            return result
-    except Exception:
-        pass
-
     # Index nodes: descriptive summaries
     if path == "index.scan":
         if isinstance(data, dict):
@@ -212,9 +203,15 @@ def extract_summary(path: str, data: Any) -> str:
             return f"{files} files, {symbols} symbols, {lang}"
         return "stats computed"
     if path == "index.view":
-        return "view cache rebuilt"
+        if isinstance(data, dict):
+            count = len(data)
+            return f"View cache rebuilt ({count} entries)"
+        return "View cache rebuilt"
     if path == "index.peek":
-        return "peek cache rebuilt"
+        if isinstance(data, dict):
+            count = len(data)
+            return f"Peek cache rebuilt ({count} entries)"
+        return "Peek cache rebuilt"
 
     # Catalog
     if path == "catalog.tools":
@@ -227,14 +224,22 @@ def extract_summary(path: str, data: Any) -> str:
             builders = data.get("builders", [])
             names = [b.get("name", "?") for b in builders if isinstance(b, dict) and b.get("available")]
             if names:
-                return f"{len(names)} builder(s): {', '.join(names)}"
-            return f"{len(builders)} builder(s)"
+                return f"Builders: {len(names)} available — {', '.join(names[:5])}"
+            return f"Builders: {len(builders)} detected, none available"
     if path == "catalog.scripts":
         if isinstance(data, dict):
             scripts = data.get("scripts", [])
             names = [s.get("name", s.get("id", "?")) for s in scripts if isinstance(s, dict)]
             if names:
-                return f"{len(names)} script(s): {', '.join(names[:4])}"
+                return f"Scripts: {len(names)} found — {', '.join(names[:5])}"
+            total = data.get("total", len(scripts))
+            return f"Scripts: {total} found"
+    if path == "catalog.pages":
+        if isinstance(data, dict):
+            pages = data.get("pages", [])
+            if isinstance(pages, list):
+                return f"Pages: {len(pages)} configured"
+            return "Pages scanned"
 
     # Audit system: fix raw dict leaking
     if path == "audit.system":
@@ -246,7 +251,23 @@ def extract_summary(path: str, data: Any) -> str:
                 name = str(os_info)[:30]
             tools = data.get("tools", [])
             avail = sum(1 for t in tools if isinstance(t, dict) and t.get("available"))
-            return f"{name} · {avail}/{len(tools)} tools"
+            return f"System: {name} · {avail}/{len(tools)} tools"
+    if path == "audit.system_deep":
+        if isinstance(data, dict):
+            tier = data.get("deep_tier", "?")
+            results = data.get("results", {})
+            count = len(results) if isinstance(results, dict) else 0
+            return f"Deep system scan (tier {tier}, {count} checks)"
+
+    # Fallback: try activity.py's _extract_summary (covers devops cards)
+    try:
+        from src.core.services.devops.activity import _extract_summary
+        card_key = _path_to_card_key(path)
+        result = _extract_summary(card_key, data)
+        if result and result != "completed" and not result.endswith(" total"):
+            return result
+    except Exception:
+        pass
 
     # Fallback: try common fields
     for key in ("summary", "label", "message"):
@@ -254,7 +275,17 @@ def extract_summary(path: str, data: Any) -> str:
         if isinstance(val, str) and val:
             return val[:120]
 
-    return path.split(".")[-1]
+    # Descriptive fallback from data shape
+    suffix = path.split(".")[-1].replace("_", " ")
+    if isinstance(data, dict):
+        # Try to show the most useful count
+        for count_key in ("total", "count", "items", "entries"):
+            val = data.get(count_key)
+            if isinstance(val, (int, float)):
+                return f"{suffix.title()}: {int(val)} items"
+            elif isinstance(val, list):
+                return f"{suffix.title()}: {len(val)} items"
+    return suffix.title()
 
 
 # ── Result summary extraction ────────────────────────────────────────
@@ -387,6 +418,73 @@ def extract_result_summary(path: str, data: Any) -> dict:
             "total": data.get("total", 0),
             "available": data.get("available", 0),
             "missing": data.get("missing_count", 0),
+        }
+
+    # Catalog builders
+    if path == "catalog.builders":
+        builders = data.get("builders", [])
+        names = [b.get("name", "?") for b in builders if isinstance(b, dict)]
+        avail = [b.get("name", "?") for b in builders if isinstance(b, dict) and b.get("available")]
+        return {
+            "total": len(builders),
+            "available": ", ".join(avail) if avail else "none",
+        }
+
+    # Catalog scripts
+    if path == "catalog.scripts":
+        scripts = data.get("scripts", [])
+        names = [s.get("name", s.get("id", "?")) for s in scripts if isinstance(s, dict)]
+        return {
+            "total": len(names),
+            "scripts": ", ".join(names[:6]) if names else "none",
+        }
+
+    # Catalog pages
+    if path == "catalog.pages":
+        pages = data.get("pages", [])
+        return {"total": len(pages) if isinstance(pages, list) else 0}
+
+    # Index nodes
+    if path == "index.scan":
+        return {"files": len(data) if isinstance(data, dict) else 0}
+    if path == "index.files":
+        return {"mappings": len(data) if isinstance(data, dict) else 0}
+    if path == "index.dirs":
+        return {"directories": len(data) if isinstance(data, dict) else 0}
+    if path == "index.paths":
+        return {"paths": len(data) if isinstance(data, (dict, list, set)) else 0}
+    if path == "index.classify":
+        return {
+            "language": data.get("primary_language", "?"),
+            "frameworks": len(data.get("frameworks", [])),
+        }
+    if path == "index.symbols":
+        return {"symbols": len(data) if isinstance(data, dict) else 0}
+    if path == "index.view":
+        return {"entries": len(data) if isinstance(data, dict) else 0}
+    if path == "index.peek":
+        return {"entries": len(data) if isinstance(data, dict) else 0}
+
+    # Audit deep system
+    if path == "audit.system_deep":
+        return {
+            "tier": data.get("deep_tier", "?"),
+            "checks": len(data.get("results", {})),
+            "project_root": data.get("project_root", "?"),
+        }
+
+    # Audit L2 repo
+    if path == "audit.l2_repo":
+        return {
+            "repo_score": data.get("repo_score", "?"),
+            "history_depth": data.get("history_depth", {}).get("score", "?") if isinstance(data.get("history_depth"), dict) else "?",
+        }
+
+    # Audit clients
+    if path == "audit.clients":
+        clients = data.get("clients", [])
+        return {
+            "total": len(clients) if isinstance(clients, list) else data.get("total", 0),
         }
 
     # GitHub runs
