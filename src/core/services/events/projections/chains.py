@@ -60,6 +60,22 @@ def _friendly_chain_name(cid: str, group: list) -> str:
         except Exception:
             return "System scan"
 
+    # Git sync chain: "git-sync:abc123" → "Git Sync"
+    if cid.startswith("git-sync:"):
+        return "Git Sync"
+
+    # Pages build chain: "pages-build:abc123" → "Pages Build"
+    if cid.startswith("pages-build:"):
+        return "Pages Build"
+
+    # Plan execution: "plan:abc123" → "Plan Execution"
+    if cid.startswith("plan:"):
+        return "Plan Execution"
+
+    # CDP test replay: "cdp_test:abc123" → "Test Replay"
+    if cid.startswith("cdp_test:"):
+        return "Test Replay"
+
     # Git branch: "git:main" → "Branch: main"
     if cid.startswith("git:"):
         branch = cid[4:]

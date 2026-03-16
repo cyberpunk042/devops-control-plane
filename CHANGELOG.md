@@ -11,3 +11,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - tracking
 - git sync tracking
 - git sync tracking
+- quick

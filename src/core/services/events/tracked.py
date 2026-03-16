@@ -131,6 +131,10 @@ def tracked(
                 except Exception:
                     pass
 
+                # Clear correlation BEFORE forcing timeline recompute
+                # so mediator events don't inherit the user chain
+                clear_correlation()
+
                 # Force timeline recompute so SSE pushes the update live
                 try:
                     from src.core.services.mediator import get_mediator
