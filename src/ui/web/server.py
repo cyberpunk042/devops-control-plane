@@ -435,6 +435,9 @@ def create_app(
                     _py_version, _cpu_count,
                 )
         elif is_free_threaded():
+            # Dismiss any stale upgrade notification from a previous GIL session
+            from src.core.services.notifications import dismiss_notification_by_type
+            dismiss_notification_by_type(project_root, "python_optimization")
             logger.info(
                 "Python %s (free-threaded, no-GIL) — true parallel threading active",
                 _py_version,
