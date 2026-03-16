@@ -198,14 +198,47 @@ class NpmAdapter(EcosystemAdapter):
     def create_output_parser(self, scope: str) -> NpmParser:
         return NpmParser(scope)
 
-    # ── Version intelligence (stubs — Phase 3) ────────────────
+    # ── Version intelligence ─────────────────────────────────
 
     def fetch_latest_version(self, package: str) -> str | None:
-        return None
+        """Query npm registry for the latest version."""
+        try:
+            import urllib.request
+            import json as _json
+            # Scoped packages: @scope/name → URL-encode the /
+            url = f"https://registry.npmjs.org/{package.replace('/', '%2F')}"
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = _json.loads(resp.read())
+                return data.get("dist-tags", {}).get("latest")
+        except Exception:
+            return None
 
     def check_deprecated(
         self, package: str, version: str,
     ) -> tuple[bool, str]:
+        """Check npm registry for deprecation message."""
+        try:
+            import urllib.request
+            import json as _json
+            url = f"https://registry.npmjs.org/{package.replace('/', '%2F')}"
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = _json.loads(resp.read())
+                # Check specific version
+                ver_data = data.get("versions", {}).get(version, {})
+                dep_msg = ver_data.get("deprecated", "")
+                if dep_msg:
+                    return True, dep_msg
+                # Check latest version deprecation (whole package deprecated)
+                latest_ver = data.get("dist-tags", {}).get("latest", "")
+                if latest_ver:
+                    latest_data = data.get("versions", {}).get(latest_ver, {})
+                    dep_msg = latest_data.get("deprecated", "")
+                    if dep_msg:
+                        return True, dep_msg
+        except Exception:
+            pass
         return False, ""
 
     # ── Internal helpers ──────────────────────────────────────

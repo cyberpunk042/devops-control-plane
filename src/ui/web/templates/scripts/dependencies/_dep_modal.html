@@ -1,0 +1,1383 @@
+<script>
+/* Dependencies — Modal shell + Scope Tree + Operations + Version Intel + Snapshots.
+   Entry point: depOpenModal() from dashboard 📦 click.
+*/
+
+// ═══════════════════════════════════════════════════════════════
+//  State
+// ═══════════════════════════════════════════════════════════════
+
+let _depTree = null;
+let _depSelectedScope = null;
+let _depSelectedPkg = null;
+let _depChecked = new Set();
+let _depExpanded = new Set();
+let _depSnapshots = [];
+let _depActiveTab = 'tree';
+let _depActiveTarget = null;     // Current target venv path (e.g. ".venv-ft", ".venv", "system")
+let _depTargetInstalled = {};    // Installed packages for the currently viewed target
+let _depInstalledLoaded = false; // True once we've fetched installed data at least once
+
+// CSS is in admin.css (dep-overlay, dep-modal, dep-node, etc.)
+
+// ═══════════════════════════════════════════════════════════════
+//  E2: Modal open / close
+// ═══════════════════════════════════════════════════════════════
+
+async function depOpenModal(initialScope, initialAction) {
+    const old = document.getElementById('dep-modal');
+    if (old) old.remove();
+
+    const el = document.createElement('div');
+    el.className = 'dep-overlay';
+    el.id = 'dep-modal';
+    el.onclick = (e) => { if (e.target === el) depCloseModal(); };
+    el.innerHTML = `
+    <div class="dep-modal">
+        <div class="dep-header">
+            <div class="dep-header-left">
+                <h3>📦 Manage Dependencies</h3>
+                <div class="dep-tab-bar">
+                    <button class="dep-tab active" id="dep-tab-tree" onclick="_depSwitchTab('tree')">Tree</button>
+                    <button class="dep-tab" id="dep-tab-graph" onclick="_depSwitchTab('graph')">Graph</button>
+                </div>
+                <span class="dep-elapsed" id="dep-elapsed"></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:var(--space-sm)">
+                <button onclick="_depBustModal()" title="Refresh all data" style="font-size:0.75rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0.2rem">🔄</button>
+                <button class="dep-close" onclick="depCloseModal()" title="Close (Esc)">✕</button>
+            </div>
+        </div>
+        <div class="dep-target-bar" id="dep-target-bar" style="display:none"></div>
+        <div class="dep-body" id="dep-body">
+            <div class="dep-tree-panel" id="dep-tree-panel">
+                <div class="dep-loading">◌ Loading dependency tree...</div>
+            </div>
+            <div class="dep-right-panel" id="dep-right-panel">
+                <div class="dep-op-panel" id="dep-op-panel">
+                    <div style="color:var(--text-muted);font-size:0.82rem;line-height:1.8">
+                        Select an ecosystem or package in the tree to begin.<br>
+                        <span style="font-size:0.72rem">Or check ecosystems and use Global scope for batch operations.</span>
+                    </div>
+                </div>
+                <div class="dep-detail-panel" id="dep-detail-panel"></div>
+            </div>
+        </div>
+        <div class="dep-snapshot-bar" id="dep-snapshot-bar" onclick="_depToggleSnapshots()">
+            ▶ Snapshots: loading...
+        </div>
+    </div>`;
+    document.body.appendChild(el);
+
+    // Escape to close
+    el._escHandler = (e) => { if (e.key === 'Escape') depCloseModal(); };
+    document.addEventListener('keydown', el._escHandler);
+
+    try {
+        // Use cached tree if available, otherwise fetch
+        const data = _depCardTree || await api('/dependencies/tree');
+        _depTree = data;
+
+        // Auto-select scope if provided (from card click)
+        if (initialScope) {
+            _depSelectedScope = initialScope;
+            _depExpanded.add(initialScope);  // Auto-expand the selected ecosystem
+        } else if (data.children && data.children.length === 1) {
+            // Single ecosystem — auto-select it
+            _depSelectedScope = data.children[0].id;
+            _depExpanded.add(data.children[0].id);
+        }
+
+        // Load installed packages BEFORE rendering tree
+        // so _depPkgState has data and doesn't show everything as ❌
+        try {
+            _depTargetInstalled = await api('/dependencies/installed');
+            _depInstalledLoaded = true;
+        } catch (e) {
+            // Installed data not available — tree will show ◌ instead of ❌
+            _depTargetInstalled = {};
+            _depInstalledLoaded = false;
+        }
+
+        _depRenderTree(data);
+        _depLoadSnapshots();
+        _depLoadTargets();
+
+        // If scope was pre-selected, render its panels
+        if (_depSelectedScope) {
+            _depRenderOpPanel(_depSelectedScope);
+            _depRenderEcoOverview(_depSelectedScope);
+        }
+
+        // Auto-trigger action if requested (from card quick action)
+        if (initialAction && _depSelectedScope) {
+            setTimeout(() => _depDoAction(initialAction), 300);
+        }
+
+    } catch (e) {
+        document.getElementById('dep-tree-panel').innerHTML =
+            `<div class="dep-empty"><div class="dep-empty-title" style="color:var(--error)">Failed to load</div><div class="dep-empty-hint">${esc(e.message)}</div></div>`;
+    }
+}
+
+async function _depBustModal() {
+    // Show loading state
+    const tree = document.getElementById('dep-tree-panel');
+    if (tree) tree.innerHTML = '<div class="dep-loading">◌ Refreshing...</div>';
+
+    _depInstalledLoaded = false;
+    _depTargetInstalled = {};
+
+    try {
+        // Bust backend caches + re-fetch everything
+        const [treeData, installed] = await Promise.all([
+            api('/dependencies/tree?bust=1'),
+            api('/dependencies/installed?bust=1'),
+        ]);
+
+        _depTree = treeData;
+        _depCardTree = treeData;
+        _depTargetInstalled = installed || {};
+        _depInstalledLoaded = Object.keys(_depTargetInstalled).length > 0;
+
+        _depRenderTree(treeData);
+        _depLoadTargets();
+        _depLoadSnapshots();
+
+        if (_depSelectedScope) {
+            _depRenderOpPanel(_depSelectedScope);
+            _depRenderEcoOverview(_depSelectedScope);
+        }
+        if (_depSelectedPkg) {
+            _depRenderIntel(_depSelectedPkg);
+        }
+    } catch (e) {
+        if (tree) tree.innerHTML = `<div class="dep-empty"><div class="dep-empty-title" style="color:var(--error)">Refresh failed</div><div class="dep-empty-hint">${esc(e.message)}</div></div>`;
+    }
+
+    // Also refresh the dashboard card
+    if (typeof cardStore === 'function') cardStore('dep-card-data', null);
+    _depLoadCard();
+}
+
+function depCloseModal() {
+    if (typeof depAbortOperation === 'function') depAbortOperation();
+    const el = document.getElementById('dep-modal');
+    if (el) {
+        if (el._escHandler) document.removeEventListener('keydown', el._escHandler);
+        el.remove();
+    }
+}
+
+function _depSwitchTab(tab) {
+    _depActiveTab = tab;
+    document.getElementById('dep-tab-tree').className = 'dep-tab' + (tab === 'tree' ? ' active' : '');
+    document.getElementById('dep-tab-graph').className = 'dep-tab' + (tab === 'graph' ? ' active' : '');
+    if (tab === 'graph') {
+        if (typeof _depRenderGraphView === 'function') _depRenderGraphView();
+    } else {
+        document.getElementById('dep-tree-panel').style.display = '';
+        document.getElementById('dep-right-panel').style.display = '';
+        _depRenderTree(_depTree);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Target selector (venv switching)
+// ═══════════════════════════════════════════════════════════════
+
+async function _depLoadTargets() {
+    const bar = document.getElementById('dep-target-bar');
+    if (!bar) return;
+
+    try {
+        const venvInfo = _depVenvInfo || await api('/dependencies/venvs');
+        _depVenvInfo = venvInfo;
+        const targets = venvInfo.targets || [];
+        if (targets.length <= 1) { bar.style.display = 'none'; return; }
+
+        // Set default active target
+        if (!_depActiveTarget) {
+            _depActiveTarget = venvInfo.active || 'system';
+        }
+
+        let h = `<span class="dep-target-bar-label">Target:</span>`;
+
+        for (const t of targets) {
+            const isActive = t.path === _depActiveTarget;
+            const isSystem = t.is_system;
+            const isRisky = t.risky;
+            const isPep668 = t.pep668;
+            const isFt = t.free_threaded;
+
+            let cls = 'dep-target-btn';
+            if (isActive) cls += ' active';
+            if (isSystem && isRisky) cls += ' system-locked';
+
+            let dotColor = isActive ? 'var(--success)' : 'var(--text-muted)';
+            if (isSystem && isRisky) dotColor = 'var(--warning)';
+
+            let label = t.path;
+            let tags = '';
+            if (isFt) tags += `<span class="dep-target-tag">free-threaded</span>`;
+            if (isSystem && isPep668) tags += `<span class="dep-target-tag" style="color:var(--warning)">PEP 668</span>`;
+            else if (isSystem && isRisky) tags += `<span class="dep-target-tag" style="color:var(--warning)">not recommended</span>`;
+            else if (isSystem) tags += `<span class="dep-target-tag">system</span>`;
+
+            const titleText = `Python ${t.python}${isPep668 ? ' — EXTERNALLY-MANAGED (PEP 668)' : isRisky ? ' — use a venv instead' : ''}`;
+
+            h += `<button class="${cls}" onclick="_depSwitchTarget('${esc(t.path)}')" title="${esc(titleText)}">`;
+            h += `<span class="dep-target-dot" style="background:${dotColor}"></span>`;
+            h += `<span>${esc(label)}</span>`;
+            h += `<span style="color:var(--text-muted)">${esc(t.python)}</span>`;
+            h += tags;
+            h += `</button>`;
+        }
+
+        bar.innerHTML = h;
+        bar.style.display = '';
+    } catch (e) {
+        bar.style.display = 'none';
+    }
+}
+
+async function _depSwitchTarget(targetPath) {
+    const venvInfo = _depVenvInfo || {};
+    const target = (venvInfo.targets || []).find(t => t.path === targetPath);
+
+    // Risky system target — show confirmation
+    if (target && target.is_system && target.risky) {
+        const confirmed = await _depConfirmSystemTarget(target);
+        if (!confirmed) return;
+    }
+
+    _depActiveTarget = targetPath;
+
+    // Reload installed packages for this target
+    try {
+        const venvParam = targetPath === 'system' ? 'system' : targetPath;
+        _depTargetInstalled = await api('/dependencies/installed/' + encodeURIComponent(venvParam));
+        _depInstalledLoaded = true;
+    } catch (e) {
+        _depTargetInstalled = {};
+        _depInstalledLoaded = false;
+    }
+
+    // Re-render EVERYTHING with new installed data — tree + right panels
+    _depLoadTargets();              // Update target bar selection
+    _depRenderTree(_depTree);       // Re-render left tree with new health badges
+    if (_depSelectedScope) {
+        _depRenderOpPanel(_depSelectedScope);
+        _depRenderEcoOverview(_depSelectedScope);
+    }
+    if (_depSelectedPkg) {
+        _depRenderIntel(_depSelectedPkg);
+    }
+}
+
+function _depConfirmSystemTarget(target) {
+    return new Promise(resolve => {
+        const isPep668 = target && target.pep668;
+        const reason = (target && target.risk_detail) || 'Installing into system Python is not recommended.';
+        const title = isPep668 ? '⚠ System Python — EXTERNALLY-MANAGED' : '⚠ System Python Target';
+
+        let technicalNote = '';
+        if (isPep668) {
+            technicalNote = `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-md);padding:var(--space-sm);background:var(--bg-inset);border-radius:var(--radius-sm);font-family:var(--font-mono)">
+                pip install will use --break-system-packages
+            </div>`;
+        }
+
+        // List available venvs as alternatives
+        const venvs = (_depVenvInfo?.venvs || []);
+        let altHtml = '';
+        if (venvs.length) {
+            altHtml = `<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                <div style="font-weight:500;margin-bottom:0.2rem">Available virtual environments:</div>
+                ${venvs.map(v => `<div style="padding-left:0.5rem">● <strong>${esc(v.path)}</strong> — Python ${esc(v.python)}${v.free_threaded ? ' (free-threaded)' : ''}</div>`).join('')}
+            </div>`;
+        }
+
+        const el = document.createElement('div');
+        el.className = 'dep-overlay';
+        el.style.zIndex = '1001';
+        el.innerHTML = `
+        <div class="dep-modal" style="max-width:500px;padding:var(--space-xl)">
+            <div style="font-size:0.9rem;font-weight:600;margin-bottom:var(--space-sm);color:var(--warning)">${title}</div>
+            <div style="font-size:0.78rem;line-height:1.6;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                ${esc(reason)}
+            </div>
+            ${technicalNote}
+            ${altHtml}
+            <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-lg)">
+                You will be viewing packages installed in the system Python (${esc(target?.python || '?')}).
+                Operations will target the system environment directly.
+            </div>
+            <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
+                <button class="btn btn-sm btn-ghost" id="dep-sys-cancel">Use a venv instead</button>
+                <button class="btn btn-sm" id="dep-sys-proceed" style="background:var(--warning);color:#000;border:none">View System Anyway</button>
+            </div>
+        </div>`;
+        document.body.appendChild(el);
+        el.querySelector('#dep-sys-cancel').onclick = () => { el.remove(); resolve(false); };
+        el.querySelector('#dep-sys-proceed').onclick = () => { el.remove(); resolve(true); };
+        el.onclick = (e) => { if (e.target === el) { el.remove(); resolve(false); } };
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Venv setup modal (from notification click)
+// ═══════════════════════════════════════════════════════════════
+
+function _depOpenVenvSetupModal(meta, notifId) {
+    const variant = meta.variant || 'no_venv';
+    const explanation = meta.explanation || '';
+    const options = meta.options || [];
+    const isPep668 = meta.pep668 || false;
+    const severity = meta.severity || 'medium';
+
+    const severityColors = { high: 'var(--error)', medium: 'var(--warning)', low: 'var(--text-muted)' };
+    const severityLabels = { high: 'Critical', medium: 'Recommended', low: 'Suggestion' };
+    const severityColor = severityColors[severity] || 'var(--warning)';
+
+    const title = variant === 'no_venv'
+        ? '📦 Python Virtual Environment Setup'
+        : '📦 Activate Virtual Environment';
+
+    let h = '';
+
+    // Severity badge
+    h += `<div style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.15rem 0.5rem;border-radius:4px;background:${severityColor}15;color:${severityColor};font-size:0.72rem;font-weight:600;margin-bottom:var(--space-md)">`;
+    h += `● ${esc(severityLabels[severity] || 'Info')}`;
+    h += `</div>`;
+
+    // Explanation
+    h += `<div style="font-size:0.78rem;line-height:1.6;color:var(--text-secondary);margin-bottom:var(--space-lg)">${esc(explanation)}</div>`;
+
+    // PEP 668 technical note
+    if (isPep668) {
+        h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-lg);padding:var(--space-sm);background:var(--bg-inset);border-radius:var(--radius-sm);border-left:3px solid var(--error)">`;
+        h += `<strong>PEP 668:</strong> This system marks Python as EXTERNALLY-MANAGED. `;
+        h += `Direct pip install will fail. A virtual environment is required.`;
+        h += `</div>`;
+    }
+
+    // Options
+    if (options.length) {
+        h += `<div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-sm)">Setup Options</div>`;
+        for (let i = 0; i < options.length; i++) {
+            const opt = options[i];
+            const recommended = opt.recommended;
+            const requires = opt.requires || [];
+            const commands = opt.commands || [];
+
+            h += `<div style="border:1px solid ${recommended ? 'var(--accent)' : 'var(--border-subtle)'};border-radius:var(--radius-sm);padding:var(--space-md);margin-bottom:var(--space-sm);${recommended ? 'background:rgba(129,140,248,0.04)' : ''}">`;
+
+            // Option header
+            h += `<div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-xs)">`;
+            h += `<span style="font-size:0.82rem;font-weight:600;color:var(--text-primary)">${esc(opt.label)}</span>`;
+            if (recommended) h += `<span style="font-size:0.58rem;padding:0.1rem 0.3rem;border-radius:3px;background:var(--accent);color:#fff">Recommended</span>`;
+            h += `</div>`;
+
+            // Description
+            if (opt.description) {
+                h += `<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:var(--space-sm)">${esc(opt.description)}</div>`;
+            }
+
+            // Requirements
+            if (requires.length) {
+                h += `<div style="font-size:0.66rem;color:var(--text-muted);margin-bottom:var(--space-xs)">Requires: ${requires.map(r => '<code>' + esc(r) + '</code>').join(', ')}</div>`;
+            }
+
+            // Commands
+            if (commands.length) {
+                h += `<div style="font-family:var(--font-mono);font-size:0.7rem;background:#0d0f17;color:#8892a8;padding:var(--space-sm);border-radius:4px;line-height:1.6;margin-bottom:var(--space-sm)">`;
+                for (const cmd of commands) {
+                    h += `<div>$ ${esc(cmd)}</div>`;
+                }
+                h += `</div>`;
+            }
+
+            // Copy button
+            h += `<div style="display:flex;gap:var(--space-xs)">`;
+            h += `<button class="btn btn-sm btn-ghost" onclick="navigator.clipboard.writeText('${commands.join(' && ').replace(/'/g, "\\'")}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Commands',1500)" style="font-size:0.66rem">Copy Commands</button>`;
+            h += `</div>`;
+
+            h += `</div>`;
+        }
+    }
+
+    // Open modal
+    if (typeof modalOpen === 'function') {
+        modalOpen({
+            title: title,
+            body: h,
+            size: 'wide',
+            footerButtons: [
+                { label: 'Dismiss', cls: 'btn-ghost', onclick: notifId ? `_dismissNotif('${notifId}');modalClose()` : 'modalClose()' },
+                { label: 'Close', cls: 'btn-secondary', onclick: 'modalClose()' },
+            ],
+        });
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  C1: Scope tree
+// ═══════════════════════════════════════════════════════════════
+
+function _depRenderTree(tree) {
+    const panel = document.getElementById('dep-tree-panel');
+    if (!panel || !tree) return;
+
+    const children = tree.children || [];
+    if (!children.length) {
+        panel.innerHTML = `
+            <div class="dep-empty">
+                <div class="dep-empty-title">No dependency manifests detected.</div>
+                <div class="dep-empty-hint">
+                    Supported files:<br>
+                    requirements.txt · pyproject.toml<br>
+                    package.json · go.mod · Cargo.toml<br>
+                    Gemfile · pom.xml · mix.exs · *.csproj
+                </div>
+            </div>`;
+        return;
+    }
+
+    const totalPkgs = children.reduce((s, e) => s + (e.children || []).length, 0);
+    let h = '';
+
+    // Compute global health
+    const gStats = _depTreeStats(children);
+
+    // Global root with health
+    h += `<div class="dep-node${_depSelectedScope === 'global' ? ' selected' : ''}" onclick="_depSelectScope('global')">`;
+    h += `<input type="checkbox" id="dep-chk-global" onclick="_depToggleGlobalCheck(event)" ${_depChecked.size === children.length && children.length > 0 ? 'checked' : ''}>`;
+    h += `<span class="dep-node-label" style="font-weight:600">Global</span>`;
+    h += `<span class="dep-node-badge">${children.length} eco · ${totalPkgs} pkg</span>`;
+    h += _depHealthBadges(gStats);
+    h += `</div>`;
+
+    // Ecosystems
+    for (const eco of children) {
+        const id = eco.id;
+        const expanded = _depExpanded.has(id);
+        const pkgs = eco.children || [];
+        const label = eco.label || id;
+
+        // Per-ecosystem health
+        const eStats = _depEcoStats(pkgs);
+
+        h += `<div style="margin-left:0.5rem">`;
+
+        // Ecosystem header with health
+        h += `<div class="dep-node${_depSelectedScope === id ? ' selected' : ''}" data-eco="${esc(id)}" onclick="_depSelectScope('${esc(id)}')">`;
+        h += `<span class="dep-node-chevron" onclick="_depToggleExpand('${esc(id)}',event)">${expanded ? '▼' : '▶'}</span>`;
+        h += `<input type="checkbox" ${_depChecked.has(id) ? 'checked' : ''} onclick="_depToggleCheck('${esc(id)}',event)">`;
+        h += `<span class="dep-node-label">${esc(label)}</span>`;
+        h += `<span class="dep-node-badge">${pkgs.length}</span>`;
+        h += _depHealthBadges(eStats);
+        h += `</div>`;
+
+        // Packages
+        if (expanded && pkgs.length) {
+            h += `<div class="dep-pkg-list">`;
+            for (const pkg of pkgs) {
+                const st = _depPkgState(pkg);
+                const sel = _depSelectedPkg && _depSelectedPkg.id === pkg.id;
+                h += `<div class="dep-pkg-node${sel ? ' selected' : ''}" data-pkg="${esc(pkg.id)}" onclick='_depSelectPackage(${JSON.stringify(pkg).replace(/'/g, "&#39;")})' title="${esc(st.detail)}">`;
+                h += `<span class="dep-node-label">${esc(st.name)}${st.declared ? ' ' + esc(st.declared) : ''}</span>`;
+                h += _depHintHtml(st);
+                h += `<span class="dep-node-status">${_depStatusHtml(st)}</span>`;
+                if (pkg.group) h += `<span class="dep-node-group">[${esc(pkg.group)}]</span>`;
+                h += `</div>`;
+            }
+            h += `</div>`;
+        }
+
+        h += `</div>`;
+    }
+
+    panel.innerHTML = h;
+}
+
+// ── Centralized package state computation ─────────────────────
+// Computes the REAL status from all available data:
+// declared (version spec) + installed (from venv) + latest (from registry) + notes
+
+function _depPkgState(pkg) {
+    const name = pkg.label ? pkg.label.split(' ')[0] : '';
+    const declared = pkg.version || '';
+    const installed = pkg.installedVersion
+        || (_depTargetInstalled && _depTargetInstalled[name.toLowerCase()])
+        || '';
+    const latest = pkg.latestVersion || '';
+    const regStatus = pkg.status || '';  // From version intel registry
+    const note = pkg.note || '';
+
+    // Determine real status
+    let status, icon, color, hint, detail;
+
+    if (regStatus === 'deprecated' || regStatus === 'eol' || regStatus === 'yanked') {
+        status = regStatus;
+        icon = '⛔';
+        color = 'var(--error)';
+        hint = '→ EOL';
+        detail = regStatus === 'yanked' ? 'Yanked from registry' : 'Deprecated / end of life';
+    } else if (note) {
+        status = 'acknowledged';
+        icon = '📝';
+        color = '#818cf8';
+        hint = '';
+        detail = note;
+    } else if (!installed && declared && _depInstalledLoaded) {
+        // Declared but NOT installed in the active target
+        // Only flag as missing AFTER we've actually loaded installed data
+        status = 'missing';
+        icon = '❌';
+        color = 'var(--error)';
+        hint = 'not installed';
+        detail = 'Declared in manifest but not found in the active environment';
+    } else if (installed && latest && installed !== latest) {
+        // Installed but not the latest
+        status = 'outdated';
+        icon = '⚠';
+        color = 'var(--warning)';
+        hint = `${installed} → ${latest}`;
+        detail = `Installed ${installed}, latest ${latest}`;
+    } else if (installed && latest && installed === latest) {
+        status = 'current';
+        icon = '✓';
+        color = 'var(--success)';
+        hint = installed;
+        detail = `Up to date (${installed})`;
+    } else if (installed && !latest) {
+        // Installed but no registry data — show installed as-is
+        status = 'installed';
+        icon = '●';
+        color = 'var(--text-secondary)';
+        hint = installed;
+        detail = `Installed ${installed} (no registry data)`;
+    } else if (regStatus === 'outdated' && latest) {
+        status = 'outdated';
+        icon = '⚠';
+        color = 'var(--warning)';
+        hint = `→ ${latest}`;
+        detail = `Latest ${latest} available`;
+    } else if (regStatus === 'current') {
+        status = 'current';
+        icon = '✓';
+        color = 'var(--success)';
+        hint = installed || '';
+        detail = 'Up to date';
+    } else {
+        // No installed, no latest, no registry — truly unknown
+        status = 'unknown';
+        icon = '◌';
+        color = 'var(--text-muted)';
+        hint = '';
+        detail = 'No version data available';
+    }
+
+    return { name, declared, installed, latest, status, icon, color, hint, detail, note };
+}
+
+function _depStatusHtml(state) {
+    return `<span style="color:${state.color}">${state.icon}</span>`;
+}
+
+function _depHintHtml(state) {
+    if (!state.hint) return '';
+    return `<span class="dep-node-hint" title="${esc(state.detail)}">${esc(state.hint)}</span>`;
+}
+
+// Legacy wrapper for places that just need the icon
+function _depStatusIcon(status) {
+    const m = { current:'✓', outdated:'⚠', deprecated:'⛔', eol:'⛔', yanked:'⛔', missing:'❌', installed:'●', acknowledged:'📝' };
+    const c = { current:'var(--success)', outdated:'var(--warning)', deprecated:'var(--error)', eol:'var(--error)', yanked:'var(--error)', missing:'var(--error)', installed:'var(--text-secondary)', acknowledged:'#818cf8' };
+    return `<span style="color:${c[status] || 'var(--text-muted)'}">${m[status] || '◌'}</span>`;
+}
+
+// ── Health stats helpers for tree panel ───────────────────────
+
+function _depEcoStats(pkgs) {
+    const s = { current: 0, outdated: 0, deprecated: 0, missing: 0, installed: 0, unknown: 0 };
+    for (const p of pkgs) {
+        const st = _depPkgState(p);
+        if (st.status === 'current') s.current++;
+        else if (st.status === 'outdated') s.outdated++;
+        else if (st.status === 'deprecated' || st.status === 'eol' || st.status === 'yanked') s.deprecated++;
+        else if (st.status === 'missing') s.missing++;
+        else if (st.status === 'installed') s.installed++;
+        else s.unknown++;
+    }
+    s.total = pkgs.length;
+    return s;
+}
+
+function _depTreeStats(children) {
+    const s = { current: 0, outdated: 0, deprecated: 0, missing: 0, installed: 0, unknown: 0, total: 0 };
+    for (const eco of children) {
+        const es = _depEcoStats(eco.children || []);
+        s.current += es.current;
+        s.outdated += es.outdated;
+        s.deprecated += es.deprecated;
+        s.missing += es.missing;
+        s.installed += es.installed;
+        s.unknown += es.unknown;
+        s.total += es.total;
+    }
+    return s;
+}
+
+function _depHealthBadges(s) {
+    // Compact health badges for tree nodes
+    let h = '';
+    if (s.missing) h += `<span style="color:var(--error);font-size:0.58rem;flex-shrink:0" title="${s.missing} missing">${s.missing}❌</span>`;
+    if (s.deprecated) h += `<span style="color:var(--error);font-size:0.58rem;flex-shrink:0" title="${s.deprecated} deprecated">${s.deprecated}⛔</span>`;
+    if (s.outdated) h += `<span style="color:var(--warning);font-size:0.58rem;flex-shrink:0" title="${s.outdated} outdated">${s.outdated}⚠</span>`;
+    if (!h && s.current === s.total && s.total > 0) h = `<span style="color:var(--success);font-size:0.58rem;flex-shrink:0">✓</span>`;
+    if (!h && s.installed > 0) h = `<span style="color:var(--text-secondary);font-size:0.58rem;flex-shrink:0">${s.installed}●</span>`;
+    return h;
+}
+
+// ── Tree interactions ────────────────────────────────────────
+
+function _depToggleExpand(id, e) {
+    e.stopPropagation();
+    if (_depExpanded.has(id)) _depExpanded.delete(id); else _depExpanded.add(id);
+    _depRenderTree(_depTree);
+}
+
+function _depToggleCheck(id, e) {
+    e.stopPropagation();
+    if (_depChecked.has(id)) _depChecked.delete(id); else _depChecked.add(id);
+    _depRenderTree(_depTree);
+}
+
+function _depToggleGlobalCheck(e) {
+    e.stopPropagation();
+    const all = (_depTree?.children || []).map(c => c.id);
+    if (_depChecked.size === all.length) _depChecked.clear();
+    else { _depChecked.clear(); all.forEach(id => _depChecked.add(id)); }
+    _depRenderTree(_depTree);
+}
+
+function _depSelectScope(id) {
+    _depSelectedScope = id;
+    _depSelectedPkg = null;
+    _depRenderTree(_depTree);
+    _depRenderOpPanel(id);
+    _depRenderEcoOverview(id);
+}
+
+function _depSelectPackage(pkg) {
+    _depSelectedPkg = pkg;
+    _depSelectedScope = pkg.ecosystem + ':' + (pkg.path || '.');
+    _depRenderTree(_depTree);
+    _depRenderOpPanel(_depSelectedScope);
+    _depRenderIntel(pkg);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  C2: Operation panel
+// ═══════════════════════════════════════════════════════════════
+
+function _depRenderOpPanel(scopeId) {
+    const panel = document.getElementById('dep-op-panel');
+    if (!panel) return;
+
+    if (!scopeId) {
+        panel.innerHTML = `<div style="color:var(--text-muted);font-size:0.82rem;line-height:1.8">Select an ecosystem or package in the tree to begin.<br><span style="font-size:0.72rem">Or check ecosystems and use Global scope for batch operations.</span></div>`;
+        return;
+    }
+
+    const isBatch = scopeId === 'global' || _depChecked.size > 1;
+    const eco = (_depTree?.children || []).find(e => e.id === scopeId);
+    const label = isBatch
+        ? `Global (${_depChecked.size || (_depTree?.children || []).length} ecosystems)`
+        : (eco ? eco.label : scopeId);
+
+    // Count packages by group
+    let pkgCount = 0;
+    let groups = {};
+    const countEcos = isBatch ? (_depTree?.children || []) : (eco ? [eco] : []);
+    for (const e of countEcos) {
+        for (const p of (e.children || [])) {
+            pkgCount++;
+            const g = p.group || 'main';
+            groups[g] = (groups[g] || 0) + 1;
+        }
+    }
+    const groupStr = Object.entries(groups).map(([g, n]) => `${n} ${g}`).join(' · ');
+
+    // Target info
+    const target = _depActiveTarget || 'system';
+    const targetInfo = (_depVenvInfo?.targets || []).find(t => t.path === target);
+    const targetLabel = targetInfo ? `${target} (Python ${targetInfo.python}${targetInfo.free_threaded ? ' FT' : ''})` : target;
+
+    panel.innerHTML = `
+        <div class="dep-scope-info">
+            <div class="dep-scope-title">${esc(label)}</div>
+            <div class="dep-scope-meta">
+                ${eco ? 'Path: ' + esc(eco.path || '.') + (eco.path === '.' ? ' (project root)' : '') + ' · ' : ''}${pkgCount} packages${groupStr ? ' (' + esc(groupStr) + ')' : ''}
+                <span style="margin-left:0.5rem;color:var(--text-muted)">→ ${esc(targetLabel)}</span>
+            </div>
+        </div>
+        <div class="dep-actions" id="dep-action-buttons">
+            <button class="btn btn-sm" onclick="_depDoAction('install')">Install</button>
+            <button class="btn btn-sm" onclick="_depDoAction('update')">Update</button>
+            <button class="btn btn-sm" onclick="_depDoAction('clean')">Clean</button>
+            <button class="btn btn-sm btn-ghost" onclick="_depDoAction('rollback')">Rollback</button>
+            <button class="btn btn-sm" id="dep-cancel-btn" onclick="depAbortOperation()" style="background:var(--error);color:white;border:none;display:none">⛔ Abort</button>
+            <div class="dep-actions-right">
+                <select class="dep-strategy" id="dep-strategy" title="Update strategy">
+                    <option value="compatible">compatible</option>
+                    <option value="latest">latest</option>
+                    <option value="exact">exact</option>
+                </select>
+                <label class="dep-dev-check"><input type="checkbox" id="dep-opt-dev"> dev</label>
+            </div>
+        </div>
+        <div class="dep-terminal" id="dep-terminal"></div>
+        <div class="dep-progress">
+            <span class="dep-progress-left" id="dep-op-progress"></span>
+            <span class="dep-progress-right" id="dep-op-status"></span>
+        </div>`;
+}
+
+function _depDoAction(action) {
+    const scope = _depSelectedScope || 'global';
+    const target = _depActiveTarget || 'system';
+    const targetInfo = (_depVenvInfo?.targets || []).find(t => t.path === target);
+
+    const opts = {
+        dev: document.getElementById('dep-opt-dev')?.checked || false,
+        frozen: true,
+        target_venv: target,
+        break_system: !!(targetInfo && targetInfo.is_system && (targetInfo.pep668 || targetInfo.risky)),
+    };
+
+    if (action === 'rollback') {
+        _depToggleSnapshots();
+        return;
+    }
+
+    if (action === 'clean') {
+        // Clean = uninstall all packages in the target, then reinstall from manifest
+        // For now, treat as install (fresh)
+        opts.frozen = false;
+        action = 'install';
+    }
+
+    if (typeof depRunOperation === 'function') {
+        depRunOperation(scope, action, opts);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Ecosystem overview (shown in detail panel when eco selected)
+// ═══════════════════════════════════════════════════════════════
+
+function _depRenderEcoOverview(scopeId) {
+    const panel = document.getElementById('dep-detail-panel');
+    if (!panel) return;
+
+    if (scopeId === 'global') {
+        // Global overview — show all ecosystems health
+        const children = _depTree?.children || [];
+        let h = `<div class="dep-intel"><div class="dep-intel-header"><span class="dep-intel-name">Project Dependencies</span></div>`;
+        h += `<div class="dep-intel-grid">`;
+        h += `<span class="dep-intel-label">Ecosystems:</span><span class="dep-intel-value">${children.length}</span>`;
+        const total = children.reduce((s, e) => s + (e.children || []).length, 0);
+        h += `<span class="dep-intel-label">Total packages:</span><span class="dep-intel-value">${total}</span>`;
+        const stats = _depCountStatuses(children);
+        if (stats.current) h += `<span class="dep-intel-label">Current:</span><span class="dep-intel-value" style="color:var(--success)">${stats.current}</span>`;
+        if (stats.outdated) h += `<span class="dep-intel-label">Outdated:</span><span class="dep-intel-value" style="color:var(--warning)">${stats.outdated}</span>`;
+        if (stats.deprecated) h += `<span class="dep-intel-label">Deprecated:</span><span class="dep-intel-value" style="color:var(--error)">${stats.deprecated}</span>`;
+        if (stats.unknown) h += `<span class="dep-intel-label">Unknown:</span><span class="dep-intel-value">${stats.unknown}</span>`;
+        h += `</div></div>`;
+        panel.innerHTML = h;
+        return;
+    }
+
+    const eco = (_depTree?.children || []).find(e => e.id === scopeId);
+    if (!eco) { panel.innerHTML = ''; return; }
+
+    const pkgs = eco.children || [];
+    const groups = {};
+    let current = 0, outdated = 0, deprecated = 0, unknown = 0;
+    for (const p of pkgs) {
+        const g = p.group || 'main';
+        groups[g] = (groups[g] || 0) + 1;
+        const s = p.status || 'unknown';
+        if (s === 'current') current++;
+        else if (s === 'outdated') outdated++;
+        else if (s === 'deprecated' || s === 'eol' || s === 'yanked') deprecated++;
+        else unknown++;
+    }
+
+    let h = `<div class="dep-intel">`;
+
+    // Header + stats
+    h += `<div class="dep-intel-header"><span class="dep-intel-name">${esc(eco.label)}</span></div>`;
+    h += `<div class="dep-intel-grid" style="margin-bottom:var(--space-sm)">`;
+    h += `<span class="dep-intel-label">Path:</span><span class="dep-intel-value">${esc(eco.path || '.')}${eco.path === '.' ? ' (project root)' : ''}</span>`;
+    h += `<span class="dep-intel-label">Packages:</span><span class="dep-intel-value">${pkgs.length} (${Object.entries(groups).map(([g,n]) => n + ' ' + g).join(' · ')})</span>`;
+    // Count using real state
+    let missing = 0, installed = 0;
+    for (const p of pkgs) {
+        const st = _depPkgState(p);
+        if (st.status === 'missing') missing++;
+        else if (st.status === 'installed') installed++;
+    }
+
+    h += `<span class="dep-intel-label">Health:</span><span class="dep-intel-value">`;
+    if (missing) h += `<span style="color:var(--error)">${missing} ❌ missing</span> `;
+    if (current) h += `<span style="color:var(--success)">${current} ✓</span> `;
+    if (installed) h += `<span style="color:var(--text-secondary)">${installed} ●</span> `;
+    if (outdated) h += `<span style="color:var(--warning)">${outdated} ⚠</span> `;
+    if (deprecated) h += `<span style="color:var(--error)">${deprecated} ⛔</span> `;
+    if (unknown) h += `<span style="color:var(--text-muted)">${unknown} ◌</span>`;
+    h += `</span>`;
+    h += `</div>`;
+
+    // Full package list with real state from all data sources
+    if (pkgs.length) {
+        h += `<div style="margin-top:var(--space-sm);padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">`;
+        for (const pkg of pkgs) {
+            const st = _depPkgState(pkg);
+            const group = pkg.group || 'main';
+
+            // Version columns: installed → latest
+            let verHtml = '';
+            if (st.installed) {
+                verHtml += `<span style="font-family:var(--font-mono);font-size:0.62rem;color:var(--text-secondary);min-width:5rem">${esc(st.installed)}</span>`;
+                if (st.latest && st.latest !== st.installed) {
+                    verHtml += `<span style="font-size:0.56rem;color:var(--text-muted)">→</span>`;
+                    verHtml += `<span style="font-family:var(--font-mono);font-size:0.62rem;color:var(--text-muted)">${esc(st.latest)}</span>`;
+                }
+            } else if (st.status === 'missing') {
+                verHtml += `<span style="font-size:0.62rem;color:var(--error)">not installed</span>`;
+            } else if (st.latest) {
+                verHtml += `<span style="font-size:0.62rem;color:var(--text-muted)">latest: ${esc(st.latest)}</span>`;
+            }
+
+            h += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;padding:0.15rem 0.2rem;overflow:hidden;white-space:nowrap;cursor:pointer;border-radius:2px;transition:background 0.1s" onmouseenter="this.style.background='var(--bg-card-hover)'" onmouseleave="this.style.background=''" onclick='_depSelectPackage(${JSON.stringify(pkg).replace(/'/g,"&#39;")})' title="${esc(st.detail)}">`;
+            h += `<span style="color:${st.color};min-width:0.9rem;text-align:center;flex-shrink:0">${st.icon}</span>`;
+            h += `<span style="color:var(--text-secondary);min-width:10rem;overflow:hidden;text-overflow:ellipsis">${esc(st.name)}</span>`;
+            h += `<span style="font-family:var(--font-mono);font-size:0.6rem;color:var(--text-muted);min-width:4.5rem">${esc(st.declared)}</span>`;
+            h += verHtml;
+            h += `<span style="font-size:0.54rem;color:var(--text-muted);background:var(--bg-inset);padding:0 0.2rem;border-radius:2px;flex-shrink:0;margin-left:auto">[${esc(group)}]</span>`;
+            h += `</div>`;
+        }
+        h += `</div>`;
+    }
+
+    h += `</div>`;
+    panel.innerHTML = h;
+}
+
+function _depCountStatuses(ecos) {
+    let current = 0, outdated = 0, deprecated = 0, unknown = 0;
+    for (const eco of ecos) {
+        for (const p of (eco.children || [])) {
+            const s = p.status || 'unknown';
+            if (s === 'current') current++;
+            else if (s === 'outdated') outdated++;
+            else if (s === 'deprecated' || s === 'eol' || s === 'yanked') deprecated++;
+            else unknown++;
+        }
+    }
+    return { current, outdated, deprecated, unknown };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  C3: Version intelligence panel
+// ═══════════════════════════════════════════════════════════════
+
+function _depRenderIntel(pkg) {
+    const panel = document.getElementById('dep-detail-panel');
+    if (!panel || !pkg) return;
+
+    const st = _depPkgState(pkg);
+
+    let h = `<div class="dep-intel">`;
+
+    // Header with status
+    h += `<div class="dep-intel-header">`;
+    h += `<span class="dep-intel-name">${esc(st.name)}</span>`;
+    h += `<span style="font-size:0.9rem">${_depStatusHtml(st)}</span>`;
+    h += `<span style="font-size:0.72rem;color:${st.color};font-weight:500">${esc(st.status.toUpperCase())}</span>`;
+    h += `</div>`;
+
+    // Info grid
+    h += `<div class="dep-intel-grid">`;
+    h += `<span class="dep-intel-label">Declared:</span><span class="dep-intel-value"><code>${esc(st.declared || '(any)')}</code></span>`;
+
+    // Installed version with target context
+    const targetLabel = _depActiveTarget || 'active';
+    if (st.installed) {
+        h += `<span class="dep-intel-label">Installed:</span><span class="dep-intel-value"><code>${esc(st.installed)}</code> <span style="font-size:0.62rem;color:var(--text-muted)">in ${esc(targetLabel)}</span></span>`;
+    } else if (st.status === 'missing') {
+        h += `<span class="dep-intel-label">Installed:</span><span class="dep-intel-value" style="color:var(--error)">❌ Not found in ${esc(targetLabel)}</span>`;
+    } else {
+        h += `<span class="dep-intel-label">Installed:</span><span class="dep-intel-value" style="color:var(--text-muted)">unknown</span>`;
+    }
+
+    if (st.latest) {
+        h += `<span class="dep-intel-label">Latest:</span><span class="dep-intel-value"><code>${esc(st.latest)}</code></span>`;
+    }
+    h += `<span class="dep-intel-label">Status:</span><span class="dep-intel-value" style="color:${st.color}">${esc(st.detail)}</span>`;
+
+    if (st.status === 'outdated' || st.status === 'deprecated') {
+        const breaking = st.latest && st.declared
+            ? (_depIsMajorBump(st.declared, st.latest) ? 'Yes (major version bump)' : 'No (minor/patch)')
+            : (st.latest && st.installed ? (_depIsMajorBump(st.installed, st.latest) ? 'Yes (major)' : 'No') : 'Unknown');
+        h += `<span class="dep-intel-label">Breaking:</span><span class="dep-intel-value">${esc(breaking)}</span>`;
+    }
+    if (pkg.group) {
+        h += `<span class="dep-intel-label">Group:</span><span class="dep-intel-value">${esc(pkg.group)}</span>`;
+    }
+    h += `<span class="dep-intel-label">Target:</span><span class="dep-intel-value">${esc(targetLabel)}</span>`;
+    h += `<span class="dep-intel-label">Source:</span><span class="dep-intel-value">${esc(pkg.ecosystem || '')} (${esc(pkg.path || '.')})</span>`;
+    h += `</div>`;
+
+    // Note
+    if (st.note) {
+        h += `<div class="dep-intel-note">📝 ${esc(st.note)}</div>`;
+    } else {
+        h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:var(--space-sm)">📝 Notes: (none)</div>`;
+    }
+
+    // Actions
+    h += `<div class="dep-intel-actions">`;
+    if (st.status === 'missing') {
+        h += `<button class="btn btn-sm" onclick="_depDoAction('install')" style="background:var(--error);color:white;border:none">Install Now</button>`;
+    } else if (st.status === 'outdated' && st.latest) {
+        h += `<button class="btn btn-sm" onclick="_depUpdatePkg('${esc(pkg.ecosystem)}','${esc(st.name)}','${esc(st.latest)}')">Update to ${esc(st.latest)}</button>`;
+        if (st.installed) {
+            h += `<button class="btn btn-sm btn-ghost" onclick="_depUpdatePkg('${esc(pkg.ecosystem)}','${esc(st.name)}','${esc(st.installed)}')">Pin ${esc(st.installed)}</button>`;
+        }
+    }
+    h += `<button class="btn btn-sm btn-ghost" onclick="_depAddNote('${esc(pkg.ecosystem)}','${esc(st.name)}','${esc(st.installed || st.declared || '')}')">${st.note ? 'Edit Note' : 'Add Note'}</button>`;
+    if (!st.latest && !st.installed) {
+        h += `<button class="btn btn-sm btn-ghost" onclick="_depCheckVersion('${esc(pkg.ecosystem)}','${esc(st.name)}')">Check Latest</button>`;
+    }
+    h += `</div>`;
+
+    h += `</div>`;
+    panel.innerHTML = h;
+}
+
+function _depUpdatePkg(eco, pkg, ver) {
+    const scope = eco + ':' + (_depSelectedPkg?.path || '.');
+    if (typeof depRunOperation === 'function') {
+        depRunOperation(scope, 'update', { packages: [pkg] });
+    }
+}
+
+function _depAddNote(eco, pkg, ver) {
+    const note = prompt('Note for ' + pkg + (ver ? ' ' + ver : '') + ':');
+    if (!note) return;
+    api('/dependencies/note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ecosystem: eco, package: pkg, version: ver, note }),
+    }).then(() => {
+        api('/dependencies/tree?bust=1').then(data => { _depTree = data; _depRenderTree(data); });
+    }).catch(e => console.error('Note failed:', e));
+}
+
+function _depCheckVersion(eco, pkg) {
+    api('/dependencies/versions?bust=1').then(() => {
+        api('/dependencies/tree?bust=1').then(data => { _depTree = data; _depRenderTree(data); });
+    }).catch(e => console.error('Version check failed:', e));
+}
+
+function _depIsMajorBump(from, to) {
+    const f = (from || '').replace(/^[^\d]*/, '').split('.');
+    const t = (to || '').replace(/^[^\d]*/, '').split('.');
+    return f.length > 0 && t.length > 0 && parseInt(t[0]) > parseInt(f[0]);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  C4: Remediation panel (post-operation)
+// ═══════════════════════════════════════════════════════════════
+
+function _depRenderRemediation(warnings, errors) {
+    const panel = document.getElementById('dep-detail-panel');
+    if (!panel) return;
+    if (!warnings.length && !errors.length) return;
+
+    let h = `<div class="dep-intel">`;
+    h += `<div class="dep-intel-header">`;
+    h += `<span class="dep-intel-name">Remediations</span>`;
+    h += `<span style="font-size:0.72rem;color:var(--text-muted)">(${warnings.length} warning${warnings.length !== 1 ? 's' : ''}, ${errors.length} error${errors.length !== 1 ? 's' : ''})</span>`;
+    h += `</div>`;
+
+    for (const w of warnings) {
+        h += `<div style="margin-bottom:var(--space-sm);padding:var(--space-sm);border:1px solid rgba(255,170,0,0.15);border-radius:var(--radius-sm)">`;
+        h += `<div style="font-size:0.75rem;color:var(--warning);margin-bottom:var(--space-xs)">⚠ ${esc(w.message)}</div>`;
+        h += `<div style="display:flex;gap:var(--space-xs);flex-wrap:wrap">`;
+        if (w.package) h += `<button class="btn btn-sm btn-ghost" onclick="_depUpdatePkg('${esc(_depSelectedScope?.split(':')[0] || 'pip')}','${esc(w.package)}','')" style="font-size:0.64rem">Upgrade</button>`;
+        if (w.package) h += `<button class="btn btn-sm btn-ghost" onclick="_depAddNote('${esc(_depSelectedScope?.split(':')[0] || 'pip')}','${esc(w.package)}','')" style="font-size:0.64rem">Acknowledge</button>`;
+        h += `<button class="btn btn-sm btn-ghost" style="font-size:0.64rem;color:var(--text-muted)" onclick="this.closest('.dep-intel').querySelector('[data-warn-id=\\'${warnings.indexOf(w)}\\']')?.remove()">Dismiss</button>`;
+        h += `</div></div>`;
+    }
+
+    for (const e of errors) {
+        h += `<div style="margin-bottom:var(--space-sm);padding:var(--space-sm);border:1px solid rgba(255,60,60,0.15);border-radius:var(--radius-sm)">`;
+        h += `<div style="font-size:0.75rem;color:var(--error);margin-bottom:var(--space-xs)">✗ ${esc(e.message)}</div>`;
+        h += `<div style="font-size:0.66rem;color:var(--text-muted)">Category: ${esc(e.category || 'unknown')}</div>`;
+        h += `</div>`;
+    }
+
+    h += `</div>`;
+    panel.innerHTML = h;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  C5: Snapshot bar
+// ═══════════════════════════════════════════════════════════════
+
+async function _depLoadSnapshots() {
+    try {
+        const data = await api('/dependencies/snapshots');
+        _depSnapshots = data.snapshots || [];
+    } catch (e) { _depSnapshots = []; }
+    _depRenderSnapshotBar(false);
+}
+
+function _depRenderSnapshotBar(expanded) {
+    const bar = document.getElementById('dep-snapshot-bar');
+    if (!bar) return;
+
+    const n = _depSnapshots.length;
+    if (!n) { bar.innerHTML = '▶ No snapshots yet'; bar.style.cursor = 'default'; return; }
+
+    let h = `${expanded ? '▼' : '▶'} Snapshots: ${n} available`;
+    if (_depSnapshots[0]) {
+        const ts = new Date(_depSnapshots[0].ts * 1000);
+        h += ` · Last: ${ts.toLocaleDateString()} ${ts.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+    }
+
+    if (expanded) {
+        h += `<div class="dep-snapshot-list">`;
+        for (const snap of _depSnapshots) {
+            const ts = new Date(snap.ts * 1000);
+            const d = ts.toLocaleDateString() + ' ' + ts.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+            const fc = (snap.files || []).length;
+            h += `<div class="dep-snapshot-row">`;
+            h += `<span style="min-width:10rem">${esc(d)}</span>`;
+            h += `<span style="min-width:4rem;color:var(--text-muted)">${esc(snap.operation || '?')}</span>`;
+            h += `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(snap.scope || '')}</span>`;
+            h += `<span style="color:var(--text-muted)">${fc} file${fc !== 1 ? 's' : ''}</span>`;
+            h += `<button class="btn btn-sm btn-ghost" onclick="_depRestore('${esc(snap.id)}')">Restore</button>`;
+            h += `</div>`;
+        }
+        h += `<div style="font-size:0.62rem;color:var(--text-muted);margin-top:var(--space-xs)">Restore copies files back and runs install to sync.</div>`;
+        h += `</div>`;
+    }
+
+    bar.innerHTML = h;
+    bar.dataset.expanded = expanded ? '1' : '0';
+}
+
+function _depToggleSnapshots() {
+    const bar = document.getElementById('dep-snapshot-bar');
+    if (!bar || !_depSnapshots.length) return;
+    _depRenderSnapshotBar(bar.dataset.expanded !== '1');
+}
+
+function _depRestore(snapId) {
+    if (typeof depRunOperation === 'function') {
+        depRunOperation(_depSelectedScope || 'pip:.', 'rollback', { snapshot_id: snapId });
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  E1: Dashboard — full dependency card inside Project Pulse
+// ═══════════════════════════════════════════════════════════════
+
+const _depCardIcons = { pip:'🐍', npm:'📦', go:'🔷', cargo:'🦀', bundler:'💎', maven:'☕', gradle:'🐘', mix:'💧', dotnet:'🔵' };
+let _depCardExpanded = new Set();  // Expanded ecosystem IDs in the card
+let _depCardTree = null;
+
+let _depVenvInfo = null;
+
+async function _depLoadCard() {
+    const pulse = document.getElementById('project-pulse');
+    if (!pulse) return;
+
+    // Remove previous
+    const old = document.getElementById('dep-card');
+    if (old) old.remove();
+
+    try {
+        // Fetch tree + venv info + installed in parallel
+        const [tree, venvs, installed] = await Promise.all([
+            (async () => { const c = cardCached('dep-card-data'); if (c) return c; const d = await api('/dependencies/tree'); cardStore('dep-card-data', d); return d; })(),
+            (async () => { try { return await api('/dependencies/venvs'); } catch(_) { return null; } })(),
+            (async () => { try { return await api('/dependencies/installed'); } catch(_) { return {}; } })(),
+        ]);
+
+        _depCardTree = tree;
+        _depTree = tree;
+        _depVenvInfo = venvs;
+        _depTargetInstalled = installed || {};
+        _depInstalledLoaded = Object.keys(_depTargetInstalled).length > 0;
+        // Set active target from venv info so _depPkgState labels correctly
+        if (!_depActiveTarget && venvs && venvs.active) {
+            _depActiveTarget = venvs.active;
+        }
+
+        const children = tree.children || [];
+        if (!children.length) return;
+
+        // Make 📦 span clickable
+        for (const span of pulse.querySelectorAll('span')) {
+            if (span.textContent.includes('📦')) {
+                span.style.cursor = 'pointer';
+                span.onclick = depOpenModal;
+                break;
+            }
+        }
+
+        _depRenderCard(pulse, children);
+    } catch (e) {
+        // Silent
+    }
+}
+
+function _depRenderCard(pulse, children) {
+    const old = document.getElementById('dep-card');
+    if (old) old.remove();
+
+    const totalPkg = children.reduce((s, e) => s + (e.children || []).length, 0);
+
+    // Count global stats using real state
+    let gCurrent = 0, gOutdated = 0, gDeprecated = 0, gUnknown = 0, gMissing = 0, gInstalled = 0;
+    for (const eco of children) {
+        for (const p of (eco.children || [])) {
+            const st = _depPkgState(p);
+            if (st.status === 'current') gCurrent++;
+            else if (st.status === 'outdated') gOutdated++;
+            else if (st.status === 'deprecated' || st.status === 'eol' || st.status === 'yanked') gDeprecated++;
+            else if (st.status === 'missing') gMissing++;
+            else if (st.status === 'installed') gInstalled++;
+            else gUnknown++;
+        }
+    }
+
+    const card = document.createElement('div');
+    card.id = 'dep-card';
+    card.style.cssText = 'width:100%;border-top:1px solid var(--border-subtle);margin-top:var(--space-sm);padding-top:var(--space-sm)';
+
+    let h = '';
+
+    // ── Active venv indicator ─────────────────────────────────
+    if (_depVenvInfo && _depVenvInfo.venvs && _depVenvInfo.venvs.length > 0) {
+        const activeVenv = _depVenvInfo.venvs.find(v => v.active);
+        const otherVenvs = _depVenvInfo.venvs.filter(v => !v.active);
+
+        if (activeVenv) {
+            h += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0.3rem;font-size:0.7rem;margin-bottom:0.3rem">`;
+            h += `<span style="color:var(--success)">●</span>`;
+            h += `<span style="color:var(--text-secondary)">Active: <strong>${esc(activeVenv.path)}</strong> (Python ${esc(activeVenv.python)}${activeVenv.free_threaded ? ' free-threaded' : ''})</span>`;
+            if (otherVenvs.length) {
+                h += `<span style="margin-left:auto;font-size:0.62rem;color:var(--text-muted)">Also: ${otherVenvs.map(v => v.path + ' (' + v.python + ')').join(', ')}</span>`;
+            }
+            h += `</div>`;
+        } else {
+            // No venv active — system Python
+            h += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0.3rem;font-size:0.7rem;margin-bottom:0.3rem">`;
+            h += `<span style="color:var(--warning)">●</span>`;
+            h += `<span style="color:var(--warning)">System Python ${esc(_depVenvInfo.active_python)} — no venv active</span>`;
+            h += `<span style="margin-left:auto;font-size:0.62rem;color:var(--text-muted)">Available: ${_depVenvInfo.venvs.map(v => v.path + ' (' + v.python + ')').join(', ')}</span>`;
+            h += `</div>`;
+        }
+    }
+
+    // ── Per-ecosystem collapsible sections ────────────────────
+    for (const eco of children) {
+        const ecoId = eco.id;
+        const pkgs = eco.children || [];
+        const expanded = _depCardExpanded.has(ecoId);
+        const icon = _depCardIcons[eco.ecosystem] || '📦';
+
+        // Count per-eco stats using real state
+        let eCur = 0, eOut = 0, eDep = 0, eMiss = 0, eInst = 0;
+        for (const p of pkgs) {
+            const pst = _depPkgState(p);
+            if (pst.status === 'current') eCur++;
+            else if (pst.status === 'outdated') eOut++;
+            else if (pst.status === 'deprecated' || pst.status === 'eol') eDep++;
+            else if (pst.status === 'missing') eMiss++;
+            else if (pst.status === 'installed') eInst++;
+        }
+
+        let healthHtml = '';
+        if (eMiss) healthHtml += `<span style="color:var(--error);font-weight:600;font-size:0.68rem">${eMiss} ❌</span> `;
+        if (eDep) healthHtml += `<span style="color:var(--error);font-weight:600;font-size:0.68rem">${eDep} ⛔</span> `;
+        if (eOut) healthHtml += `<span style="color:var(--warning);font-weight:600;font-size:0.68rem">${eOut} ⚠</span> `;
+        if (!healthHtml && eCur === pkgs.length && pkgs.length > 0) healthHtml = `<span style="color:var(--success);font-size:0.68rem">✓ up to date</span>`;
+        else if (!healthHtml && eInst > 0) healthHtml = `<span style="color:var(--text-secondary);font-size:0.68rem">${eInst} ● installed</span>`;
+        if (!healthHtml) healthHtml = `<span style="color:var(--text-muted);font-size:0.68rem">◌</span>`;
+
+        // Derive module name from path
+        const modName = eco.path === '.' ? 'root' : eco.path.replace(/^\.?\//, '');
+
+        // ── Ecosystem header row ─────────────────────────────
+        h += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.3rem;cursor:pointer;border-radius:var(--radius-sm);transition:background 0.1s" onmouseenter="this.style.background='var(--bg-card-hover)'" onmouseleave="this.style.background=''" onclick="_depCardToggle('${esc(ecoId)}')">`;
+        h += `<span style="font-size:0.5rem;min-width:0.8rem;color:var(--text-muted)">${expanded ? '▼' : '▶'}</span>`;
+        h += `<span style="font-size:0.85rem">${icon}</span>`;
+        h += `<span style="font-size:0.78rem;font-weight:500;color:var(--text-primary)">${esc(modName)}</span>`;
+        h += `<span style="font-size:0.66rem;color:var(--text-muted)">—</span>`;
+        h += `<span style="font-size:0.68rem;color:var(--text-secondary)">${esc(eco.label)}</span>`;
+        h += `<span style="font-size:0.64rem;color:var(--text-muted);margin-left:auto">${pkgs.length} pkg</span>`;
+        h += healthHtml;
+        h += `</div>`;
+
+        // ── Expanded: package grid ───────────────────────────
+        if (expanded) {
+            h += `<div style="padding:0.25rem 0 0.5rem 1.8rem">`;
+
+            // Package grid — using centralized state
+            h += `<div style="margin-bottom:var(--space-sm)">`;
+            for (const pkg of pkgs) {
+                const st = _depPkgState(pkg);
+                const group = pkg.group || 'main';
+
+                let verHtml = '';
+                if (st.installed) {
+                    verHtml += `<span style="font-family:var(--font-mono);font-size:0.62rem;color:var(--text-secondary);min-width:5rem">${esc(st.installed)}</span>`;
+                    if (st.latest && st.latest !== st.installed) {
+                        verHtml += `<span style="font-size:0.58rem;color:var(--text-muted)">→</span>`;
+                        verHtml += `<span style="font-family:var(--font-mono);font-size:0.62rem;color:var(--text-muted)">${esc(st.latest)}</span>`;
+                    }
+                } else if (st.status === 'missing') {
+                    verHtml += `<span style="font-size:0.62rem;color:var(--error)">not installed</span>`;
+                }
+
+                h += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;padding:0.15rem 0.2rem;overflow:hidden;white-space:nowrap;border-radius:2px;transition:background 0.1s" onmouseenter="this.style.background='var(--bg-card-hover)'" onmouseleave="this.style.background=''" title="${esc(st.detail)}">`;
+                h += `<span style="color:${st.color};min-width:0.9rem;text-align:center;flex-shrink:0">${st.icon}</span>`;
+                h += `<span style="color:var(--text-secondary);min-width:10rem;overflow:hidden;text-overflow:ellipsis">${esc(st.name)}</span>`;
+                h += `<span style="font-family:var(--font-mono);font-size:0.6rem;color:var(--text-muted);min-width:4.5rem">${esc(st.declared)}</span>`;
+                h += verHtml;
+                h += `<span style="font-size:0.54rem;color:var(--text-muted);background:var(--bg-inset);padding:0 0.2rem;border-radius:2px;flex-shrink:0;margin-left:auto">[${esc(group)}]</span>`;
+                h += `</div>`;
+            }
+            h += `</div>`;
+
+            // Per-ecosystem quick actions
+            h += `<div style="display:flex;gap:var(--space-xs)">`;
+            h += `<button class="btn btn-sm btn-ghost" onclick="_depCardAction('${esc(ecoId)}','install')" style="font-size:0.64rem;padding:0.15rem 0.5rem">Install</button>`;
+            h += `<button class="btn btn-sm btn-ghost" onclick="_depCardAction('${esc(ecoId)}','update')" style="font-size:0.64rem;padding:0.15rem 0.5rem">Update</button>`;
+            h += `<button class="btn btn-sm btn-ghost" onclick="_depCardAction('${esc(ecoId)}','clean')" style="font-size:0.64rem;padding:0.15rem 0.5rem">Clean</button>`;
+            h += `</div>`;
+
+            h += `</div>`;
+        }
+    }
+
+    // ── Summary + global actions ─────────────────────────────
+    h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-top:var(--space-sm);padding-top:var(--space-sm);border-top:1px solid var(--border-subtle);flex-wrap:wrap;gap:var(--space-xs)">`;
+
+    // Left: summary
+    let summary = `<span style="font-size:0.68rem;color:var(--text-muted)">${totalPkg} packages`;
+    if (gMissing) summary += ` · <span style="color:var(--error)">${gMissing} ❌ missing</span>`;
+    if (gOutdated) summary += ` · <span style="color:var(--warning)">${gOutdated} ⚠ outdated</span>`;
+    if (gDeprecated) summary += ` · <span style="color:var(--error)">${gDeprecated} ⛔ deprecated</span>`;
+    if (gCurrent) summary += ` · <span style="color:var(--success)">${gCurrent} ✓</span>`;
+    if (gInstalled) summary += ` · <span style="color:var(--text-secondary)">${gInstalled} ●</span>`;
+    summary += `</span>`;
+    h += summary;
+
+    // Right: global actions
+    h += `<div style="display:flex;gap:var(--space-xs);margin-left:auto;align-items:center">`;
+    h += `<button onclick="_depBustCard()" title="Refresh" style="font-size:0.7rem;cursor:pointer;background:none;border:none;color:var(--text-muted);padding:0">🔄</button>`;
+    h += `<button class="btn btn-sm btn-ghost" onclick="_depCardActionAll('install')" style="font-size:0.64rem;padding:0.15rem 0.5rem">Install All</button>`;
+    h += `<button class="btn btn-sm btn-ghost" onclick="_depCardActionAll('clean')" style="font-size:0.64rem;padding:0.15rem 0.5rem">Clean All</button>`;
+    h += `<button class="btn btn-sm btn-ghost" onclick="depOpenModal()" style="font-size:0.64rem;padding:0.15rem 0.5rem">Manage Dependencies</button>`;
+    h += `</div>`;
+
+    h += `</div>`;
+
+    card.innerHTML = h;
+    pulse.appendChild(card);
+}
+
+function _depCardToggle(ecoId) {
+    if (_depCardExpanded.has(ecoId)) _depCardExpanded.delete(ecoId);
+    else _depCardExpanded.add(ecoId);
+    const pulse = document.getElementById('project-pulse');
+    if (pulse && _depCardTree) _depRenderCard(pulse, _depCardTree.children || []);
+}
+
+async function _depBustCard() {
+    if (typeof cardStore === 'function') cardStore('dep-card-data', null);
+    _depInstalledLoaded = false;
+    _depTargetInstalled = {};
+    _depCardTree = null;
+    try {
+        // Bust all dependency caches
+        await Promise.all([
+            api('/dependencies/tree?bust=1'),
+            api('/dependencies/installed?bust=1'),
+        ]);
+    } catch (e) { /* silent */ }
+    _depLoadCard();
+}
+
+function _depCardAction(ecoId, action) {
+    depOpenModal(ecoId, action);
+}
+
+function _depCardActionAll(action) {
+    depOpenModal('global', action);
+}
+
+// Hook: load card after pulse loads
+const _origLoadPulse2 = typeof loadProjectPulse === 'function' ? loadProjectPulse : null;
+if (_origLoadPulse2) {
+    loadProjectPulse = async function() {
+        await _origLoadPulse2();
+        _depLoadCard();
+    };
+}
+
+// SSE listener: refresh card + modal when dependency data changes
+document.addEventListener('cache:done', function(e) {
+    const key = (e.detail && e.detail.key) || '';
+    if (key.startsWith('dependency.')) {
+        // Clear card cache and refresh
+        if (typeof cardStore === 'function') cardStore('dep-card-data', null);
+        _depInstalledLoaded = false;
+        _depTargetInstalled = {};
+        // Debounce refresh — multiple dependency nodes may recompute in sequence
+        clearTimeout(_depRefreshTimer);
+        _depRefreshTimer = setTimeout(function() {
+            _depLoadCard();
+            // If modal is open, refresh it too
+            if (document.getElementById('dep-modal')) {
+                api('/dependencies/installed').then(function(d) {
+                    _depTargetInstalled = d || {};
+                    _depInstalledLoaded = Object.keys(_depTargetInstalled).length > 0;
+                    api('/dependencies/tree').then(function(t) {
+                        _depTree = t;
+                        _depCardTree = t;
+                        _depRenderTree(t);
+                        if (_depSelectedScope) {
+                            _depRenderOpPanel(_depSelectedScope);
+                            _depRenderEcoOverview(_depSelectedScope);
+                        }
+                    }).catch(function() {});
+                }).catch(function() {});
+            }
+        }, 500);
+    }
+});
+let _depRefreshTimer = null;
+
+</script>

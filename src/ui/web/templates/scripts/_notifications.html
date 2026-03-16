@@ -201,6 +201,10 @@ function _renderNotifications(notifications) {
                 + ' data-recipe-label="' + _esc(n.meta.recipe_label || n.meta.recipe_id) + '"';
             actionHint = '<div class="notif-item-action-hint">Click to install →</div>';
             cursorStyle = ' style="cursor:pointer"';
+        } else if (n.meta && n.meta.action === 'open_venv_modal') {
+            actionAttr = ' data-action-type="open-venv-modal" data-notif-meta=\'' + JSON.stringify(n.meta).replace(/'/g, '&#39;') + '\'';
+            actionHint = '<div class="notif-item-action-hint">Click for setup options →</div>';
+            cursorStyle = ' style="cursor:pointer"';
         } else if (n.type && n.type.indexOf('wsl_') === 0 && n.meta && n.meta.action_tab) {
             actionAttr = ' data-action-type="navigate-tab"'
                 + ' data-action-tab="' + _esc(n.meta.action_tab) + '"'
@@ -389,6 +393,17 @@ function _notifItemAction(itemEl) {
                     },
                 });
             }
+            break;
+
+        case 'open-venv-modal':
+            var metaStr = itemEl.getAttribute('data-notif-meta');
+            try {
+                var meta = JSON.parse(metaStr);
+                if (typeof _depOpenVenvSetupModal === 'function') {
+                    if (_notifPanelOpen) _toggleNotifPanel();
+                    _depOpenVenvSetupModal(meta, notifId);
+                }
+            } catch(e) { console.error('Failed to parse venv meta:', e); }
             break;
 
         case 'navigate-tab':

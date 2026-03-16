@@ -24,6 +24,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -117,6 +118,8 @@ def run_operation(
     frozen: bool = True,
     snapshot_id: str | None = None,
     correlation_id: str | None = None,
+    target_python: str | None = None,
+    break_system: bool = False,
 ) -> Iterator[OpEvent]:
     """Execute a dependency operation and stream events.
 
@@ -133,6 +136,9 @@ def run_operation(
         frozen: Use lock file for install.
         snapshot_id: For rollback — which snapshot to restore.
         correlation_id: Chain ID for timeline grouping.
+        target_python: Python binary to use (for pip venv targeting).
+            ``None`` = use adapter default (``sys.executable``).
+        break_system: If True, add ``--break-system-packages`` (PEP 668).
 
     Yields:
         ``OpEvent`` — typed, transport-agnostic events.
@@ -214,6 +220,13 @@ def run_operation(
                        message=f"Unknown action: {action}",
                        severity="error")
         return
+
+    # ── 3b. Target rewriting (venv selection for pip) ───────
+    if target_python and cmd and cmd[0] == sys.executable:
+        cmd[0] = target_python
+    if break_system and "-m" in cmd and "pip" in cmd:
+        if "--break-system-packages" not in cmd:
+            cmd.append("--break-system-packages")
 
     yield OpEvent(type="operation_start", scope=scope,
                    command=" ".join(cmd))

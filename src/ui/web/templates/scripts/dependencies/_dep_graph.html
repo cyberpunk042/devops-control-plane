@@ -1,0 +1,160 @@
+<script>
+/* Dependencies — Graph view (E10) + Impact dialog (C6).
+   Public: _depRenderGraphView(), _depShowImpact(eco, pkg, ver)
+*/
+
+// ═══════════════════════════════════════════════════════════════
+//  C7: Graph view
+// ═══════════════════════════════════════════════════════════════
+
+let _depGraphData = null;
+
+async function _depRenderGraphView() {
+    const tree = document.getElementById('dep-tree-panel');
+    const right = document.getElementById('dep-right-panel');
+    if (!right) return;
+
+    // Hide tree, take full width
+    if (tree) tree.style.display = 'none';
+    right.innerHTML = '<div class="dep-loading">◌ Building graph...</div>';
+
+    try {
+        _depGraphData = await api('/dependencies/graph');
+        _depDrawGraph(right, _depGraphData);
+    } catch (e) {
+        right.innerHTML = `<div class="dep-empty"><div class="dep-empty-title" style="color:var(--error)">Failed to load graph</div><div class="dep-empty-hint">${esc(e.message)}</div></div>`;
+    }
+}
+
+function _depDrawGraph(container, data) {
+    const modules = data.modules || [];
+    const shared = data.shared || [];
+
+    if (!modules.length) {
+        container.innerHTML = '<div class="dep-empty"><div class="dep-empty-title">No modules detected.</div></div>';
+        return;
+    }
+
+    const W = 860, pad = 20, colW = 170, pkgW = 150;
+    const modH = 46, pkgH = 26;
+    const cx = W / 2;
+
+    const left = modules.filter((_, i) => i % 2 === 0);
+    const right = modules.filter((_, i) => i % 2 === 1);
+    const H = Math.max(
+        Math.max(left.length, right.length) * (modH + 10) + pad * 2,
+        shared.length * (pkgH + 6) + pad * 2,
+        180
+    );
+
+    const mp = {}; // module positions
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" style="width:100%;max-height:${Math.min(H, 480)}px">`;
+    svg += `<style>
+        .gm rect{fill:var(--bg-card,#1a1f2e);stroke:var(--border,#2d3348);stroke-width:1;rx:6;cursor:pointer}
+        .gm:hover rect{stroke:#818cf8}
+        .gm text{fill:var(--text-secondary,#8892a8);font-size:11px;font-family:inherit}
+        .gm .ge{font-size:9px;fill:var(--text-muted,#5a6178)}
+        .gp rect{fill:var(--bg-inset,#141720);stroke:var(--border-subtle,#232838);stroke-width:1;rx:4}
+        .gp text{fill:var(--text-secondary,#8892a8);font-size:10px;font-family:inherit}
+        .gl{stroke:var(--border-subtle,#232838);stroke-width:1;fill:none}
+        .gl-w{stroke:var(--warning,#f59e0b);stroke-width:1.5}
+        .gl-e{stroke:var(--error,#ef4444);stroke-width:1.5}
+    </style>`;
+
+    // Modules
+    left.forEach((m, i) => {
+        const y = pad + i * (modH + 10);
+        mp[m.id] = { x: pad, y, s: 'L' };
+        svg += `<g class="gm"><rect x="${pad}" y="${y}" width="${colW}" height="${modH}"/>`;
+        svg += `<text x="${pad+8}" y="${y+20}">${_se(m.label)}</text>`;
+        svg += `<text class="ge" x="${pad+8}" y="${y+35}">${_se(m.ecosystem)}</text></g>`;
+    });
+    right.forEach((m, i) => {
+        const x = W - pad - colW, y = pad + i * (modH + 10);
+        mp[m.id] = { x, y, s: 'R' };
+        svg += `<g class="gm"><rect x="${x}" y="${y}" width="${colW}" height="${modH}"/>`;
+        svg += `<text x="${x+8}" y="${y+20}">${_se(m.label)}</text>`;
+        svg += `<text class="ge" x="${x+8}" y="${y+35}">${_se(m.ecosystem)}</text></g>`;
+    });
+
+    // Shared packages (center)
+    const pp = {};
+    const py0 = pad + 10;
+    shared.forEach((s, i) => {
+        const x = cx - pkgW / 2, y = py0 + i * (pkgH + 6);
+        pp[s.package] = { x, y };
+        const sc = { current:'#22c55e', outdated:'#f59e0b', deprecated:'#ef4444' };
+        const col = sc[s.status] || '#5a6178';
+        svg += `<g class="gp"><rect x="${x}" y="${y}" width="${pkgW}" height="${pkgH}"/>`;
+        svg += `<text x="${x+6}" y="${y+17}">${_se(s.package)}${s.conflict ? ' ⚡' : ''}</text>`;
+        svg += `<text x="${x+pkgW-6}" y="${y+17}" text-anchor="end" fill="${col}" style="font-size:9px">${s.shared_by}×</text></g>`;
+    });
+
+    // Edges
+    for (const s of shared) {
+        const p = pp[s.package]; if (!p) continue;
+        const cls = s.status === 'deprecated' || s.status === 'eol' ? 'gl-e' : s.status === 'outdated' ? 'gl-w' : 'gl';
+        for (const cid of s.consumers) {
+            const m = mp[cid]; if (!m) continue;
+            const fx = m.s === 'L' ? m.x + colW : m.x;
+            const fy = m.y + modH / 2;
+            const tx = m.s === 'L' ? p.x : p.x + pkgW;
+            const ty = p.y + pkgH / 2;
+            const cx1 = fx + (tx - fx) * 0.4, cx2 = fx + (tx - fx) * 0.6;
+            svg += `<path class="${cls}" d="M${fx},${fy} C${cx1},${fy} ${cx2},${ty} ${tx},${ty}"/>`;
+        }
+    }
+
+    svg += `</svg>`;
+
+    let h = `<div style="padding:var(--space-sm) var(--space-lg);overflow:auto">${svg}`;
+    h += `<div style="display:flex;align-items:center;gap:var(--space-md);margin-top:var(--space-sm);font-size:0.66rem;color:var(--text-muted)">`;
+    h += `<span>── shared</span><span style="color:var(--warning)">── outdated</span><span style="color:var(--error)">── deprecated</span>`;
+    h += `<span style="margin-left:auto">${data.total_packages} packages · ${data.total_shared} shared</span>`;
+    h += `</div></div>`;
+
+    container.innerHTML = h;
+}
+
+function _se(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ═══════════════════════════════════════════════════════════════
+//  C6: Impact dialog
+// ═══════════════════════════════════════════════════════════════
+
+async function _depShowImpact(eco, pkg, toVer) {
+    try {
+        const d = await api(`/dependencies/impact?ecosystem=${encodeURIComponent(eco)}&package=${encodeURIComponent(pkg)}&to_version=${encodeURIComponent(toVer||'latest')}`);
+        if (d.shared_by <= 1) return true;
+
+        return new Promise(resolve => {
+            const rc = { low:'var(--success)', medium:'var(--warning)', high:'var(--error)' };
+            const el = document.createElement('div');
+            el.className = 'dep-overlay';
+            el.style.zIndex = '1001';
+            el.innerHTML = `
+            <div class="dep-modal" style="max-width:480px;padding:var(--space-xl)">
+                <div style="font-size:0.9rem;font-weight:600;margin-bottom:var(--space-sm)">⚠ Impact Analysis</div>
+                <div style="font-size:0.78rem;margin-bottom:var(--space-md)">
+                    Updating <strong>${esc(pkg)}</strong> ${esc(d.from_version)} → ${esc(d.to_version)}
+                </div>
+                <div style="font-size:0.75rem;line-height:1.6;color:var(--text-secondary);margin-bottom:var(--space-md)">
+                    <div>Shared by <strong>${d.shared_by}</strong> modules:</div>
+                    ${d.affected_labels.map(l => '<div style="padding-left:1rem">\u2022 ' + esc(l) + '</div>').join('')}
+                    <div style="margin-top:var(--space-xs)">Risk: <span style="color:${rc[d.risk]||'var(--text-muted)'};font-weight:600">${d.risk.toUpperCase()}</span>${d.breaking ? ' (breaking)' : ''}</div>
+                </div>
+                <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:var(--space-md)">${esc(d.detail)}</div>
+                <div style="display:flex;gap:var(--space-sm);justify-content:flex-end">
+                    <button class="btn btn-sm btn-ghost" id="dep-impact-no">Cancel</button>
+                    <button class="btn btn-sm" id="dep-impact-yes">Proceed</button>
+                </div>
+            </div>`;
+            document.body.appendChild(el);
+            el.querySelector('#dep-impact-no').onclick = () => { el.remove(); resolve(false); };
+            el.querySelector('#dep-impact-yes').onclick = () => { el.remove(); resolve(true); };
+            el.onclick = (e) => { if (e.target === el) { el.remove(); resolve(false); } };
+        });
+    } catch (e) { return true; }
+}
+
+</script>

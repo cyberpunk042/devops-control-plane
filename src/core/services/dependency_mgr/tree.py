@@ -40,6 +40,7 @@ def build_tree(
     parsed: list[ParsedManifest] | None = None,
     notes: dict[str, dict[str, Any]] | None = None,
     version_intel: dict[str, VersionIntel] | None = None,
+    installed_packages: dict[str, str] | None = None,
 ) -> TreeNode:
     """Build the scope tree from scanner output.
 
@@ -49,12 +50,16 @@ def build_tree(
         parsed: Phase 2 output (optional — adds package children).
         notes: User annotations keyed by ``'{ecosystem}:{package}:{version}'``.
         version_intel: Version health keyed by ``'{ecosystem}:{package}'``.
+        installed_packages: Actually installed package versions keyed by
+            lowercase package name → version string.  From ``pip list``
+            in the active venv.
 
     Returns:
         Root ``TreeNode`` (``level="global"``) with ecosystem and package children.
     """
     notes = notes or {}
     version_intel = version_intel or {}
+    installed_packages = installed_packages or {}
 
     # Index parsed manifests by (ecosystem, path) for fast lookup
     parsed_index: dict[tuple[str, str], ParsedManifest] = {}
@@ -77,10 +82,14 @@ def build_tree(
     for (eco_id, rel_path), info in sorted(seen.items()):
         node_id = f"{eco_id}:{rel_path}"
 
-        # Human label from adapter, fallback to ecosystem id
+        # Human label: "Python (pip) — pyproject.toml" or
+        # "Node (npm) — .pages/code-docs/package.json"
         adapter = registry.get(eco_id)
         adapter_name = adapter.name if adapter else eco_id
-        label = f"{adapter_name} ({rel_path})" if rel_path != "." else adapter_name
+        manifest_part = info.manifest_file
+        if rel_path != ".":
+            manifest_part = f"{rel_path}/{info.manifest_file}"
+        label = f"{adapter_name} — {manifest_part}"
 
         eco_node = TreeNode(
             id=node_id,
@@ -93,7 +102,7 @@ def build_tree(
         # Add package children if Phase 2 data is available
         pm = parsed_index.get((eco_id, rel_path))
         if pm is not None:
-            _add_package_children(eco_node, pm, notes, version_intel)
+            _add_package_children(eco_node, pm, notes, version_intel, installed_packages)
 
         root.children.append(eco_node)
 
@@ -105,6 +114,7 @@ def _add_package_children(
     pm: ParsedManifest,
     notes: dict[str, dict[str, Any]],
     version_intel: dict[str, VersionIntel],
+    installed_packages: dict[str, str],
 ) -> None:
     """Populate package-level children on an ecosystem node."""
     eco_id = eco_node.ecosystem or ""
@@ -119,6 +129,9 @@ def _add_package_children(
 
         label = f"{dep.name} {version_str}" if version_str else dep.name
 
+        # Installed version from pip list (lookup by lowercase name)
+        inst_ver = installed_packages.get(dep.name.lower())
+
         pkg_node = TreeNode(
             id=pkg_id,
             label=label,
@@ -126,6 +139,7 @@ def _add_package_children(
             ecosystem=eco_id,
             path=rel_path,
             version=version_str or None,
+            installed_version=inst_ver,
             group=dep.group,
         )
 

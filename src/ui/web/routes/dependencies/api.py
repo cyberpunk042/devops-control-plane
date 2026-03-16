@@ -61,6 +61,100 @@ def dep_summary():
     return jsonify(result["data"])
 
 
+@dep_bp.route("/dependencies/venvs")
+def dep_venvs():
+    """Virtual environment info — available venvs, active, Python versions."""
+    force = request.args.get("bust", "") == "1"
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("dependency.venvs", force=force)
+    return jsonify(result["data"])
+
+
+@dep_bp.route("/dependencies/installed")
+@dep_bp.route("/dependencies/installed/<venv_name>")
+def dep_installed(venv_name=None):
+    """Installed packages in a venv (or active venv if no name).
+
+    Args:
+        venv_name: Venv directory name (e.g. ``.venv-ft``, ``.venv``, ``system``).
+            ``None`` = active venv via mediator cache.
+    """
+    if venv_name:
+        from src.core.services.dependency_mgr.venv_info import get_installed_packages
+        installed = get_installed_packages(_project_root(), venv_name)
+        return jsonify(installed)
+
+    force = request.args.get("bust", "") == "1"
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("dependency.installed", force=force)
+    return jsonify(result["data"])
+
+
+@dep_bp.route("/dependencies/versions")
+def dep_versions():
+    """Version intelligence (cached, 1hr TTL).
+
+    Query params:
+        bust=1 → force refresh (re-queries all registries)
+    """
+    force = request.args.get("bust", "") == "1"
+
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    result = m.get("dependency.versions", force=force)
+    return jsonify(result["data"])
+
+
+@dep_bp.route("/dependencies/graph")
+def dep_graph():
+    """Dependency graph — edges, shared deps, modules."""
+    from src.core.services.dependency_mgr.graph import build_graph
+    from src.core.services.mediator import get_mediator
+
+    force = request.args.get("bust", "") == "1"
+    m = get_mediator()
+    tree_result = m.get("dependency.tree", force=force)
+    tree_data = tree_result["data"] if tree_result else {}
+
+    graph = build_graph(tree_data)
+    return jsonify(graph.to_dict())
+
+
+@dep_bp.route("/dependencies/impact")
+def dep_impact():
+    """Impact analysis for upgrading a package.
+
+    Query params:
+        ecosystem: e.g. "pip"
+        package: e.g. "requests"
+        to_version: e.g. "2.32.3"
+    """
+    from src.core.services.dependency_mgr.graph import build_graph, analyze_impact
+    from src.core.services.mediator import get_mediator
+
+    ecosystem = request.args.get("ecosystem", "")
+    package = request.args.get("package", "")
+    to_version = request.args.get("to_version", "")
+
+    if not ecosystem or not package:
+        return jsonify({"error": "ecosystem and package are required"}), 400
+
+    m = get_mediator()
+    tree_result = m.get("dependency.tree")
+    tree_data = tree_result["data"] if tree_result else {}
+
+    graph = build_graph(tree_data)
+    impact = analyze_impact(graph, ecosystem, package, to_version or "latest")
+
+    if impact is None:
+        return jsonify({"error": f"Package {package} not found in {ecosystem}"}), 404
+
+    return jsonify(impact.to_dict())
+
+
 @dep_bp.route("/dependencies/snapshots")
 def dep_snapshots():
     """List rollback snapshots."""
@@ -92,6 +186,16 @@ def _stream_operation(action):
     root = _project_root()
     registry = _get_registry()
 
+    # Resolve target Python from venv path
+    target_venv = body.get("target_venv")  # e.g. ".venv-ft", ".venv", "system"
+    target_python = None
+    break_system = body.get("break_system", False)
+
+    if target_venv and target_venv != "system":
+        tp = root / target_venv / "bin" / "python"
+        if tp.is_file():
+            target_python = str(tp)
+
     def sse():
         for event in run_operation(
             root, scope, action,
@@ -101,6 +205,8 @@ def _stream_operation(action):
             frozen=body.get("frozen", True),
             snapshot_id=body.get("snapshot_id"),
             correlation_id=body.get("correlation_id"),
+            target_python=target_python,
+            break_system=break_system,
         ):
             yield f"data: {json.dumps(event.to_dict())}\n\n"
 
@@ -145,6 +251,15 @@ def _sync_operation(action):
     root = _project_root()
     registry = _get_registry()
 
+    # Resolve target Python
+    target_venv = body.get("target_venv")
+    target_python = None
+    break_system = body.get("break_system", False)
+    if target_venv and target_venv != "system":
+        tp = root / target_venv / "bin" / "python"
+        if tp.is_file():
+            target_python = str(tp)
+
     events = list(run_operation(
         root, scope, action,
         registry=registry,
@@ -153,6 +268,8 @@ def _sync_operation(action):
         frozen=body.get("frozen", True),
         snapshot_id=body.get("snapshot_id"),
         correlation_id=body.get("correlation_id"),
+        target_python=target_python,
+        break_system=break_system,
     ))
 
     # Find the done event

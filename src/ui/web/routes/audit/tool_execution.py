@@ -57,6 +57,17 @@ def _emit_completion_event(
         detail=detail,
     )
 
+    # Invalidate dependency caches so the dashboard/modal reflects new installs
+    if ok:
+        try:
+            from src.core.services.mediator import get_mediator
+            m = get_mediator()
+            if m:
+                m.invalidate("dependency.installed")
+                m.invalidate("dependency.tree")
+        except Exception:
+            pass
+
 
 # ── Phase 3: Plan execution ───────────────────────────────────
 

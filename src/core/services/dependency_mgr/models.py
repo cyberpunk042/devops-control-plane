@@ -166,6 +166,7 @@ class TreeNode:
     children: list[TreeNode] = field(default_factory=list)
     # Package-level fields (None for global/ecosystem nodes)
     version: str | None = None
+    installed_version: str | None = None  # Actually installed in active venv
     latest_version: str | None = None
     status: str | None = None      # "current", "outdated", "deprecated", "eol", "yanked", "unknown"
     group: str | None = None       # "main", "dev", etc.
@@ -186,6 +187,8 @@ class TreeNode:
             d["children"] = [c.to_dict() for c in self.children]
         if self.version is not None:
             d["version"] = self.version
+        if self.installed_version is not None:
+            d["installedVersion"] = self.installed_version
         if self.latest_version is not None:
             d["latestVersion"] = self.latest_version
         if self.status is not None:
@@ -207,6 +210,7 @@ class TreeNode:
             path=d.get("path"),
             children=children,
             version=d.get("version"),
+            installed_version=d.get("installedVersion"),
             latest_version=d.get("latestVersion"),
             status=d.get("status"),
             group=d.get("group"),

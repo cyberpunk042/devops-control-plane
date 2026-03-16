@@ -39,9 +39,19 @@ _RE_REQ = re.compile(r"^([a-zA-Z0-9_.-]+)\s*(\[.*?\])?\s*([<>=!~]+.+)?$")
 _RE_PEP508 = re.compile(r"^([a-zA-Z0-9_.-]+)\s*(\[.*?\])?\s*([<>=!~,\s\d.*]+)?")
 
 
-def _pip_cmd(*args: str) -> list[str]:
-    """Build pip command using the current interpreter."""
-    return [sys.executable, "-m", "pip", *args]
+def _pip_cmd(*args: str, target_python: str | None = None, break_system: bool = False) -> list[str]:
+    """Build pip command for a specific Python target.
+
+    Args:
+        target_python: Path to python binary (e.g. ``.venv/bin/python``).
+            ``None`` = use ``sys.executable``.
+        break_system: If True, add ``--break-system-packages`` for PEP 668 systems.
+    """
+    python = target_python or sys.executable
+    cmd = [python, "-m", "pip", *args]
+    if break_system:
+        cmd.append("--break-system-packages")
+    return cmd
 
 
 def _load_toml(path: Path) -> dict:
@@ -196,14 +206,44 @@ class PipAdapter(EcosystemAdapter):
     def create_output_parser(self, scope: str) -> PipParser:
         return PipParser(scope)
 
-    # ── Version intelligence (stubs — Phase 3) ────────────────
+    # ── Version intelligence ─────────────────────────────────
 
     def fetch_latest_version(self, package: str) -> str | None:
-        return None
+        """Query PyPI JSON API for the latest version."""
+        try:
+            import urllib.request
+            import json as _json
+            url = f"https://pypi.org/pypi/{package}/json"
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = _json.loads(resp.read())
+                return data.get("info", {}).get("version")
+        except Exception:
+            return None
 
     def check_deprecated(
         self, package: str, version: str,
     ) -> tuple[bool, str]:
+        """Check PyPI classifiers for inactive/deprecated status."""
+        try:
+            import urllib.request
+            import json as _json
+            url = f"https://pypi.org/pypi/{package}/json"
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = _json.loads(resp.read())
+                classifiers = data.get("info", {}).get("classifiers", [])
+                for c in classifiers:
+                    if "Development Status :: 7 - Inactive" in c:
+                        return True, f"{package} is marked as Inactive on PyPI"
+                # Check if the specific version is yanked
+                releases = data.get("releases", {})
+                ver_files = releases.get(version, [])
+                if ver_files and all(f.get("yanked") for f in ver_files):
+                    reason = ver_files[0].get("yanked_reason", "")
+                    return True, f"{package} {version} is yanked" + (f": {reason}" if reason else "")
+        except Exception:
+            pass
         return False, ""
 
     # ── Internal: lock file detection ─────────────────────────
