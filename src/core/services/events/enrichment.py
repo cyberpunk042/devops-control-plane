@@ -13,38 +13,24 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# ── Path → card key (reuses activity subscriber mapping) ─────────────
+# Single source of truth for path→card_key is in activity.py.
+from src.core.services.mediator.subscribers.activity import (
+    _path_to_card_key,
+)
 
-def _path_to_card_key(path: str) -> str:
-    """Convert mediator path to the card key used by _extract_summary."""
-    _MAP = {
-        "devops.docker": "docker", "devops.k8s": "k8s",
-        "devops.git": "git", "devops.github": "github",
-        "devops.ci": "ci", "devops.terraform": "terraform",
-        "devops.env": "env", "devops.security": "security",
-        "devops.packages": "packages", "devops.quality": "quality",
-        "devops.testing": "testing", "devops.docs": "docs",
-        "devops.dns": "dns", "devops.status": "project-status",
-        "github.pulls": "gh-pulls", "github.runs": "gh-runs",
-        "github.workflows": "gh-workflows",
-        "audit.scores": "audit:scores", "audit.system": "audit:system",
-        "audit.deps": "audit:deps", "audit.structure": "audit:structure",
-        "audit.clients": "audit:clients",
-        "audit.system_deep": "audit:system:deep",
-        "audit.l2_structure": "audit:l2:structure",
-        "audit.l2_quality": "audit:l2:quality",
-        "audit.l2_repo": "audit:l2:repo",
-        "audit.l2_risks": "audit:l2:risks",
-        "audit.scores_enriched": "audit:scores:enriched",
-        "catalog.tools": "tools", "catalog.builders": "builders",
-        "catalog.scripts": "scripts", "catalog.pages": "pages",
-        "posture.summary": "posture:summary",
-        "posture.full": "posture:full",
-    }
-    if path in _MAP:
-        return _MAP[path]
-    parts = path.split(".", 1)
-    return parts[1] if len(parts) > 1 else path
+
+def _to_dict(data: Any) -> dict:
+    """Convert dataclass, object, or dict to a plain dict. Returns {} on failure."""
+    if isinstance(data, dict):
+        return data
+    if hasattr(data, "__dataclass_fields__"):
+        try:
+            return {k: getattr(data, k, None) for k in data.__dataclass_fields__}
+        except Exception:
+            pass
+    if hasattr(data, "__dict__"):
+        return {k: v for k, v in data.__dict__.items() if not k.startswith("_")}
+    return {}
 
 
 # ── Semantic event type derivation ───────────────────────────────────
@@ -128,15 +114,8 @@ def extract_summary(path: str, data: Any) -> str:
     if not isinstance(data, dict):
         if isinstance(data, list):
             return f"{path.split('.')[-1]}: {len(data)} entries"
-        # Convert dataclass to dict for summary extraction
-        if hasattr(data, "__dataclass_fields__"):
-            try:
-                data = {k: getattr(data, k, None) for k in data.__dataclass_fields__}
-            except Exception:
-                return path.split(".")[-1]
-        elif hasattr(data, "__dict__"):
-            data = {k: v for k, v in data.__dict__.items() if not k.startswith("_")}
-        else:
+        data = _to_dict(data)
+        if not data:
             return path.split(".")[-1]
 
     # Posture nodes: summarize what was found
@@ -295,25 +274,11 @@ def extract_result_summary(path: str, data: Any) -> dict:
 
     Returns the MOST USEFUL information for the timeline entry detail.
     """
-    # Convert dataclass objects to dicts
-    if hasattr(data, "__dataclass_fields__"):
-        try:
-            import dataclasses
-            data = dataclasses.asdict(data)
-        except Exception:
-            try:
-                data = {k: getattr(data, k, None) for k in data.__dataclass_fields__}
-            except Exception:
-                pass
-
-    if not isinstance(data, dict):
-        if isinstance(data, list):
-            return {"count": len(data)}
-        # Try to extract attributes from objects
-        if hasattr(data, "__dict__"):
-            data = {k: v for k, v in data.__dict__.items() if not k.startswith("_")}
-        else:
-            return {}
+    if isinstance(data, list):
+        return {"count": len(data)}
+    data = _to_dict(data)
+    if not data:
+        return {}
 
     # ── Path-specific extractors ─────────────────────────────────
 

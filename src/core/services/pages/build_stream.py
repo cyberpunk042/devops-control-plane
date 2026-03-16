@@ -12,43 +12,15 @@ import shutil
 import time
 from pathlib import Path
 
-import logging
 import uuid
 
+from src.core.services.events.emit import emit_event
 from src.core.services.pages_builders import get_builder
 from .engine import (
     PAGES_WORKSPACE,
     ensure_gitignore,
     get_segment,
 )
-
-logger = logging.getLogger(__name__)
-
-
-def _emit_event(event_type, correlation_id, summary, detail=None, status="ok", duration_ms=0):
-    """Emit an event to the event store for timeline tracking."""
-    try:
-        from src.core.services.mediator import get_mediator
-        m = get_mediator()
-        if not m or not hasattr(m, "_event_store") or not m._event_store:
-            return
-        from src.core.services.events.models import Event
-        m._event_store.append(Event(
-            id="",
-            ts=time.time(),
-            type=event_type,
-            correlation_id=correlation_id,
-            source="route",
-            path=event_type,
-            status=status,
-            duration_ms=duration_ms,
-            summary=summary,
-            detail=detail or {},
-            origin="user",
-            actor="user",
-        ))
-    except Exception:
-        pass
 
 
 def build_segment_stream(
@@ -124,7 +96,7 @@ def build_segment_stream(
     stages_info = builder.pipeline_stages()
     chain_id = f"pages-build:{uuid.uuid4().hex[:8]}"
 
-    _emit_event(
+    emit_event(
         "pages.build.started", chain_id,
         f"Build started: {name} ({segment.builder})",
         detail={"segment": name, "builder": segment.builder,
@@ -170,7 +142,7 @@ def build_segment_stream(
         })
 
         if status == "done":
-            _emit_event(
+            emit_event(
                 "pages.build.stage.done", chain_id,
                 f"Stage done: {si.label} ({stage_ms}ms)",
                 detail={"segment": name, "stage": si.name,
@@ -182,7 +154,7 @@ def build_segment_stream(
                 "label": si.label, "duration_ms": stage_ms,
             }
         else:
-            _emit_event(
+            emit_event(
                 "pages.build.stage.failed", chain_id,
                 f"Stage failed: {si.label} — {error[:80]}",
                 detail={"segment": name, "stage": si.name,
@@ -230,7 +202,7 @@ def build_segment_stream(
         fail_name = failed_stages[0]["label"] if failed_stages else "?"
         summary = f"Build failed: {name} — {fail_name}"
 
-    _emit_event(
+    emit_event(
         "pages.build.completed" if all_ok else "pages.build.failed",
         chain_id, summary,
         detail={
@@ -244,15 +216,6 @@ def build_segment_stream(
         status="ok" if all_ok else "error",
         duration_ms=total_ms,
     )
-
-    # Force timeline recompute for live SSE push
-    try:
-        from src.core.services.mediator import get_mediator
-        m = get_mediator()
-        if m:
-            m.get("timeline.data", force=True)
-    except Exception:
-        pass
 
     yield {
         "type": "pipeline_done",

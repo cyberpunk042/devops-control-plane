@@ -234,6 +234,11 @@ class SystemPosture:
             self.overall_status = "unknown"
             return
 
+        # Ensure pillars are PillarResult objects (disk hydration may leave dicts)
+        for key, val in list(self.pillars.items()):
+            if isinstance(val, dict):
+                self.pillars[key] = PillarResult.from_dict(val)
+
         scoreable = [
             p.rank for p in self.pillars.values()
             if p.rank not in (RankLevel.NA, RankLevel.UNKNOWN)

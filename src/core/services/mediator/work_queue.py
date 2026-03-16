@@ -809,14 +809,32 @@ class WorkQueue:
                         if self._shutdown:
                             self._queue.task_done()
                             return
-                        # Only warn after 30s — normal contention is expected
-                        if wait_s >= 30 and wait_s % 30 == 0:
-                            logger.warning(
-                                "[WorkQueue] W%d blocked on capacity for %ds "
-                                "(size=%d, used=%d/%d) — possible stall",
-                                worker_id, wait_s, item.size,
-                                self._semaphore._used,
-                                self._semaphore._capacity,
+                        # Log slow active workers (awareness, not alarm)
+                        if wait_s == 30:
+                            # First notice: check for genuinely slow workers
+                            from src.core.observability.console import (
+                                console_worker_slow, console_worker_stall,
+                            )
+                            with self._worker_activity_lock:
+                                for wid, info in self._worker_activity.items():
+                                    if info and wid != worker_id:
+                                        elapsed = int(time.monotonic() - info["started_at"])
+                                        if elapsed >= 30:
+                                            console_worker_slow(
+                                                wid, info["path"],
+                                                elapsed, info["size"],
+                                            )
+                        elif wait_s >= 60 and wait_s % 60 == 0:
+                            # Escalate: this is a real stall
+                            from src.core.observability.console import console_worker_stall
+                            active = []
+                            with self._worker_activity_lock:
+                                for wid, info in self._worker_activity.items():
+                                    if info and wid != worker_id:
+                                        elapsed = int(time.monotonic() - info["started_at"])
+                                        active.append(f"{info['path']}({elapsed}s)")
+                            console_worker_stall(
+                                worker_id, item.path, wait_s, active,
                             )
 
             # ── Set thread-local yield check ───────────────────

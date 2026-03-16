@@ -76,9 +76,6 @@ _SECURITY_SOURCES_SET = frozenset({
 
 
 
-# (Dead functions removed: _get_entries, _get_entries_by_adapter,
-#  _mediator_domain, _build_facets — replaced by event store projections)
-
 
 def _build_chains(entries: list[TimelineEntry]) -> list[dict[str, Any]]:
     """Build chain summaries from entries that have a chain_id."""
@@ -264,13 +261,6 @@ def register_timeline(mediator: QueryMediator) -> None:
                 all_entry_dicts.append(entry_dict)
 
         # ── Source 2: External adapters (git, chat, github, ledger) ──
-        _EXTERNAL_SOURCES = [
-            "timeline.source.git_log",
-            "timeline.source.chat",
-            "timeline.source.github",
-            "timeline.source.ledger_runs",
-            "timeline.source.ledger_audits",
-        ]
         for path in _EXTERNAL_SOURCES:
             adapter_name = path.split(".")[-1]
             try:

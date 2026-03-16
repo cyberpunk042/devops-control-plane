@@ -252,6 +252,8 @@ def _poll_loop(
                     "[IndexWatcher] %d dirs changed, refreshing tree",
                     len(changed_dirs),
                 )
+                from src.core.observability.console import console_fs_change
+                console_fs_change(changed_dirs)
                 _publish_change_event(changed_dirs)
 
                 # Snapshot classify output BEFORE invalidation.
@@ -328,6 +330,9 @@ def _poll_loop(
                 # Start a tracked index cycle
                 import datetime as _dt
                 _cycle_id = f"cycle-{_dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+                _cycle_start_t = time.time()
+                from src.core.observability.console import console_cycle_start
+                console_cycle_start(_cycle_id)
                 _cycle_op = None
                 try:
                     tracker = mediator._tracker
@@ -634,6 +639,10 @@ def _poll_loop(
                                     ))
                             except Exception:
                                 pass
+                            # Console: cycle done
+                            from src.core.observability.console import console_cycle_done
+                            _cycle_elapsed = int((time.time() - _cycle_start_t) * 1000) if '_cycle_start_t' in dir() else 0
+                            console_cycle_done(_cycle_id, total_dispatched[0], _cycle_elapsed)
                             # Force recompute timeline.data so SSE pushes new events.
                             try:
                                 mediator.get("timeline.data", force=True)

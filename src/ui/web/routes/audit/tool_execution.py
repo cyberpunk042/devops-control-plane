@@ -22,6 +22,7 @@ from pathlib import Path
 
 from flask import current_app, jsonify, request
 
+from src.core.services.events.emit import emit_event
 from src.core.services.events.tracked import tracked
 from src.core.services.tool_install.path_refresh import refresh_server_path as _refresh_server_path
 from src.ui.web.helpers import bust_tool_caches
@@ -34,47 +35,27 @@ def _emit_completion_event(
     ok: bool, detail: dict,
 ):
     """Emit a rich event at the END of a streaming operation."""
-    import time as _time
-    try:
-        from src.core.services.mediator import get_mediator
-        m = get_mediator()
-        if not m or not hasattr(m, "_event_store") or not m._event_store:
-            return
-        from src.core.services.events.models import Event
-        from src.core.services.events.correlation import get_correlation
+    from src.core.services.events.correlation import get_correlation
 
-        verb = "updated" if mode == "update" else "installed"
-        if not ok:
-            summary = f"{tool} {mode} failed"
-            if detail.get("error"):
-                summary += f": {detail['error'][:80]}"
-        else:
-            summary = detail.get("message", f"{tool} {verb} successfully")
-            steps = detail.get("steps_completed")
-            if steps:
-                summary += f" ({steps} steps)"
+    verb = "updated" if mode == "update" else "installed"
+    if not ok:
+        summary = f"{tool} {mode} failed"
+        if detail.get("error"):
+            summary += f": {detail['error'][:80]}"
+    else:
+        summary = detail.get("message", f"{tool} {verb} successfully")
+        steps = detail.get("steps_completed")
+        if steps:
+            summary += f" ({steps} steps)"
 
-        m._event_store.append(Event(
-            id="",
-            ts=_time.time(),
-            type=event_type,
-            correlation_id=get_correlation(),
-            source="route",
-            path=event_type,
-            status="ok" if ok else "error",
-            duration_ms=detail.get("elapsed_ms", 0),
-            summary=summary,
-            detail=detail,
-            origin="user",
-            actor="user",
-        ))
-        # Force timeline recompute
-        try:
-            m.get("timeline.data", force=True)
-        except Exception:
-            pass
-    except Exception:
-        pass
+    emit_event(
+        event_type,
+        summary=summary,
+        correlation_id=get_correlation() or "",
+        status="ok" if ok else "error",
+        duration_ms=detail.get("elapsed_ms", 0),
+        detail=detail,
+    )
 
 
 # ── Phase 3: Plan execution ───────────────────────────────────

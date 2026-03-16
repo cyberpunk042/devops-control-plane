@@ -37,6 +37,85 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
+# ── Event type → human label catalog ──────────────────────────────────
+# Single source of truth for route event labels.
+# Used by _build_summary() to produce timeline summaries.
+# Add new entries here when adding @tracked routes.
+
+_EVENT_LABELS: dict[str, str] = {
+    # Tool install
+    "tools.plan.executed": "Install plan",
+    "tools.installed": "Tool install",
+    "tools.updated": "Tool update",
+    "tools.removed": "Tool remove",
+    # Vault
+    "vault.unlocked": "Vault unlock",
+    "vault.locked": "Vault lock",
+    "vault.key.added": "Key added",
+    "vault.key.updated": "Key updated",
+    "vault.key.deleted": "Key deleted",
+    "vault.key.moved": "Key moved",
+    "vault.section.renamed": "Section renamed",
+    "vault.exported": "Vault export",
+    "vault.imported": "Vault import",
+    "vault.env.activated": "Env activated",
+    # Pages
+    "pages.built": "Pages build",
+    "pages.deployed": "Pages deploy",
+    "pages.segment.created": "Segment created",
+    "pages.segment.updated": "Segment updated",
+    "pages.segment.deleted": "Segment deleted",
+    "pages.merged": "Pages merge",
+    "pages.initialized": "Pages init",
+    "pages.all.built": "Pages build all",
+    "pages.ci.generated": "Pages CI generated",
+    # Audit
+    "audit.run": "Audit run",
+    # Git
+    "git.committed": "Git commit",
+    "git.pulled": "Git pull",
+    "git.pushed": "Git push",
+    "git.stashed": "Git stash",
+    "git.stash.popped": "Git stash pop",
+    "git.merge.aborted": "Git merge abort",
+    "git.file.checked_out": "Git checkout",
+    # GitHub
+    "github.repo.created": "Repo created",
+    "github.visibility.changed": "Visibility changed",
+    "github.branch.set": "Default branch set",
+    "github.repo.renamed": "Repo renamed",
+    "github.logged_in": "GitHub login",
+    "github.logged_out": "GitHub logout",
+    "github.device_flow": "GitHub device auth",
+    # Terraform
+    "terraform.validated": "Terraform validate",
+    "terraform.planned": "Terraform plan",
+    "terraform.initialized": "Terraform init",
+    "terraform.applied": "Terraform apply",
+    "terraform.destroyed": "Terraform destroy",
+    "terraform.generated": "Terraform generate",
+    # CDP Test
+    "cdp_test.replay.started": "Test replay",
+    "cdp_test.replay.completed": "Test replay done",
+    "cdp_test.replay.cancelled": "Test replay cancelled",
+    "cdp_test.suite.recovered": "Suite recovered",
+    "cdp_test.git.synced": "Suite synced to git",
+    "cdp_test.git.removed": "Suite removed from git",
+    # Chat
+    "chat.message.sent": "Chat message",
+    "chat.message.deleted": "Chat message deleted",
+    "chat.message.updated": "Chat message updated",
+    "chat.message.moved": "Chat message moved",
+    "chat.thread.created": "Thread created",
+    "chat.thread.deleted": "Thread deleted",
+    # Plans
+    "plan.executed": "Plan executed",
+    "plan.cancelled": "Plan cancelled",
+    "plan.resumed": "Plan resumed",
+    "plan.step.skipped": "Plan step skipped",
+    "plan.git.synced": "Plan synced to git",
+}
+
 
 def tracked(
     event_type: str,
@@ -237,113 +316,73 @@ def _enrich_detail(detail: dict, resp_data: dict) -> None:
                 detail[key] = len(val)
 
 
-def _build_summary(
-    event_type: str, ctx: dict, status: str, detail: dict | None = None,
-) -> str:
-    """Build a human-readable summary from event type + context + detail."""
-    detail = detail or {}
+def _humanize_event_type(event_type: str) -> str:
+    """Fallback: derive a human label from a dotted event type."""
+    parts = event_type.split(".")
+    if len(parts) >= 2:
+        return " ".join(parts[-2:]).replace("_", " ").title()
+    return event_type.replace(".", " ").replace("_", " ").title()
 
-    _LABELS = {
-        "tools.plan.executed": "Install plan",
-        "tools.installed": "Tool install",
-        "tools.updated": "Tool update",
-        "tools.removed": "Tool remove",
-        "vault.unlocked": "Vault unlock",
-        "vault.locked": "Vault lock",
-        "vault.key.added": "Key added",
-        "vault.key.updated": "Key updated",
-        "vault.key.deleted": "Key deleted",
-        "vault.key.moved": "Key moved",
-        "vault.section.renamed": "Section renamed",
-        "vault.exported": "Vault export",
-        "vault.imported": "Vault import",
-        "vault.env.activated": "Env activated",
-        "pages.built": "Pages build",
-        "pages.deployed": "Pages deploy",
-        "audit.run": "Audit run",
-        "git.committed": "Git commit",
-        "git.pulled": "Git pull",
-        "git.pushed": "Git push",
-        "git.stashed": "Git stash",
-        "git.stash.popped": "Git stash pop",
-        "git.merge.aborted": "Git merge abort",
-        "git.file.checked_out": "Git checkout",
-        "github.repo.created": "Repo created",
-        "github.visibility.changed": "Visibility changed",
-        "github.branch.set": "Default branch set",
-        "github.repo.renamed": "Repo renamed",
-        "github.logged_in": "GitHub login",
-        "github.logged_out": "GitHub logout",
-        "github.device_flow": "GitHub device auth",
-        "terraform.validated": "Terraform validate",
-        "terraform.planned": "Terraform plan",
-        "terraform.initialized": "Terraform init",
-        "terraform.applied": "Terraform apply",
-        "terraform.destroyed": "Terraform destroy",
-        "terraform.generated": "Terraform generate",
-        "cdp_test.replay.started": "Test replay",
-        "cdp_test.replay.completed": "Test replay done",
-        "chat.message.sent": "Chat message",
-        "chat.message.deleted": "Chat message deleted",
-        "chat.message.updated": "Chat message updated",
-        "chat.message.moved": "Chat message moved",
-        "chat.thread.created": "Thread created",
-        "chat.thread.deleted": "Thread deleted",
-    }
-    label = _LABELS.get(event_type, "")
 
-    if not label:
-        # Fallback: humanize the event type
-        parts = event_type.split(".")
-        if len(parts) >= 2:
-            label = " ".join(parts[-2:]).replace("_", " ").title()
-        else:
-            label = event_type.replace(".", " ").replace("_", " ").title()
-
-    # Add target from context
+def _enrich_label(label: str, event_type: str, ctx: dict, detail: dict) -> str:
+    """Add contextual details (target, branch, key, message) to a label."""
+    # Target (tool, name, etc.)
     target = (ctx.get("tool") or ctx.get("tool_id") or ctx.get("name")
               or ctx.get("target") or detail.get("tool") or "")
     if target:
         label = f"{label}: {target}"
 
-    # Add branch for git ops
+    # Git branch
     branch = ctx.get("branch") or detail.get("branch") or ""
     if branch and "git" in event_type.lower():
         label += f" ({branch})"
 
-    # Add commit message for git commit
+    # Git commit message (overrides label)
     msg = ctx.get("message") or detail.get("message") or ""
     if msg and event_type == "git.committed":
-        label = f"Git commit: {msg[:60]}"
+        return f"Git commit: {msg[:60]}"
 
-    # Add env for vault ops
+    # Vault env
     env = ctx.get("env") or detail.get("env") or ""
     if env and "vault" in event_type:
         label += f" [{env}]"
 
-    # Add key name for vault key ops
+    # Vault key name
     key = ctx.get("key") or ""
     if key and "vault.key" in event_type:
         label += f": {key}"
 
-    # Chat message: show preview of text
+    # Chat message preview (overrides label)
     text = ctx.get("text") or ""
     if text and "chat.message" in event_type:
         preview = text[:60] + ("…" if len(text) > 60 else "")
-        label = f"Chat: {preview}"
+        return f"Chat: {preview}"
 
-    # Steps completed for install plans
+    # Plan steps
     steps = detail.get("steps_completed")
     if steps and "plan" in event_type:
         label += f" ({steps} steps)"
 
-    if status == "error":
-        err = detail.get("error", "")
-        if err:
-            label += f" — {err[:60]}"
-        else:
-            label += " — failed"
+    return label
 
+
+def _append_error(label: str, detail: dict | None) -> str:
+    """Append error info to a label."""
+    err = (detail or {}).get("error", "")
+    if err:
+        return f"{label} — {err[:60]}"
+    return f"{label} — failed"
+
+
+def _build_summary(
+    event_type: str, ctx: dict, status: str, detail: dict | None = None,
+) -> str:
+    """Build a human-readable summary from event type + context + detail."""
+    detail = detail or {}
+    label = _EVENT_LABELS.get(event_type) or _humanize_event_type(event_type)
+    label = _enrich_label(label, event_type, ctx, detail)
+    if status == "error":
+        label = _append_error(label, detail)
     return label
 
 
