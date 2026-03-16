@@ -81,6 +81,17 @@ def register_all(mediator: QueryMediator) -> None:
     # timeline.data depends on index.scan — it recomputes automatically
     # after every index cycle via the mediator dependency cascade.
     # No polling needed. SSE pushes cache:done live.
+    #
+    # Force an early computation so the timeline shows historical events
+    # immediately on startup (loaded from JSONL cold storage), not just
+    # after the first index cycle completes.
+    if event_store.count() > 0:
+        try:
+            mediator.get("timeline.data", force=True)
+            logger.info("mediator: timeline.data pre-computed from %d cold events",
+                        event_store.count())
+        except Exception:
+            logger.debug("mediator: timeline.data pre-compute failed", exc_info=True)
 
     logger.info(
         "mediator: registered %d nodes (%s)",
