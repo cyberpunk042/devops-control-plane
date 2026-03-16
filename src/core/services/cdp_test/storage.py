@@ -461,6 +461,117 @@ def remove_suite_from_git(project_root: Path, suite_id: str) -> bool:
     return True
 
 
+def recover_suite_from_history(project_root: Path, suite_id: str) -> TestSuite | None:
+    """Recover a deleted suite from ledger git history.
+
+    Searches the ledger branch history for the last version of the suite
+    file before it was deleted, restores it to both .state/ and .ledger/,
+    and commits the restoration.
+
+    Returns the recovered TestSuite or None if not found in history.
+    """
+    import subprocess
+
+    from src.core.services.ledger.worktree import (
+        ensure_worktree,
+        ledger_add_and_commit,
+        worktree_path,
+    )
+
+    # Already exists — no recovery needed
+    existing = get_suite(project_root, suite_id)
+    if existing is not None:
+        return existing
+
+    ensure_worktree(project_root)
+    wt = worktree_path(project_root)
+    rel_path = f"cdp-tests/suites/{suite_id}.json"
+
+    # Find the commit that deleted this file
+    try:
+        result = subprocess.run(
+            ["git", "log", "--all", "--diff-filter=D", "--format=%H",
+             "-1", "--", rel_path],
+            capture_output=True, text=True, timeout=10,
+            cwd=str(wt),
+        )
+        delete_commit = result.stdout.strip()
+        if not delete_commit:
+            logger.info("Suite %s not found in ledger history", suite_id)
+            return None
+
+        # Get the file content from the commit before deletion
+        result = subprocess.run(
+            ["git", "show", f"{delete_commit}^:{rel_path}"],
+            capture_output=True, text=True, timeout=10,
+            cwd=str(wt),
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            logger.warning("Could not read suite %s from history", suite_id)
+            return None
+
+        suite_json = result.stdout
+    except Exception as exc:
+        logger.warning("Failed to search ledger history for %s: %s", suite_id, exc)
+        return None
+
+    # Parse and validate
+    try:
+        data = json.loads(suite_json)
+        suite = TestSuite.from_dict(data)
+    except Exception as exc:
+        logger.warning("Failed to parse recovered suite %s: %s", suite_id, exc)
+        return None
+
+    # Restore to .state/
+    with _lock:
+        local_path = _suites_dir(project_root) / f"{suite_id}.json"
+        local_path.write_text(suite_json, encoding="utf-8")
+
+    # Restore to .ledger/ and commit
+    ledger_path = wt / rel_path
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text(suite_json, encoding="utf-8")
+
+    suite.in_git = True
+    try:
+        ledger_add_and_commit(
+            project_root,
+            paths=[rel_path],
+            message=f"cdp-test: recover suite {suite_id} from history",
+        )
+    except Exception as exc:
+        logger.warning("Failed to commit recovered suite %s: %s", suite_id, exc)
+
+    logger.info("Recovered suite %s from ledger history", suite_id)
+    return suite
+
+
+def check_suite_in_history(project_root: Path, suite_id: str) -> bool:
+    """Check if a deleted suite exists in the ledger git history."""
+    import subprocess
+
+    from src.core.services.ledger.worktree import (
+        ensure_worktree,
+        worktree_path,
+    )
+
+    ensure_worktree(project_root)
+    wt = worktree_path(project_root)
+    rel_path = f"cdp-tests/suites/{suite_id}.json"
+
+    try:
+        result = subprocess.run(
+            ["git", "log", "--all", "--diff-filter=D", "--format=%H",
+             "-1", "--", rel_path],
+            capture_output=True, text=True, timeout=10,
+            cwd=str(wt),
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        return False
+
+
 # ── Result CRUD ────────────────────────────────────────────────
 
 

@@ -298,6 +298,45 @@ def cdp_test_remove_suite_from_git():
     return jsonify({"ok": True, "suite_id": suite_id, "in_git": False})
 
 
+@cdp_test_bp.route("/cdp-test/suites/recover", methods=["POST"])
+@tracked("cdp_test.suite.recovered")
+def cdp_test_recover_suite():
+    """Recover a deleted suite from ledger git history.
+
+    Body (JSON): ``{"suite_id": "..."}``
+    """
+    from src.core.services.cdp_test.storage import recover_suite_from_history
+
+    root = _project_root()
+    data = request.get_json(silent=True) or {}
+    suite_id = data.get("suite_id", "")
+    if not suite_id:
+        return jsonify({"ok": False, "error": "suite_id is required"}), 400
+
+    suite = recover_suite_from_history(root, suite_id)
+    if suite is None:
+        return jsonify({
+            "ok": False,
+            "error": "Suite not found in git history",
+        }), 404
+
+    return jsonify({
+        "ok": True,
+        "suite_id": suite_id,
+        "suite": suite.to_dict(),
+    })
+
+
+@cdp_test_bp.route("/cdp-test/suites/<suite_id>/check-history")
+def cdp_test_check_suite_history(suite_id: str):
+    """Check if a deleted suite can be recovered from git history."""
+    from src.core.services.cdp_test.storage import check_suite_in_history
+
+    root = _project_root()
+    recoverable = check_suite_in_history(root, suite_id)
+    return jsonify({"ok": True, "recoverable": recoverable, "suite_id": suite_id})
+
+
 # ── Dependency checks ─────────────────────────────────────────
 
 

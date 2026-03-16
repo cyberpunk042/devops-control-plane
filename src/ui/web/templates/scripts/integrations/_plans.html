@@ -325,10 +325,14 @@
             _plansMetaCache.suites = {};
             _plansMetaCache.scripts = {};
             let _ioChanged = false;
+            const _missingSuites = []; // track missing suites for recovery
             for (let ri = 0; ri < stepList.length; ri++) {
                 const rs = stepList[ri];
                 if (rs.type === 'cdp_test' && rs.suite_id) {
                     const suite = await _plansFetchSuiteMeta(rs.suite_id);
+                    if (!suite) {
+                        _missingSuites.push({ step: ri, suite_id: rs.suite_id, name: rs.name || `Step ${ri + 1}` });
+                    }
                     if (suite) {
                         const newP = suite.outputs ? Object.keys(suite.outputs) : [];
                         const newC = suite.variables ? Object.keys(suite.variables) : [];
@@ -369,6 +373,76 @@
                         body: JSON.stringify({ steps: plan.steps }),
                     });
                 } catch (_e) { /* best-effort sync */ }
+            }
+
+            // ── Missing suite recovery ───────────────────────────
+            if (_missingSuites.length) {
+                // Check which ones are recoverable from git history
+                for (const ms of _missingSuites) {
+                    try {
+                        const check = await api(`/cdp-test/suites/${ms.suite_id}/check-history`);
+                        ms.recoverable = check.recoverable;
+                    } catch (_e) { ms.recoverable = false; }
+                }
+
+                const recoverableList = _missingSuites.filter(ms => ms.recoverable);
+                const lostList = _missingSuites.filter(ms => !ms.recoverable);
+
+                let msgHtml = '<div style="margin-bottom:12px"><strong>Missing Test Suites</strong></div>';
+                msgHtml += '<div style="font-size:0.72rem;margin-bottom:8px">Some suites referenced by this plan no longer exist:</div>';
+
+                for (const ms of _missingSuites) {
+                    const icon = ms.recoverable ? '🔄' : '❌';
+                    const label = ms.recoverable ? '(recoverable from git history)' : '(permanently lost)';
+                    msgHtml += `<div style="padding:4px 0;font-size:0.7rem">${icon} <strong>${_esc(ms.name)}</strong> — ${ms.suite_id.substring(0, 8)}… <span style="color:var(--text-muted)">${label}</span></div>`;
+                }
+
+                if (recoverableList.length) {
+                    msgHtml += `<div style="margin-top:12px"><button class="btn btn-sm btn-primary" id="_plans-recover-btn">Recover ${recoverableList.length} suite(s) from history</button></div>`;
+                }
+                if (lostList.length) {
+                    msgHtml += `<div style="margin-top:8px;font-size:0.66rem;color:var(--text-muted)">Lost suites must be re-recorded or the plan steps removed.</div>`;
+                }
+
+                modalOpen('Missing Suites', msgHtml, { width: '480px' });
+
+                if (recoverableList.length) {
+                    // Wait for user to click recover
+                    const recovered = await new Promise(resolve => {
+                        const btn = document.getElementById('_plans-recover-btn');
+                        if (!btn) { resolve(false); return; }
+                        btn.addEventListener('click', async () => {
+                            btn.disabled = true;
+                            btn.textContent = '⏳ Recovering…';
+                            let allOk = true;
+                            for (const ms of recoverableList) {
+                                try {
+                                    const res = await api('/cdp-test/suites/recover', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ suite_id: ms.suite_id }),
+                                    });
+                                    if (res.ok) {
+                                        _plansMetaCache.suites[ms.suite_id] = res.suite;
+                                    } else { allOk = false; }
+                                } catch (_e) { allOk = false; }
+                            }
+                            modalClose();
+                            resolve(allOk);
+                        });
+                    });
+
+                    if (recovered) {
+                        toast('✅ Suites recovered — re-running plan prep…', 'success');
+                        return _plansRun(planId); // retry with recovered suites
+                    } else {
+                        toast('⚠️ Some suites could not be recovered', 'warning');
+                        return;
+                    }
+                } else {
+                    // All missing and unrecoverable — can't proceed
+                    return;
+                }
             }
 
             // ── I/O Wiring Analysis ────────────────────────────────

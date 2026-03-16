@@ -977,51 +977,6 @@ def execute_plan(
         "variables": namespace,
     })
 
-    # Emit to event store for timeline
-    try:
-        from src.core.services.mediator import get_mediator
-        import time as _time
-        m = get_mediator()
-        if m and hasattr(m, "_event_store") and m._event_store:
-            from src.core.services.events.models import Event
-            ok = result.status == "passed"
-            summary = f"Plan: {plan.name} — {result.passed_steps}/{result.total_steps} passed"
-            if result.failed_steps:
-                summary += f", {result.failed_steps} failed"
-            if result.status == "cancelled":
-                summary = f"Plan cancelled: {plan.name}"
-            m._event_store.append(Event(
-                id="",
-                ts=_time.time(),
-                type="plan.completed" if ok else "plan.failed",
-                correlation_id=f"plan:{run_id[:8]}",
-                source="route",
-                path="plan.completed" if ok else "plan.failed",
-                status="ok" if ok else "error",
-                duration_ms=result.duration_ms or 0,
-                summary=summary,
-                detail={
-                    "run_id": run_id,
-                    "plan_id": plan.id,
-                    "plan_name": plan.name,
-                    "status": result.status,
-                    "passed": result.passed_steps,
-                    "failed": result.failed_steps,
-                    "skipped": result.skipped_steps,
-                    "total": result.total_steps,
-                    "duration_ms": result.duration_ms,
-                    "mode": plan.mode,
-                },
-                origin="user",
-                actor="user",
-            ))
-            try:
-                m.get("timeline.data", force=True)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
     logger.info(
         "Plan finished: run=%s plan=%s status=%s "
         "(%d/%d passed, %dms)",
@@ -1066,8 +1021,10 @@ def start_plan(
 
     def _run():
         global _active_plan
+        result = None
+        error_msg = None
         try:
-            execute_plan(
+            result = execute_plan(
                 project_root=project_root,
                 plan=plan,
                 callback=callback,
@@ -1077,17 +1034,77 @@ def start_plan(
             )
         except Exception as exc:
             logger.exception("Plan execution thread crashed: %s", exc)
+            error_msg = f"Plan crashed: {exc}"
             callback("plan:done", {
                 "run_id": run_id,
                 "plan_id": plan.id,
                 "status": "failed",
-                "error": f"Plan crashed: {exc}",
+                "error": error_msg,
             })
         finally:
             with _plan_lock:
                 global _active_plan
                 if _active_plan and _active_plan.run_id == run_id:
                     _active_plan = None
+
+            # Emit completion event to the event store (covers ALL outcomes)
+            try:
+                from src.core.services.mediator import get_mediator
+                import time as _time
+                m = get_mediator()
+                if m and hasattr(m, "_event_store") and m._event_store:
+                    from src.core.services.events.models import Event
+                    if result:
+                        ok = result.status == "passed"
+                        summary = f"Plan: {plan.name} — {result.passed_steps}/{result.total_steps} passed"
+                        if result.failed_steps:
+                            summary += f", {result.failed_steps} failed"
+                        if result.status == "cancelled":
+                            summary = f"Plan cancelled: {plan.name}"
+                        detail = {
+                            "run_id": run_id,
+                            "plan_id": plan.id,
+                            "plan_name": plan.name,
+                            "status": result.status,
+                            "passed": result.passed_steps,
+                            "failed": result.failed_steps,
+                            "skipped": result.skipped_steps,
+                            "total": result.total_steps,
+                            "duration_ms": result.duration_ms,
+                            "mode": plan.mode,
+                        }
+                        if result.error:
+                            detail["error"] = result.error[:200]
+                        dur = result.duration_ms or 0
+                    else:
+                        ok = False
+                        summary = f"Plan crashed: {plan.name}"
+                        if error_msg:
+                            summary += f" — {error_msg[:80]}"
+                        detail = {"run_id": run_id, "plan_id": plan.id,
+                                  "error": error_msg or "unknown"}
+                        dur = 0
+
+                    m._event_store.append(Event(
+                        id="",
+                        ts=_time.time(),
+                        type="plan.completed" if ok else "plan.failed",
+                        correlation_id=f"plan:{run_id[:8]}",
+                        source="route",
+                        path="plan.completed" if ok else "plan.failed",
+                        status="ok" if ok else "error",
+                        duration_ms=dur,
+                        summary=summary,
+                        detail=detail,
+                        origin="user",
+                        actor="user",
+                    ))
+                    try:
+                        m.get("timeline.data", force=True)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     plan_run.thread = threading.Thread(
         target=_run,
