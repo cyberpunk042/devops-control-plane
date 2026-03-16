@@ -67,7 +67,7 @@
             // ── Last commit ──
             if (data.last_commit) {
                 const c = data.last_commit;
-                const ago = _timeAgo(c.date);
+                const ago = _timeAgo(new Date(c.date).getTime() / 1000);
                 html += `<div style="display:flex;gap:0.5rem;align-items:baseline;font-size:0.78rem;color:var(--text-muted);padding:var(--space-xs) 0">` +
                     `<code style="color:var(--accent);font-family:var(--font-mono)">${esc(c.short_hash)}</code>` +
                     `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.message)}</span>` +
@@ -676,7 +676,6 @@
 
         } catch (e) {
             toast('Sync failed: ' + e.message, 'error');
-        } finally {
             _gitSyncChainId = null;
         }
     }
@@ -696,6 +695,7 @@
                 try {
                     await api('/git/pull', { method: 'POST', body: '{}', headers: _gitChainHeaders() });
                 } catch (e) {
+                    _gitSyncChainId = null;
                     if (e.message && (e.message.toLowerCase().includes('conflict') || e.message.includes('CONFLICT'))) {
                         toast('Conflicts detected during pull', 'warning');
                         cardInvalidate('git');
@@ -722,6 +722,8 @@
 
         } catch (e) {
             toast('Sync failed: ' + e.message, 'error');
+        } finally {
+            _gitSyncChainId = null;
         }
     }
 
@@ -907,7 +909,7 @@
                     { text: c.short_hash, cls: 'mono clickable' },
                     { text: c.message, cls: 'name' },
                     { text: c.author },
-                    { text: _timeAgo(c.date) },
+                    { text: _timeAgo(new Date(c.date).getTime() / 1000) },
                 ])
             );
         } catch (e) {
