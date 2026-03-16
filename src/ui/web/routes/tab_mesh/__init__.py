@@ -118,7 +118,17 @@ def chrome_status():
 
     status = require_chrome()
 
-    if not status["available"]:
+    if status["available"]:
+        # Chrome found — dismiss any stale missing notification
+        try:
+            from flask import current_app
+            from src.core.services.notifications import dismiss_notification_by_type
+            dismiss_notification_by_type(
+                Path(current_app.config["PROJECT_ROOT"]), "chrome_missing",
+            )
+        except Exception:
+            pass
+    else:
         # Create a notification with remediation guidance
         from flask import current_app
         from src.core.services.notifications import create_notification
@@ -256,7 +266,9 @@ def _check_wsl_interop_notifications() -> None:
         return
 
     from flask import current_app
-    from src.core.services.notifications import create_notification
+    from src.core.services.notifications import (
+        create_notification, dismiss_notification_by_type,
+    )
     from src.core.services.audit.l0_hw_detectors import _detect_wsl_interop
     from src.core.services.chrome.wsl_tunnel import get_active_tunnel
 
@@ -275,6 +287,12 @@ def _check_wsl_interop_notifications() -> None:
     hostname = interop.get("hostname")
     hostname_resolves = interop.get("hostname_local_resolves", False)
     curl_available = interop.get("curl_exe_available", False)
+
+    # ── Dismiss resolved notifications ──────────────────────
+    if hostname_resolves:
+        dismiss_notification_by_type(project_root, "wsl_hostname_resolution")
+    if curl_available:
+        dismiss_notification_by_type(project_root, "wsl_curl_exe_missing")
 
     # ── hostname.local not resolving (Layer 2) ────────────────
     if hostname and not hostname_resolves:
@@ -2202,6 +2220,8 @@ def wsl_start_tunnel():
             project_root = Path(current_app.config["PROJECT_ROOT"])
             dismiss_notification_by_type(project_root, "wsl_channel_upgrade")
             dismiss_notification_by_type(project_root, "wsl_firewall_rule")
+            dismiss_notification_by_type(project_root, "wsl_ip_changed")
+            dismiss_notification_by_type(project_root, "wsl_channel_setup")
 
             method_name = TUNNEL_METHODS[method]["label"]
             create_notification(
