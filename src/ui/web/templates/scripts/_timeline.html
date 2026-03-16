@@ -405,8 +405,18 @@ function _tlOnData(data) {
 }
 
 function _tlRenderFiltered() {
-  // Filter client-side from allEntries
-  let filtered = _tlState.allEntries.filter(_tlPassesFilter);
+  // Stage 1: side-panel filtered set (for rebuilding dropdown menus)
+  var sideFiltered = _tlState.allEntries.filter(_tlPassesSideFilter);
+  _tlRebuildMenusFromEntries(sideFiltered);
+
+  // Stage 2: full filter (side-panel + dropdown refinements)
+  let filtered = sideFiltered.filter(function(e) {
+    if (_tlState.sources.length && !_tlState.sources.includes(e.source)) return false;
+    if (_tlState.statuses.length && !_tlState.statuses.includes(e.status)) return false;
+    if (_tlState.severities.length && !_tlState.severities.includes(e.severity || 'none')) return false;
+    if (_tlState.locality && e.locality !== _tlState.locality) return false;
+    return true;
+  });
 
   // Sort
   filtered = _tlSortEntries(filtered);
@@ -562,7 +572,8 @@ function _tlFlushLive() {
 
 // ── Filter pipeline ──────────────────────────────────────────────────
 
-function _tlPassesFilter(entry) {
+// Stage 1: side-panel / structural filters (chain, domain, calendar, infra)
+function _tlPassesSideFilter(entry) {
   // Hide index infrastructure noise unless a chain is selected or explicitly shown
   if (!_tlState.chainFilter && !_tlState._showInfra && !_tlState._domainFilter) {
     var ref = entry.ref || '';
@@ -574,7 +585,6 @@ function _tlPassesFilter(entry) {
     var df = _tlState._domainFilter;
     var ea = entry.adapter || '';
     if (df.indexOf(':') > 0) {
-      // Subtype filter: "index:dirs" → adapter must be "index", subtype must contain "dirs"
       var dfParts = df.split(':');
       var dfAdapter = dfParts[0];
       var dfSub = dfParts.slice(1).join(':');
@@ -583,18 +593,12 @@ function _tlPassesFilter(entry) {
       if (ea !== df) return false;
     }
   }
-  if (_tlState.sources.length && !_tlState.sources.includes(entry.source)) return false;
-  if (_tlState.statuses.length && !_tlState.statuses.includes(entry.status)) return false;
-  if (_tlState.severities.length && !_tlState.severities.includes(entry.severity || 'none')) return false;
-  if (_tlState.locality && entry.locality !== _tlState.locality) return false;
   if (_tlState.chainFilter) {
     var cf = _tlState.chainFilter;
     var ecid = entry.chain_id || '';
     if (ecid === cf) {
       // Exact match — always pass
     } else if (cf.indexOf(':') > 0 && cf.startsWith(ecid + ':')) {
-      // Domain sub-chain (e.g. cf="cycle-xxx:audit", ecid="cycle-xxx")
-      // Only match if entry's adapter/domain matches the suffix
       var domain = cf.split(':').pop();
       if ((entry.adapter || '') !== domain) return false;
     } else {
@@ -608,6 +612,16 @@ function _tlPassesFilter(entry) {
     const hay = [entry.summary, entry.subtype, entry.ref, entry.source].join(' ').toLowerCase();
     if (!hay.includes(needle)) return false;
   }
+  return true;
+}
+
+// Stage 2: full filter (side-panel + dropdown refinements)
+function _tlPassesFilter(entry) {
+  if (!_tlPassesSideFilter(entry)) return false;
+  if (_tlState.sources.length && !_tlState.sources.includes(entry.source)) return false;
+  if (_tlState.statuses.length && !_tlState.statuses.includes(entry.status)) return false;
+  if (_tlState.severities.length && !_tlState.severities.includes(entry.severity || 'none')) return false;
+  if (_tlState.locality && entry.locality !== _tlState.locality) return false;
   return true;
 }
 
@@ -732,6 +746,22 @@ function _tlToggleMenu(name) {
   });
 }
 
+function _tlRebuildMenusFromEntries(entries) {
+  var bySource = {}, byStatus = {}, bySeverity = {};
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    var src = e.source || 'unknown';
+    bySource[src] = (bySource[src] || 0) + 1;
+    var st = e.status || 'ok';
+    byStatus[st] = (byStatus[st] || 0) + 1;
+    var sev = e.severity || 'none';
+    bySeverity[sev] = (bySeverity[sev] || 0) + 1;
+  }
+  _tlBuildSourceMenu(bySource);
+  _tlBuildStatusMenu(byStatus);
+  _tlBuildSeverityMenu(bySeverity);
+}
+
 function _tlBuildSourceMenu(domains) {
   const menu = document.getElementById('timeline-source-menu');
   if (!menu) return;
@@ -739,6 +769,7 @@ function _tlBuildSourceMenu(domains) {
   menu.innerHTML = sources.map(s => {
     const count = domains[s] || '';
     return `<label><input type="checkbox" value="${_tlEsc(s)}"
+      ${_tlState.sources.includes(s) ? 'checked' : ''}
       onchange="_tlApplyCheckFilter('source','${_tlEsc(s)}',this.checked)">
       ${_tlEsc(s.toUpperCase())} <span style="color:var(--text-muted);font-size:0.64rem">(${count})</span>
     </label>`;
@@ -1140,10 +1171,7 @@ function _tlDomainToggle(key) {
     }
   } else {
     _tlDomainExpanded.add(key);
-    // Clear any other active filters that would block entries
-    _tlState.sources     = [];
-    _tlState.statuses    = [];
-    _tlState.severities  = [];
+    // Clear cross-view selection state (not source/status/severity filters)
     _tlState.chainFilter = null;
     _tlState.dateFrom    = null;
     _tlState.dateTo      = null;
