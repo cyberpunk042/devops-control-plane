@@ -41,9 +41,10 @@
         const ms = opts.timeout || 30000;
         const timer = setTimeout(() => controller.abort(), ms);
         try {
+            const mergedHeaders = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
             const res = await fetch('/api' + path, {
-                headers: { 'Content-Type': 'application/json' },
                 ...opts,
+                headers: mergedHeaders,
                 signal: controller.signal,
             });
             clearTimeout(timer);

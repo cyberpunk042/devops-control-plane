@@ -483,6 +483,7 @@
             const data = await api('/git/commit', {
                 method: 'POST',
                 body: JSON.stringify(payload),
+                headers: _gitChainHeaders(),
             });
             modalClose();
             const changelogNote = data.changelog_updated ? ' 📋' : '';
@@ -645,9 +646,14 @@
 
     // ── Sync Flow ────────────────────────────────────────────────────
 
+    let _gitSyncChainId = null;
+
     async function gitSync() {
         if (!(await ensureGitAuth())) return;
         toast('Syncing…', 'info');
+
+        // Create a chain ID for the entire sync operation
+        _gitSyncChainId = 'git-sync:' + Date.now().toString(36);
 
         try {
             // 1) Check status
@@ -656,6 +662,7 @@
             // 2) If dirty → open commit modal and wait
             if (status.dirty) {
                 gitCommitModal({
+                    chainId: _gitSyncChainId,
                     onDone: async () => {
                         // After commit completes, continue sync
                         await _gitSyncPullPush();
@@ -669,7 +676,14 @@
 
         } catch (e) {
             toast('Sync failed: ' + e.message, 'error');
+        } finally {
+            _gitSyncChainId = null;
         }
+    }
+
+    function _gitChainHeaders() {
+        if (!_gitSyncChainId) return {};
+        return { 'X-Correlation-ID': _gitSyncChainId };
     }
 
     /** Internal: pull then push (called after optional commit in sync flow) */
@@ -680,7 +694,7 @@
             if (freshStatus.behind > 0) {
                 toast('Pulling remote changes…', 'info');
                 try {
-                    await api('/git/pull', { method: 'POST', body: '{}' });
+                    await api('/git/pull', { method: 'POST', body: '{}', headers: _gitChainHeaders() });
                 } catch (e) {
                     if (e.message && (e.message.toLowerCase().includes('conflict') || e.message.includes('CONFLICT'))) {
                         toast('Conflicts detected during pull', 'warning');
@@ -698,10 +712,11 @@
             const afterPull = await api('/git/status?bust=1');
             if (afterPull.ahead > 0) {
                 toast('Pushing…', 'info');
-                await api('/git/push', { method: 'POST', body: '{}' });
+                await api('/git/push', { method: 'POST', body: '{}', headers: _gitChainHeaders() });
             }
 
             toast('Sync complete ✅', 'success');
+            _gitSyncChainId = null;
             cardInvalidate('git');
             await loadGitCard();
 

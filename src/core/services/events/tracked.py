@@ -59,9 +59,14 @@ def tracked(
                 set_correlation, get_correlation, clear_correlation,
             )
 
-            # Resolve correlation: active chain > new correlation
+            # Resolve correlation: header > active chain > new correlation
             correlation_id = None
-            if chain_domain:
+            try:
+                from flask import request as _req
+                correlation_id = _req.headers.get("X-Correlation-ID")
+            except Exception:
+                pass
+            if not correlation_id and chain_domain:
                 tracker = _get_tracker()
                 if tracker:
                     correlation_id = tracker.get_chain(chain_domain)
