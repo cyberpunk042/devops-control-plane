@@ -609,6 +609,8 @@ def _poll_loop(
 
                     def _make_tier_dispatcher(
                         remaining_tiers: list[tuple[str, list[str], int]],
+                        _cid: str = _cycle_id,
+                        _cstart: float = _cycle_start_t,
                     ) -> None:
                         """Dispatch the first tier in the list, chain the rest."""
                         if not remaining_tiers:
@@ -633,16 +635,19 @@ def _poll_loop(
                                     _es.append(_Evt(
                                         id="", ts=time.time(),
                                         type="index.cycle.completed",
-                                        correlation_id=_cycle_id,
+                                        correlation_id=_cid,
                                         source="watcher",
                                         summary=f"Index cycle: {total_dispatched[0]} nodes dispatched",
                                     ))
                             except Exception:
                                 pass
                             # Console: cycle done
-                            from src.core.observability.console import console_cycle_done
-                            _cycle_elapsed = int((time.time() - _cycle_start_t) * 1000) if '_cycle_start_t' in dir() else 0
-                            console_cycle_done(_cycle_id, total_dispatched[0], _cycle_elapsed)
+                            try:
+                                from src.core.observability.console import console_cycle_done
+                                _cycle_elapsed = int((time.time() - _cstart) * 1000)
+                                console_cycle_done(_cid, total_dispatched[0], _cycle_elapsed)
+                            except Exception:
+                                pass
                             # Force recompute timeline.data so SSE pushes new events.
                             try:
                                 mediator.get("timeline.data", force=True)
@@ -691,13 +696,13 @@ def _poll_loop(
                             # Re-set correlation for event sourcing
                             try:
                                 from src.core.services.events.correlation import set_correlation
-                                set_correlation(_cycle_id)
+                                set_correlation(_cid)
                             except Exception:
                                 pass
                             # Re-set legacy cycle_id so next tier's dispatch captures it
                             try:
                                 from src.core.engine.operation_context import set_operation_id
-                                set_operation_id(_cycle_id)
+                                set_operation_id(_cid)
                             except Exception:
                                 pass
 
