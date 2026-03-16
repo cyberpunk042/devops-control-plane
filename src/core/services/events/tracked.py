@@ -160,6 +160,19 @@ _EVENT_LABELS: dict[str, str] = {
     "posture.tool.rescanned": "Posture tool rescan",
     # Content
     "content.saved.encrypted": "Encrypted content saved",
+    # Dependencies
+    "dependency.scan.completed": "Dependency scan",
+    "dependency.install.started": "Dependency install",
+    "dependency.install.completed": "Dependencies installed",
+    "dependency.install.failed": "Dependency install failed",
+    "dependency.update.started": "Dependency update",
+    "dependency.update.completed": "Dependencies updated",
+    "dependency.update.failed": "Dependency update failed",
+    "dependency.rollback.started": "Dependency rollback",
+    "dependency.rollback.completed": "Dependencies rolled back",
+    "dependency.rollback.failed": "Dependency rollback failed",
+    "dependency.note.added": "Dependency note added",
+    "dependency.note.removed": "Dependency note removed",
 }
 
 

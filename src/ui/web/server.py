@@ -99,6 +99,7 @@ def create_app(
     from src.ui.web.routes.k8s import k8s_bp
     from src.ui.web.routes.metrics import metrics_bp
     from src.ui.web.routes.packages import packages_bp
+    from src.ui.web.routes.dependencies import dep_bp
     from src.ui.web.routes.project import project_bp
     from src.ui.web.routes.quality import quality_bp
     from src.ui.web.routes.secrets import secrets_bp
@@ -138,6 +139,7 @@ def create_app(
     app.register_blueprint(integrations_bp, url_prefix="/api")
     app.register_blueprint(metrics_bp, url_prefix="/api")
     app.register_blueprint(packages_bp, url_prefix="/api")
+    app.register_blueprint(dep_bp, url_prefix="/api")
     app.register_blueprint(quality_bp, url_prefix="/api")
     app.register_blueprint(security_bp2, url_prefix="/api")
     app.register_blueprint(testing_bp, url_prefix="/api")

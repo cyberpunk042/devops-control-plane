@@ -40,6 +40,7 @@ def register_all(mediator: QueryMediator) -> None:
 
     from .tabmesh import register_tabmesh
     from .timeline import register_timeline
+    from .dependencies import register_dependencies
 
     register_index(mediator)    # root of the tree — everything depends on this
     register_detect(mediator)   # detect.* depends on index.classify
@@ -49,6 +50,7 @@ def register_all(mediator: QueryMediator) -> None:
     register_audit(mediator)    # audit.* — leaf, no cascade deps
     register_catalog(mediator)  # catalog.* — leaf, no cascade deps
     register_tabmesh(mediator)  # tabmesh.* — CDP status, leaf, no cascade deps
+    register_dependencies(mediator)  # dependency.* depends on index.scan
     register_timeline(mediator) # timeline.* — 23 nodes, own source adapters
 
     # ── Subscribers (after all domains) ────────────────────────

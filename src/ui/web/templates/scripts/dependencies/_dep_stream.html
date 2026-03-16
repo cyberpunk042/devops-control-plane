@@ -1,0 +1,255 @@
+/* Dependencies — SSE streaming client for install/update/rollback.
+
+   Consumes the pipeline's OpEvent stream via fetch + ReadableStream.
+   Same pattern as _pages_sse.html: batched DOM rendering via
+   requestAnimationFrame, abort support, auto-scroll.
+
+   Public API:
+     depRunOperation(scope, action, opts)  → returns abort function
+     depAbortOperation()                   → kill current stream
+*/
+
+    // ── State ────────────────────────────────────────────────────
+    let _depAbort = null;
+    let _depRunning = false;
+    let _depTimerId = null;
+
+    function _depSetRunning(running) {
+        _depRunning = running;
+        const cancelBtn = document.getElementById('dep-cancel-btn');
+        if (cancelBtn) cancelBtn.style.display = running ? '' : 'none';
+        const actionBtns = document.getElementById('dep-action-buttons');
+        if (actionBtns) {
+            for (const btn of actionBtns.querySelectorAll('button:not(#dep-cancel-btn)')) {
+                btn.disabled = running;
+            }
+        }
+    }
+
+    function depAbortOperation() {
+        if (_depAbort) { try { _depAbort.abort(); } catch(_){} _depAbort = null; }
+        if (_depTimerId) { clearInterval(_depTimerId); _depTimerId = null; }
+        _depSetRunning(false);
+    }
+
+    // ── Main entry point ─────────────────────────────────────────
+
+    function depRunOperation(scope, action, opts) {
+        opts = opts || {};
+
+        // Kill previous if running
+        depAbortOperation();
+
+        const termEl = document.getElementById('dep-terminal');
+        const statusEl = document.getElementById('dep-op-status');
+        const progressEl = document.getElementById('dep-op-progress');
+        if (!termEl || !statusEl) return () => {};
+
+        termEl.textContent = '';
+        if (progressEl) progressEl.textContent = '';
+        statusEl.innerHTML = '<span style="color:var(--text-muted)">⏳ Starting…</span>';
+
+        _depAbort = new AbortController();
+        _depSetRunning(true);
+
+        const startTs = performance.now();
+
+        // Live elapsed timer
+        _depTimerId = setInterval(() => {
+            const el = document.getElementById('dep-elapsed');
+            if (el) el.textContent = ((performance.now() - startTs) / 1000).toFixed(1) + 's';
+        }, 100);
+
+        // ── Batched line rendering ───────────────────────────────
+        const _lineBuf = [];
+        let _flushScheduled = false;
+
+        function _bufferLine(text, cls) {
+            _lineBuf.push({ text, cls });
+            if (!_flushScheduled) {
+                _flushScheduled = true;
+                requestAnimationFrame(_flushLines);
+            }
+        }
+
+        function _flushLines() {
+            _flushScheduled = false;
+            if (!_lineBuf.length) return;
+            const frag = document.createDocumentFragment();
+            for (const { text, cls } of _lineBuf) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                if (cls) div.className = cls;
+                frag.appendChild(div);
+            }
+            _lineBuf.length = 0;
+            termEl.appendChild(frag);
+            termEl.scrollTop = termEl.scrollHeight;
+        }
+
+        // ── Counters ─────────────────────────────────────────────
+        let resolvedCount = 0;
+        let warningCount = 0;
+        let errorCount = 0;
+
+        function _updateProgress() {
+            if (!progressEl) return;
+            const parts = [resolvedCount + ' resolved'];
+            if (warningCount) parts.push(warningCount + ' ⚠');
+            if (errorCount) parts.push(errorCount + ' ✗');
+            progressEl.textContent = parts.join(' · ');
+        }
+
+        // ── Event dispatcher ─────────────────────────────────────
+
+        function _handleEvent(evt) {
+            switch (evt.type) {
+                case 'snapshot_created':
+                    _bufferLine('📸 ' + (evt.message || 'Snapshot created'), 'dep-line-info');
+                    break;
+
+                case 'operation_start':
+                    _bufferLine('$ ' + (evt.command || ''), 'dep-line-cmd');
+                    statusEl.innerHTML = '<span style="color:#818cf8">⏳ Running: ' + esc(evt.scope || scope) + '</span>';
+                    break;
+
+                case 'log':
+                    _bufferLine(evt.line || '', '');
+                    break;
+
+                case 'package_resolved':
+                    _bufferLine('  ✓ ' + (evt.package || '') + ' ' + (evt.version || ''), 'dep-line-ok');
+                    resolvedCount++;
+                    _updateProgress();
+                    break;
+
+                case 'warning':
+                    _bufferLine('  ⚠ ' + (evt.message || ''), 'dep-line-warn');
+                    warningCount++;
+                    _updateProgress();
+                    break;
+
+                case 'error':
+                    if (evt.severity === 'error') {
+                        _bufferLine('  ✗ ' + (evt.message || ''), 'dep-line-error');
+                        errorCount++;
+                        _updateProgress();
+                    }
+                    break;
+
+                case 'progress':
+                    if (progressEl) progressEl.textContent = evt.message || '';
+                    break;
+
+                case 'operation_done':
+                case 'rollback_done': {
+                    _flushLines();
+                    const ok = evt.status === 'ok';
+                    const dur = ((evt.duration_ms || 0) / 1000).toFixed(1);
+                    statusEl.innerHTML = ok
+                        ? '<span style="color:var(--success)">✅ ' + esc(evt.message || 'Done') + ' — ' + dur + 's</span>'
+                        : '<span style="color:var(--error)">❌ ' + esc(evt.message || 'Failed') + '</span>';
+                    _cleanup();
+                    _depRefreshTree();
+                    break;
+                }
+
+                case 'batch_start':
+                    statusEl.innerHTML = '<span style="color:#818cf8">⏳ Batch: ' + (evt.detail?.ecosystems?.length || '?') + ' ecosystems</span>';
+                    break;
+
+                case 'batch_done': {
+                    _flushLines();
+                    const bOk = evt.status === 'ok';
+                    const bDur = ((evt.duration_ms || 0) / 1000).toFixed(1);
+                    statusEl.innerHTML = bOk
+                        ? '<span style="color:var(--success)">✅ ' + esc(evt.message || 'All done') + ' — ' + bDur + 's</span>'
+                        : '<span style="color:var(--error)">❌ ' + esc(evt.message || 'Batch failed') + '</span>';
+                    _cleanup();
+                    _depRefreshTree();
+                    break;
+                }
+
+                case 'rollback_start':
+                    _bufferLine('⏪ ' + (evt.message || 'Restoring snapshot…'), 'dep-line-info');
+                    break;
+            }
+        }
+
+        function _cleanup() {
+            if (_depTimerId) { clearInterval(_depTimerId); _depTimerId = null; }
+            _depSetRunning(false);
+        }
+
+        // ── Fetch streaming ──────────────────────────────────────
+
+        const url = '/api/dependencies/' + action + '/stream';
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scope, ...opts }),
+            signal: _depAbort.signal,
+        })
+        .then(response => {
+            if (!response.ok) {
+                statusEl.innerHTML = '<span style="color:var(--error)">❌ Server ' + response.status + '</span>';
+                _cleanup();
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            function read() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        _flushLines();
+                        if (_depRunning) {
+                            statusEl.innerHTML = '<span style="color:var(--warning)">⚠ Stream ended unexpectedly</span>';
+                            _cleanup();
+                        }
+                        return;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const raw of lines) {
+                        if (!raw.startsWith('data: ')) continue;
+                        let evt;
+                        try { evt = JSON.parse(raw.slice(6)); } catch(e) { continue; }
+                        _handleEvent(evt);
+                    }
+                    read();
+                }).catch(err => {
+                    if (err.name === 'AbortError') {
+                        statusEl.innerHTML = '<span style="color:var(--text-muted)">⛔ Aborted</span>';
+                    } else {
+                        statusEl.innerHTML = '<span style="color:var(--error)">⚠ Stream error: ' + esc(err.message) + '</span>';
+                    }
+                    _cleanup();
+                });
+            }
+            read();
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') return;
+            statusEl.innerHTML = '<span style="color:var(--error)">⚠ Connection failed: ' + esc(err.message) + '</span>';
+            _cleanup();
+        });
+
+        // Return abort function for external callers
+        return depAbortOperation;
+    }
+
+    // ── Tree refresh ─────────────────────────────────────────────
+
+    function _depRefreshTree() {
+        // After an operation completes, the dependency tree is stale.
+        // Invalidate the mediator cache and re-fetch.
+        api('/dependencies/tree?bust=1').then(data => {
+            if (typeof _depRenderTree === 'function') _depRenderTree(data);
+        }).catch(() => {});
+    }
