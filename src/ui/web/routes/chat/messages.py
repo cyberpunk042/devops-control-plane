@@ -125,6 +125,15 @@ def chat_send():
                     pass
             threading.Thread(target=_bg_push, args=(root,), daemon=True).start()
 
+        # Invalidate chat timeline source so the new message appears immediately
+        try:
+            from src.core.services.mediator import get_mediator
+            m = get_mediator()
+            if m:
+                m.invalidate("timeline.source.chat")
+        except Exception:
+            pass
+
         return jsonify(result)
     except GitIdentityError as e:
         return jsonify({

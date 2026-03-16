@@ -210,7 +210,8 @@ def _extract_request_context() -> dict:
         for key in ("tool", "tool_id", "env", "recipe", "plan_id",
                      "mode", "target", "action", "path", "name",
                      "query", "key", "file", "branch", "message",
-                     "commit", "visibility", "scenario_id", "step_id"):
+                     "commit", "visibility", "scenario_id", "step_id",
+                     "text", "thread_id"):
             val = body.get(key)
             if isinstance(val, str) and val:
                 ctx[key] = val
@@ -282,6 +283,12 @@ def _build_summary(
         "terraform.generated": "Terraform generate",
         "cdp_test.replay.started": "Test replay",
         "cdp_test.replay.completed": "Test replay done",
+        "chat.message.sent": "Chat message",
+        "chat.message.deleted": "Chat message deleted",
+        "chat.message.updated": "Chat message updated",
+        "chat.message.moved": "Chat message moved",
+        "chat.thread.created": "Thread created",
+        "chat.thread.deleted": "Thread deleted",
     }
     label = _LABELS.get(event_type, "")
 
@@ -318,6 +325,12 @@ def _build_summary(
     key = ctx.get("key") or ""
     if key and "vault.key" in event_type:
         label += f": {key}"
+
+    # Chat message: show preview of text
+    text = ctx.get("text") or ""
+    if text and "chat.message" in event_type:
+        preview = text[:60] + ("…" if len(text) > 60 else "")
+        label = f"Chat: {preview}"
 
     # Steps completed for install plans
     steps = detail.get("steps_completed")
