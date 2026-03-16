@@ -40,6 +40,9 @@ const _tlState = {
   navCalendar: [],        // per-day counts from /api/timeline/calendar
   navFilter:   '',        // chain search filter text
 
+  // Visibility
+  _hideSystemScans: true, // hide system/mediator scan chains by default
+
   // Selected entry
   selectedEntry: null,    // entry ID or index currently expanded
 };
@@ -313,7 +316,15 @@ function _tlToggleDetail(idx) {
     el.style.display = '';
     if (raw) raw.style.display = 'none';
     _tlState.selectedEntry = idx;
-    // Expand domain tree to this entry
+    // Update scroll-active indicator to this entry
+    document.querySelectorAll('.tl-scroll-active').forEach(e => e.classList.remove('tl-scroll-active'));
+    const entryEl = document.getElementById('tl-entry-' + idx);
+    if (entryEl) entryEl.classList.add('tl-scroll-active');
+    _tlLastScrollEntry = idx;
+    // Pause scroll sync so the detail expansion doesn't immediately override nav highlight
+    _tlScrollSyncPaused = true;
+    setTimeout(function() { _tlScrollSyncPaused = false; }, 500);
+    // Expand nav tree to this entry
     _tlRevealInNav(idx);
   } else {
     el.style.display = 'none';
@@ -330,9 +341,13 @@ function _tlRevealInNav(entryId) {
   if (_tlState.navMode === 'domains') {
     _tlHighlightDomainEntry(entryId);
   } else if (_tlState.navMode === 'chains' && entry.chain_id) {
-    // Expand the chain in chain view
-    _tlNavExpanded.add(entry.chain_id);
-    _tlNavRender();
+    // Expand the chain if it's the active filter
+    if (_tlState.chainFilter === entry.chain_id) {
+      _tlNavExpanded.add(entry.chain_id);
+      _tlNavRender();
+    }
+    // Always highlight in the nav
+    _tlHighlightChainEntry(entryId);
   } else if (_tlState.navMode === 'calendar') {
     _tlHighlightCalendarDate(entry.ts);
   }
@@ -426,7 +441,11 @@ function _tlRenderFiltered() {
       const detail = document.getElementById('tl-detail-' + selId);
       if (detail) detail.style.display = '';
       const entryEl = document.getElementById('tl-entry-' + selId);
-      if (entryEl) setTimeout(function() { entryEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 100);
+      if (entryEl) {
+        entryEl.classList.add('tl-scroll-active');
+        _tlLastScrollEntry = selId;
+        setTimeout(function() { entryEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 100);
+      }
       // Expand nav tree to this entry
       _tlRevealInNav(selId);
     }
@@ -818,6 +837,18 @@ function _isInfraChain(c) {
   return cid.endsWith(':index');
 }
 
+function _isSystemChain(c) {
+  // Only the raw full-cycle chain (cycle-xxx with no :domain suffix)
+  var cid = c.chain_id || '';
+  return cid.startsWith('cycle-') && cid.indexOf(':') < 0;
+}
+
+function _tlToggleHideSystem() {
+  _tlState._hideSystemScans = !_tlState._hideSystemScans;
+  _tlNavRender();
+  _tlRenderFiltered();
+}
+
 function _tlNavRenderChains() {
   var allFiltered = _tlState.navChains.filter(function(c) {
     return !_tlState.navFilter || (c.summary || c.chain_id).toLowerCase().includes(_tlState.navFilter);
@@ -826,7 +857,18 @@ function _tlNavRenderChains() {
   var mainChains = allFiltered.filter(function(c) { return !_isInfraChain(c); });
   var infraChains = allFiltered.filter(_isInfraChain);
 
-  if (!mainChains.length && !infraChains.length) return '<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No chains found</div>';
+  // Filter out system chains when toggle is on
+  if (_tlState._hideSystemScans) {
+    mainChains = mainChains.filter(function(c) { return !_isSystemChain(c); });
+  }
+
+  // Toggle header
+  var toggleLabel = _tlState._hideSystemScans ? 'Show system scans' : 'Hide system scans';
+  var toggleHtml = `<div style="text-align:center;padding:4px 8px;margin-bottom:4px;border-bottom:1px solid var(--border-color)">
+    <span onclick="_tlToggleHideSystem()" style="font-size:0.6rem;color:var(--accent);cursor:pointer;user-select:none">${toggleLabel}</span>
+  </div>`;
+
+  if (!mainChains.length && !infraChains.length) return toggleHtml + '<div style="padding:8px 12px;font-size:0.66rem;color:var(--text-muted)">No chains found</div>';
 
   function _renderChainItem(c) {
     const isExpanded = _tlNavExpanded.has(c.chain_id);
@@ -874,7 +916,7 @@ function _tlNavRenderChains() {
     </div>`;
   }
 
-  return html;
+  return toggleHtml + html;
 }
 
 let _tlToggleBusy = false;
@@ -882,14 +924,15 @@ function _tlNavToggleChain(chainId) {
   if (_tlToggleBusy) { console.warn('[TL] toggle re-entry blocked'); return; }
   _tlToggleBusy = true;
   try {
-    // Expand/collapse
-    if (_tlNavExpanded.has(chainId)) _tlNavExpanded.delete(chainId);
-    else _tlNavExpanded.add(chainId);
-    // Select/deselect (toggle) — single render pass
+    // Select/deselect (toggle) — expand follows selection
     if (_tlState.chainFilter === chainId) {
+      // Deselecting: collapse and clear filter
+      _tlNavExpanded.delete(chainId);
       _tlNavActiveChain    = null;
       _tlState.chainFilter = null;
     } else {
+      // Selecting: expand and set filter
+      _tlNavExpanded.add(chainId);
       _tlNavActiveChain    = chainId;
       _tlState.chainFilter = chainId;
     }
@@ -1414,7 +1457,11 @@ function _tlNavResizeEnd() {
 
 // ── Scroll sync ──────────────────────────────────────────────────────
 
+let _tlLastScrollEntry = null;
+let _tlScrollSyncPaused = false;
+
 function _tlSyncNavFromScroll() {
+  if (_tlScrollSyncPaused) return;
   // Find the entry closest to the viewport center
   const main = document.getElementById('timeline-main');
   if (!main) return;
@@ -1429,17 +1476,62 @@ function _tlSyncNavFromScroll() {
   });
   if (!closest) return;
 
+  const entryId = closest.id.replace('tl-entry-', '');
+
+  // Highlight the current entry in the list (right side indicator)
+  if (_tlLastScrollEntry !== entryId) {
+    // Remove ALL previous scroll-active markers (not just the last tracked one)
+    document.querySelectorAll('.tl-scroll-active').forEach(el => el.classList.remove('tl-scroll-active'));
+    closest.classList.add('tl-scroll-active');
+    _tlLastScrollEntry = entryId;
+  }
+
   if (_tlState.navMode === 'chains') {
-    const chain = closest.dataset.chain;
-    if (chain) _tlNavScrollTo(chain);
+    _tlHighlightChainEntry(entryId);
   } else if (_tlState.navMode === 'domains') {
-    const entryId = closest.id.replace('tl-entry-', '');
     _tlHighlightDomainEntry(entryId);
   } else if (_tlState.navMode === 'calendar') {
-    const entryId = closest.id.replace('tl-entry-', '');
     const allEntries = _tlState._filteredEntries || _tlState.allEntries || [];
     const entry = allEntries.find(e => e.id === entryId);
     if (entry) _tlHighlightCalendarDate(entry.ts);
+  }
+}
+
+function _tlHighlightChainEntry(entryId) {
+  if (!entryId) return;
+  // Remove previous highlights
+  document.querySelectorAll('#tl-nav-tree .tl-chain-scroll-active').forEach(el => el.classList.remove('tl-chain-scroll-active'));
+
+  // Find the entry's chain
+  const allEntries = _tlState._filteredEntries || _tlState.allEntries || [];
+  const entry = allEntries.find(e => e.id === entryId);
+  if (!entry || !entry.chain_id) return;
+
+  const chainId = entry.chain_id;
+
+  // If chain is expanded, highlight the specific member leaf
+  if (_tlNavExpanded.has(chainId)) {
+    // Look for the member node that scrolls to this entry
+    const memberEls = document.querySelectorAll('#tl-nav-tree .tl-nav-member');
+    for (const el of memberEls) {
+      const onclick = el.getAttribute('onclick') || '';
+      if (onclick.includes("'" + entryId + "'")) {
+        el.classList.add('tl-chain-scroll-active');
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        return;
+      }
+    }
+  }
+
+  // Otherwise highlight the parent chain node
+  const chainEls = document.querySelectorAll('#tl-nav-tree > .tl-nav-chain');
+  for (const el of chainEls) {
+    const onclick = el.getAttribute('onclick') || '';
+    if (onclick.includes("'" + chainId + "'")) {
+      el.classList.add('tl-chain-scroll-active');
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      break;
+    }
   }
 }
 
