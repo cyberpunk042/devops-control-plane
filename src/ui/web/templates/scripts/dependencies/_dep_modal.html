@@ -746,7 +746,7 @@ function _depRenderOpPanel(scopeId) {
         </div>`;
 }
 
-function _depDoAction(action) {
+async function _depDoAction(action) {
     const scope = _depSelectedScope || 'global';
     const target = _depActiveTarget || 'system';
     const targetInfo = (_depVenvInfo?.targets || []).find(t => t.path === target);
@@ -764,10 +764,28 @@ function _depDoAction(action) {
     }
 
     if (action === 'clean') {
-        // Clean = uninstall all packages in the target, then reinstall from manifest
-        // For now, treat as install (fresh)
         opts.frozen = false;
         action = 'install';
+    }
+
+    // Impact check for updates on shared packages (E10)
+    if (action === 'update' && _depSelectedPkg && typeof _depShowImpact === 'function') {
+        const eco = _depSelectedPkg.ecosystem || '';
+        const pkgName = _depSelectedPkg.label ? _depSelectedPkg.label.split(' ')[0] : '';
+        const latest = _depSelectedPkg.latestVersion || '';
+        if (eco && pkgName) {
+            const proceed = await _depShowImpact(eco, pkgName, latest);
+            if (!proceed) return;
+        }
+    }
+
+    // Batch: if Global scope, collect all checked or all ecosystem scopes
+    if (scope === 'global') {
+        const ecos = _depTree?.children || [];
+        const scopes = _depChecked.size > 0
+            ? Array.from(_depChecked)
+            : ecos.map(e => e.id);
+        opts.scopes = scopes;
     }
 
     if (typeof depRunOperation === 'function') {
@@ -978,15 +996,54 @@ function _depUpdatePkg(eco, pkg, ver) {
 }
 
 function _depAddNote(eco, pkg, ver) {
-    const note = prompt('Note for ' + pkg + (ver ? ' ' + ver : '') + ':');
-    if (!note) return;
+    const panel = document.getElementById('dep-detail-panel');
+    if (!panel) return;
+
+    // Inline note editor
+    const existing = _depSelectedPkg?.note || '';
+    let h = `<div class="dep-intel" style="margin-top:var(--space-sm)">`;
+    h += `<div style="font-size:0.78rem;font-weight:600;margin-bottom:var(--space-xs)">📝 ${existing ? 'Edit' : 'Add'} Note — ${esc(pkg)}</div>`;
+    h += `<textarea id="dep-note-input" style="width:100%;min-height:60px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:var(--space-sm);color:var(--text-primary);font-family:var(--font-sans);font-size:0.78rem;resize:vertical" placeholder="Why is this version pinned? What are you waiting for?">${esc(existing)}</textarea>`;
+    h += `<div style="display:flex;align-items:center;gap:var(--space-sm);margin-top:var(--space-xs)">`;
+    h += `<label style="font-size:0.66rem;color:var(--text-muted);display:flex;align-items:center;gap:0.3rem">Dismiss until: <input type="date" id="dep-note-dismiss" style="font-size:0.66rem;background:var(--bg-input);border:1px solid var(--border);border-radius:3px;padding:0.1rem 0.3rem;color:var(--text-secondary)"></label>`;
+    h += `<div style="margin-left:auto;display:flex;gap:var(--space-xs)">`;
+    if (existing) h += `<button class="btn btn-sm btn-ghost" onclick="_depRemoveNote('${esc(eco)}','${esc(pkg)}','${esc(ver)}')" style="font-size:0.66rem;color:var(--error)">Remove</button>`;
+    h += `<button class="btn btn-sm btn-ghost" onclick="_depRenderIntel(_depSelectedPkg)" style="font-size:0.66rem">Cancel</button>`;
+    h += `<button class="btn btn-sm" onclick="_depSaveNote('${esc(eco)}','${esc(pkg)}','${esc(ver)}')" style="font-size:0.66rem">Save</button>`;
+    h += `</div></div></div>`;
+
+    // Append below existing intel panel content
+    const noteEl = document.createElement('div');
+    noteEl.id = 'dep-note-editor';
+    noteEl.innerHTML = h;
+    // Remove existing editor if present
+    const old = document.getElementById('dep-note-editor');
+    if (old) old.remove();
+    panel.appendChild(noteEl);
+    document.getElementById('dep-note-input')?.focus();
+}
+
+function _depSaveNote(eco, pkg, ver) {
+    const text = (document.getElementById('dep-note-input')?.value || '').trim();
+    if (!text) return;
+    const dismiss = document.getElementById('dep-note-dismiss')?.value || null;
     api('/dependencies/note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ecosystem: eco, package: pkg, version: ver, note }),
+        body: JSON.stringify({ ecosystem: eco, package: pkg, version: ver, note: text, dismiss_until: dismiss }),
     }).then(() => {
-        api('/dependencies/tree?bust=1').then(data => { _depTree = data; _depRenderTree(data); });
-    }).catch(e => console.error('Note failed:', e));
+        _depBustModal();
+    }).catch(e => console.error('Note save failed:', e));
+}
+
+function _depRemoveNote(eco, pkg, ver) {
+    api('/dependencies/note', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ecosystem: eco, package: pkg, version: ver }),
+    }).then(() => {
+        _depBustModal();
+    }).catch(e => console.error('Note remove failed:', e));
 }
 
 function _depCheckVersion(eco, pkg) {
@@ -1010,31 +1067,56 @@ function _depRenderRemediation(warnings, errors) {
     if (!panel) return;
     if (!warnings.length && !errors.length) return;
 
+    const eco = _depSelectedScope ? _depSelectedScope.split(':')[0] : 'pip';
+
     let h = `<div class="dep-intel">`;
-    h += `<div class="dep-intel-header">`;
+    h += `<div class="dep-intel-header" style="justify-content:space-between">`;
     h += `<span class="dep-intel-name">Remediations</span>`;
-    h += `<span style="font-size:0.72rem;color:var(--text-muted)">(${warnings.length} warning${warnings.length !== 1 ? 's' : ''}, ${errors.length} error${errors.length !== 1 ? 's' : ''})</span>`;
+    h += `<span style="font-size:0.72rem;color:var(--text-muted)">${warnings.length} warning${warnings.length !== 1 ? 's' : ''} · ${errors.length} error${errors.length !== 1 ? 's' : ''}</span>`;
     h += `</div>`;
 
-    for (const w of warnings) {
-        h += `<div style="margin-bottom:var(--space-sm);padding:var(--space-sm);border:1px solid rgba(255,170,0,0.15);border-radius:var(--radius-sm)">`;
+    for (let i = 0; i < warnings.length; i++) {
+        const w = warnings[i];
+        h += `<div id="dep-rem-w-${i}" style="margin-bottom:var(--space-sm);padding:var(--space-sm);border:1px solid rgba(255,170,0,0.15);border-radius:var(--radius-sm)">`;
         h += `<div style="font-size:0.75rem;color:var(--warning);margin-bottom:var(--space-xs)">⚠ ${esc(w.message)}</div>`;
+        if (w.category) h += `<div style="font-size:0.64rem;color:var(--text-muted);margin-bottom:var(--space-xs)">${esc(w.category)}</div>`;
         h += `<div style="display:flex;gap:var(--space-xs);flex-wrap:wrap">`;
-        if (w.package) h += `<button class="btn btn-sm btn-ghost" onclick="_depUpdatePkg('${esc(_depSelectedScope?.split(':')[0] || 'pip')}','${esc(w.package)}','')" style="font-size:0.64rem">Upgrade</button>`;
-        if (w.package) h += `<button class="btn btn-sm btn-ghost" onclick="_depAddNote('${esc(_depSelectedScope?.split(':')[0] || 'pip')}','${esc(w.package)}','')" style="font-size:0.64rem">Acknowledge</button>`;
-        h += `<button class="btn btn-sm btn-ghost" style="font-size:0.64rem;color:var(--text-muted)" onclick="this.closest('.dep-intel').querySelector('[data-warn-id=\\'${warnings.indexOf(w)}\\']')?.remove()">Dismiss</button>`;
+        if (w.package) {
+            h += `<button class="btn btn-sm btn-ghost" onclick="_depRemUpgrade('${esc(eco)}','${esc(w.package)}')" style="font-size:0.64rem">Upgrade ${esc(w.package)}</button>`;
+            h += `<button class="btn btn-sm btn-ghost" onclick="_depAddNote('${esc(eco)}','${esc(w.package)}','')" style="font-size:0.64rem">Acknowledge</button>`;
+        }
+        h += `<button class="btn btn-sm btn-ghost" style="font-size:0.64rem;color:var(--text-muted)" onclick="document.getElementById('dep-rem-w-${i}')?.remove()">Dismiss</button>`;
         h += `</div></div>`;
     }
 
-    for (const e of errors) {
-        h += `<div style="margin-bottom:var(--space-sm);padding:var(--space-sm);border:1px solid rgba(255,60,60,0.15);border-radius:var(--radius-sm)">`;
+    for (let i = 0; i < errors.length; i++) {
+        const e = errors[i];
+        h += `<div id="dep-rem-e-${i}" style="margin-bottom:var(--space-sm);padding:var(--space-sm);border:1px solid rgba(255,60,60,0.15);border-radius:var(--radius-sm)">`;
         h += `<div style="font-size:0.75rem;color:var(--error);margin-bottom:var(--space-xs)">✗ ${esc(e.message)}</div>`;
-        h += `<div style="font-size:0.66rem;color:var(--text-muted)">Category: ${esc(e.category || 'unknown')}</div>`;
-        h += `</div>`;
+        if (e.category) h += `<div style="font-size:0.64rem;color:var(--text-muted);margin-bottom:var(--space-xs)">Category: ${esc(e.category)}</div>`;
+        h += `<div style="display:flex;gap:var(--space-xs);flex-wrap:wrap">`;
+        if (e.package) {
+            if (e.category === 'missing_dep') {
+                h += `<button class="btn btn-sm btn-ghost" onclick="_depDoAction('install')" style="font-size:0.64rem">Install Dependencies</button>`;
+            } else if (e.category === 'conflict') {
+                h += `<button class="btn btn-sm btn-ghost" onclick="_depUpdatePkg('${esc(eco)}','${esc(e.package)}','')" style="font-size:0.64rem">Resolve ${esc(e.package)}</button>`;
+            }
+        }
+        h += `<button class="btn btn-sm btn-ghost" style="font-size:0.64rem;color:var(--text-muted)" onclick="document.getElementById('dep-rem-e-${i}')?.remove()">Dismiss</button>`;
+        h += `</div></div>`;
     }
 
     h += `</div>`;
     panel.innerHTML = h;
+}
+
+function _depRemUpgrade(eco, pkg) {
+    // Trigger single-package update
+    const scope = eco + ':' + (_depSelectedPkg?.path || _depSelectedScope?.split(':').slice(1).join(':') || '.');
+    depRunOperation(scope, 'update', {
+        packages: [pkg],
+        target_venv: _depActiveTarget || 'system',
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════

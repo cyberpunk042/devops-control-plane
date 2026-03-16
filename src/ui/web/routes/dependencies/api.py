@@ -176,7 +176,7 @@ def _get_registry():
 
 def _stream_operation(action):
     """Shared SSE streaming handler for install/update/rollback."""
-    from src.core.services.dependency_mgr.pipeline import run_operation
+    from src.core.services.dependency_mgr.pipeline import run_operation, run_batch_operation
 
     body = request.get_json(silent=True) or {}
     scope = body.get("scope", "")
@@ -187,7 +187,7 @@ def _stream_operation(action):
     registry = _get_registry()
 
     # Resolve target Python from venv path
-    target_venv = body.get("target_venv")  # e.g. ".venv-ft", ".venv", "system"
+    target_venv = body.get("target_venv")
     target_python = None
     break_system = body.get("break_system", False)
 
@@ -196,17 +196,42 @@ def _stream_operation(action):
         if tp.is_file():
             target_python = str(tp)
 
+    common_kwargs = dict(
+        registry=registry,
+        packages=body.get("packages"),
+        dev=body.get("dev", False),
+        frozen=body.get("frozen", True),
+        snapshot_id=body.get("snapshot_id"),
+        correlation_id=body.get("correlation_id"),
+        target_python=target_python,
+        break_system=break_system,
+    )
+
     def sse():
+        # Batch mode: global scope with multiple ecosystems
+        if scope == "global" and action in ("install", "update"):
+            scopes = body.get("scopes", [])
+            if not scopes:
+                # Fallback: get all ecosystems from tree
+                try:
+                    from src.core.services.mediator import get_mediator
+                    m = get_mediator()
+                    tree_result = m.get("dependency.tree")
+                    if tree_result and tree_result.get("data"):
+                        scopes = [c["id"] for c in tree_result["data"].get("children", [])]
+                except Exception:
+                    pass
+
+            if scopes:
+                for event in run_batch_operation(
+                    root, scopes, action, **common_kwargs,
+                ):
+                    yield f"data: {json.dumps(event.to_dict())}\n\n"
+                return
+
+        # Single ecosystem
         for event in run_operation(
-            root, scope, action,
-            registry=registry,
-            packages=body.get("packages"),
-            dev=body.get("dev", False),
-            frozen=body.get("frozen", True),
-            snapshot_id=body.get("snapshot_id"),
-            correlation_id=body.get("correlation_id"),
-            target_python=target_python,
-            break_system=break_system,
+            root, scope, action, **common_kwargs,
         ):
             yield f"data: {json.dumps(event.to_dict())}\n\n"
 
