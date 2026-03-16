@@ -798,8 +798,26 @@ class WorkQueue:
                 # CRITICAL tasks bypass capacity limits
                 self._semaphore.force_acquire(item.size)
             else:
-                # Background tasks wait for capacity
-                self._semaphore.acquire(item.size)
+                # Background tasks wait for capacity (with timeout loop
+                # so the thread wakes up periodically for shutdown signals).
+                acquired = False
+                wait_s = 0
+                while not acquired:
+                    acquired = self._semaphore.acquire(item.size, timeout=3)
+                    if not acquired:
+                        wait_s += 3
+                        if self._shutdown:
+                            self._queue.task_done()
+                            return
+                        # Only warn after 30s — normal contention is expected
+                        if wait_s >= 30 and wait_s % 30 == 0:
+                            logger.warning(
+                                "[WorkQueue] W%d blocked on capacity for %ds "
+                                "(size=%d, used=%d/%d) — possible stall",
+                                worker_id, wait_s, item.size,
+                                self._semaphore._used,
+                                self._semaphore._capacity,
+                            )
 
             # ── Set thread-local yield check ───────────────────
             _tls.yield_check = self.should_yield

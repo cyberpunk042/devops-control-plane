@@ -783,7 +783,7 @@ def _convert_symbols_for_peek(
         return {}
 
     result: dict[str, list] = {}
-    for name, entries in symbols.items():
+    for name, entries in dict(symbols).items():
         result[name] = [
             SymbolEntry(name=e.name, file=e.file, line=e.line, kind=e.kind)
             for e in entries

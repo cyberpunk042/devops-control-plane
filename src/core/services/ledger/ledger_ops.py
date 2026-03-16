@@ -197,6 +197,7 @@ def delete_saved_audit(
             ["git", "tag", "-d", tag_name],
             cwd=str(project_root),
             capture_output=True,
+            timeout=2,
         )
         logger.debug("Deleted tag %s", tag_name)
     except Exception:

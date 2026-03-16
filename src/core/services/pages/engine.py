@@ -378,18 +378,18 @@ def deploy_to_ghpages(project_root: Path) -> dict:
         cwd = str(merged_dir)
 
         # Init fresh git repo in merged dir
-        subprocess.run(["git", "init"], cwd=cwd, capture_output=True, check=True)
-        subprocess.run(["git", "checkout", "-b", "gh-pages"], cwd=cwd, capture_output=True, check=True)
-        subprocess.run(["git", "add", "-A"], cwd=cwd, capture_output=True, check=True)
+        subprocess.run(["git", "init"], cwd=cwd, capture_output=True, check=True, timeout=2)
+        subprocess.run(["git", "checkout", "-b", "gh-pages"], cwd=cwd, capture_output=True, check=True, timeout=2)
+        subprocess.run(["git", "add", "-A"], cwd=cwd, capture_output=True, check=True, timeout=2)
         subprocess.run(
             ["git", "commit", "-m", "Deploy to GitHub Pages"],
-            cwd=cwd, capture_output=True, check=True,
+            cwd=cwd, capture_output=True, check=True, timeout=2,
         )
 
         # Get the remote URL from the main repo
         r = subprocess.run(
             ["git", "remote", "get-url", "origin"],
-            cwd=str(project_root), capture_output=True, text=True,
+            cwd=str(project_root), capture_output=True, text=True, timeout=2,
         )
         if r.returncode != 0:
             return {"ok": False, "error": "No 'origin' remote configured"}
