@@ -125,7 +125,7 @@ def _ensure_windows_routing(
         script_lines.extend([
             f"Write-Host '[{i}/{num_ports}] Port {p}:'",
             # Check and clean old 0.0.0.0 rule
-            f"$existing = netsh interface portproxy show v4tov4 | Select-String '{p}.*0\.0\.0\.0'",
+            f"$existing = netsh interface portproxy show v4tov4 | Select-String '{p}.*0\\.0\\.0\\.0'",
             "if ($existing) {",
             f"  Write-Host '  Removing old 0.0.0.0 rule...'",
             f"  $r = netsh interface portproxy delete v4tov4 listenport={p} listenaddress=0.0.0.0 2>&1",

@@ -34,7 +34,7 @@ _BINARY_EXTENSIONS = frozenset({
 })
 
 _SKIP_DIRS = frozenset({
-    ".git", ".venv", "venv", "node_modules", "__pycache__",
+    ".git", ".venv", ".venv-ft", "venv", "node_modules", "__pycache__",
     ".mypy_cache", ".ruff_cache", ".pytest_cache", ".tox",
     "dist", "build", ".eggs", ".terraform", ".pages",
     "htmlcov", ".backup", "state",
@@ -205,7 +205,7 @@ def _detect_large_files(project_root: Path) -> dict:
     for f in sorted(project_root.rglob("*")):
         # Skip excluded dirs
         parts = f.relative_to(project_root).parts
-        if any(d in _SKIP_DIRS for d in parts):
+        if any(d in _SKIP_DIRS or d.startswith(".venv") for d in parts):
             continue
         if not f.is_file():
             continue

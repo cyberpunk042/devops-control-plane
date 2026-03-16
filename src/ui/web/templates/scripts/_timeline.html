@@ -39,6 +39,9 @@ const _tlState = {
   navAdapters: {},        // by_adapter facet for domains tree (adapter → source → subtype)
   navCalendar: [],        // per-day counts from /api/timeline/calendar
   navFilter:   '',        // chain search filter text
+
+  // Selected entry
+  selectedEntry: null,    // entry ID or index currently expanded
 };
 
 let _tlNavActiveChain = null;
@@ -50,6 +53,12 @@ let _tlSearchTimer    = null;
 // This allows page refresh, back/forward, and link sharing to restore the exact view.
 
 function _tlPushState() {
+  // Only update URL hash when debugging/timeline is the active view.
+  // Without this guard, SSE snapshot → storeSet('timeline') → render → pushState
+  // overwrites the hash even when the user is on a different tab.
+  if (typeof debugCurrentMode !== 'undefined' && debugCurrentMode !== 'timeline') return;
+  if (typeof activeTab !== 'undefined' && activeTab !== 'debugging') return;
+
   const navMode   = _tlState.navMode || 'chains';
   let selection = '';
   if (navMode === 'chains' && _tlState.chainFilter) selection = _tlState.chainFilter;
@@ -57,6 +66,7 @@ function _tlPushState() {
     const d = new Date(_tlState.dateFrom * 1000);
     selection = d.toISOString().slice(0, 10); // YYYY-MM-DD
   }
+  else if (navMode === 'domains' && _tlState._domainFilter) selection = _tlState._domainFilter;
   else if (navMode === 'domains' && _tlState.sources.length === 1) selection = _tlState.sources[0];
 
   let path = `debugging/timeline/${navMode}`;
@@ -71,6 +81,7 @@ function _tlPushState() {
   if (_tlState.q)                 params.set('q',      _tlState.q);
   const sortVal = `${_tlState.sortBy}:${_tlState.sortDir}`;
   if (sortVal !== 'ts:desc')      params.set('sort',   sortVal);
+  if (_tlState.selectedEntry != null) params.set('sel', String(_tlState.selectedEntry));
 
   const qs = params.toString();
   const newHash = `#${path}${qs ? '?' + qs : ''}`;
@@ -84,12 +95,10 @@ function _tlPushState() {
   }
 }
 
-function _tlRestoreState(subView, subParts) {
+function _tlRestoreState(subView, subParts, hashQueryStr) {
   // subView = navMode (chains/domains/calendar), subParts = ['timeline', navMode, selection?]
-  // Query params parsed from hash
-  const hashFull = location.hash.slice(1);
-  const qIdx = hashFull.indexOf('?');
-  const qs = qIdx >= 0 ? new URLSearchParams(hashFull.slice(qIdx + 1)) : null;
+  // Query params passed directly from switchTab (location.hash may already be overwritten)
+  const qs = hashQueryStr ? new URLSearchParams(hashQueryStr.slice(1)) : null;
 
   // Restore nav mode
   if (subView && ['chains', 'domains', 'calendar'].includes(subView)) {
@@ -109,7 +118,11 @@ function _tlRestoreState(subView, subParts) {
         _tlState.dateTo   = _tlState.dateFrom + 86400;
       }
     } else if (_tlState.navMode === 'domains') {
-      _tlState.sources = [selection];
+      _tlState._domainFilter = selection;
+      // Expand the domain in the nav tree so it's visible
+      if (typeof _tlDomainExpanded !== 'undefined') {
+        _tlDomainExpanded.add(selection);
+      }
     }
   }
 
@@ -131,6 +144,8 @@ function _tlRestoreState(subView, subParts) {
       if (by) _tlState.sortBy = by;
       if (dir) _tlState.sortDir = dir;
     }
+    const sel = qs.get('sel');
+    if (sel) _tlState.selectedEntry = isNaN(Number(sel)) ? sel : Number(sel);
   }
 
   // Sync UI controls with restored state
@@ -297,9 +312,12 @@ function _tlToggleDetail(idx) {
   if (el.style.display === 'none') {
     el.style.display = '';
     if (raw) raw.style.display = 'none';
+    _tlState.selectedEntry = idx;
   } else {
     el.style.display = 'none';
+    _tlState.selectedEntry = null;
   }
+  _tlPushState();
 }
 
 function _tlToggleRaw(idx) {
@@ -378,6 +396,22 @@ function _tlRenderFiltered() {
   _tlState._renderedCount   = 0;
   _tlRenderNextBatch();
 
+  // Restore selected entry expansion
+  if (_tlState.selectedEntry != null) {
+    const selId = _tlState.selectedEntry;
+    const selIdx = filtered.findIndex(e => e.id === selId);
+    if (selIdx >= 0) {
+      // Render batches until this entry is in the DOM
+      while ((_tlState._renderedCount || 0) <= selIdx && _tlState.hasMore) {
+        _tlRenderNextBatch();
+      }
+      const detail = document.getElementById('tl-detail-' + selId);
+      if (detail) detail.style.display = '';
+      const entryEl = document.getElementById('tl-entry-' + selId);
+      if (entryEl) setTimeout(function() { entryEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 100);
+    }
+  }
+
   // Persist full UI state to URL
   _tlPushState();
 }
@@ -395,7 +429,7 @@ function _tlRenderNextBatch() {
   const batch = filtered.slice(start, end);
   const list  = document.getElementById('timeline-list');
   const html  = batch.map((e, i) =>
-    _tlMaybeDateHeader(e) + _tlRenderEntry(e, start + i)
+    _tlMaybeDateHeader(e) + _tlRenderEntry(e, e.id || (start + i))
   ).join('');
   list.insertAdjacentHTML('beforeend', html);
 
@@ -1101,12 +1135,17 @@ function _tlScrollToEntryAtIndex(idx, entryId) {
     _tlRenderNextBatch();
   }
 
-  // Find the DOM element by its id attribute (tl-entry-{idx})
-  const el = document.getElementById(`tl-entry-${idx}`);
+  // Find DOM element by entry ID (stable UUID), fall back to numeric index
+  const el = document.getElementById(`tl-entry-${entryId}`) || document.getElementById(`tl-entry-${idx}`);
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     el.classList.add('tl-chain-hover');
     setTimeout(() => el.classList.remove('tl-chain-hover'), 2000);
+    // Expand the detail panel and track selection
+    const detail = document.getElementById(`tl-detail-${entryId}`) || document.getElementById(`tl-detail-${idx}`);
+    if (detail) detail.style.display = '';
+    _tlState.selectedEntry = entryId || idx;
+    _tlPushState();
   }
 }
 

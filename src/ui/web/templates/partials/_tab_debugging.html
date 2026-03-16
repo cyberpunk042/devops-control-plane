@@ -6,19 +6,19 @@
     </header>
 
     <div class="debug-modes">
-        <button class="content-mode active" onclick="debugSwitchMode('audit')">📋 Audit Log</button>
+        <button class="content-mode active" onclick="debugSwitchMode('timeline')">📋 History</button>
+        <button class="content-mode" onclick="debugSwitchMode('audit')">📋 Audit Log</button>
         <button class="content-mode" onclick="debugSwitchMode('state')">📦 State</button>
         <button class="content-mode" onclick="debugSwitchMode('health')">❤️ Health</button>
         <button class="content-mode" onclick="debugSwitchMode('config')">⚙️ Config</button>
         <button class="content-mode" onclick="debugSwitchMode('commands')">⚡ Commands</button>
         <button class="content-mode" onclick="debugSwitchMode('traces')">📝 Traces</button>
         <button class="content-mode" onclick="debugSwitchMode('mediator')">🌳 Mediator</button>
-        <button class="content-mode" onclick="debugSwitchMode('timeline')">📋 History</button>
     </div>
 
     <div class="grid">
         <!-- Audit log viewer -->
-        <div class="card full-width" id="debug-audit">
+        <div class="card full-width" id="debug-audit" style="display:none">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-sm);flex-wrap:wrap;gap:8px">
                 <div style="display:flex;align-items:center;gap:8px">
                     <h2 class="card-title" style="margin:0">Audit Log</h2>
@@ -153,7 +153,7 @@
         </div>
 
         <!-- History (Timeline) -->
-        <div class="card full-width" id="debug-timeline" style="display:none;padding:0;overflow:hidden">
+        <div class="card full-width" id="debug-timeline" style="padding:0;overflow:hidden">
             {% include 'partials/_tab_timeline.html' %}
         </div>
 

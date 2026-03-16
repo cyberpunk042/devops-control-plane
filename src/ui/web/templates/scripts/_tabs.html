@@ -33,6 +33,14 @@
             tabId = tabId.split('>>')[0];
         }
 
+        // Strip query params from hash (used by timeline for filter state)
+        // before parsing path segments — prevents ?sel=... bleeding into subParts
+        let _hashQueryStr = '';
+        if (tabId.includes('?')) {
+            _hashQueryStr = tabId.slice(tabId.indexOf('?'));
+            tabId = tabId.split('?')[0];
+        }
+
         // Parse compound tab IDs like 'wizard/modules' or 'content/media/docs'
         let subStep = null;
         let subParts = [];
@@ -54,7 +62,7 @@
 
         // Update URL hash — push a new history entry (not replace)
         const hashParts = [tabId, ...subParts];
-        const newHash = `#${hashParts.join('/')}`;
+        const newHash = `#${hashParts.join('/')}${_hashQueryStr}`;
         if (!fromPopstate) {
             // Only push if this is a user-initiated navigation, not back/forward
             if (location.hash !== newHash) {
@@ -100,7 +108,7 @@
             }
             loadSecretsTab();
         } else if (tabId === 'debugging') {
-            loadDebugTab(subStep, subParts);
+            loadDebugTab(subStep, subParts, _hashQueryStr);
         } else if (tabId === 'integrations') {
             loadIntegrationsTab();
         } else if (tabId === 'devops') {

@@ -1,7 +1,7 @@
 <script>
     // ── Debugging tab ───────────────────────────────────────────────────
 
-    let debugCurrentMode = 'audit';
+    let debugCurrentMode = 'timeline';
     let _debugEditors = {};   // panel → monaco editor instance
     let _debugData = {};      // panel → raw JSON data
     let _debugViewMode = {};  // panel → 'preview' | 'source'
@@ -43,7 +43,7 @@
     }
 
     // Show/hide panels
-    ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator', 'timeline'].forEach(m => {
+    ['timeline', 'audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'].forEach(m => {
         const el = document.getElementById(`debug-${m}`);
         if (el) el.style.display = m === mode ? '' : 'none';
     });
@@ -183,8 +183,8 @@
         }
     }
 
-    async function loadDebugTab(subMode, subParts) {
-    const validModes = ['audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator', 'timeline'];
+    async function loadDebugTab(subMode, subParts, hashQueryStr) {
+    const validModes = ['timeline', 'audit', 'state', 'health', 'config', 'commands', 'traces', 'mediator'];
 
     // Restore from sessionStorage if no explicit mode given (e.g. clicking the Debugging tab)
     let restoredMode = null;
@@ -199,7 +199,7 @@
         } catch(e) {}
     }
 
-    const mode = (subMode && validModes.includes(subMode)) ? subMode : (restoredMode || 'audit');
+    const mode = (subMode && validModes.includes(subMode)) ? subMode : (restoredMode || 'timeline');
     // Second segment = internal sub-view (e.g. 'status', 'source')
     const subView = (subParts && subParts.length > 1) ? subParts[1] : restoredSubView;
     // Third segment = selected node (e.g. 'index.scan')
@@ -238,8 +238,13 @@
     }
     else if (mode === 'timeline') {
         // Restore full timeline state from URL (nav mode, selection, filters, sort)
-        if (typeof _tlRestoreState === 'function') _tlRestoreState(subView, subParts);
+        if (typeof _tlRestoreState === 'function') _tlRestoreState(subView, subParts, hashQueryStr);
         if (typeof _tlInit === 'function') _tlInit();
+        // If init already ran (SSE snapshot arrived first), re-render with restored state
+        if (typeof _tlInitDone !== 'undefined' && _tlInitDone) {
+            if (typeof _tlNavRender === 'function') _tlNavRender();
+            if (typeof _tlRenderFiltered === 'function') _tlRenderFiltered();
+        }
     }
 
     // Restore internal sub-view for non-async modes
