@@ -235,6 +235,10 @@ async function _depLoadTargets() {
             h += `<span>${esc(label)}</span>`;
             h += `<span style="color:var(--text-muted)">${esc(t.python)}</span>`;
             h += tags;
+            if (isActive && _depInstalledLoaded) {
+                const cnt = Object.keys(_depTargetInstalled).length;
+                h += `<span style="font-size:0.56rem;color:var(--text-muted)">${cnt} pkg</span>`;
+            }
             h += `</button>`;
         }
 
@@ -451,6 +455,9 @@ function _depRenderTree(tree) {
     const totalPkgs = children.reduce((s, e) => s + (e.children || []).length, 0);
     let h = '';
 
+    // Tree panel header
+    h += `<div class="dep-tree-header"><span>Scope</span><span style="font-weight:400">${totalPkgs} packages</span></div>`;
+
     // Compute global health
     const gStats = _depTreeStats(children);
 
@@ -498,7 +505,7 @@ function _depRenderTree(tree) {
                 h += `<span class="dep-node-label">${esc(st.name)}${st.declared ? ' <span style="color:var(--text-muted)">' + esc(st.declared) + '</span>' : ''}</span>`;
                 h += _depHintHtml(st);
                 h += `<span class="dep-node-status">${_depStatusHtml(st)}</span>`;
-                if (pkg.group) h += `<span class="dep-node-group">[${esc(pkg.group)}]</span>`;
+                if (pkg.group) h += `<span class="dep-node-group" data-group="${esc(pkg.group)}">${esc(pkg.group)}</span>`;
                 h += `</div>`;
             }
             h += `</div>`;
@@ -767,11 +774,18 @@ function _depRenderOpPanel(scopeId) {
             </div>
         </div>
         <div class="dep-actions" id="dep-action-buttons">
-            <button class="btn btn-sm" onclick="_depDoAction('install')">Install</button>
-            <button class="btn btn-sm" onclick="_depDoAction('update')">Update</button>
-            <button class="btn btn-sm" onclick="_depDoAction('reinstall')">Reinstall</button>
-            <button class="btn btn-sm" onclick="_depDoAction('clean')">Clean</button>
-            <button class="btn btn-sm btn-ghost" onclick="_depDoAction('rollback')">Rollback</button>
+            ${_depSelectedPkg ? `
+                <button class="btn btn-sm" onclick="_depDoAction('install')">Install</button>
+                <button class="btn btn-sm" onclick="_depDoAction('update')">Update</button>
+                <button class="btn btn-sm" onclick="_depDoAction('reinstall')">Reinstall</button>
+                <button class="btn btn-sm" onclick="_depDoAction('clean')" style="color:var(--error)">Uninstall</button>
+            ` : `
+                <button class="btn btn-sm" onclick="_depDoAction('install')">Install</button>
+                <button class="btn btn-sm" onclick="_depDoAction('update')">Update All</button>
+                <button class="btn btn-sm" onclick="_depDoAction('reinstall')">Reinstall</button>
+                <button class="btn btn-sm" onclick="_depDoAction('clean')" style="color:var(--error)">Clean</button>
+                <button class="btn btn-sm btn-ghost" onclick="_depDoAction('rollback')">Rollback</button>
+            `}
             <button class="btn btn-sm" id="dep-cancel-btn" onclick="depAbortOperation()" style="background:var(--error);color:white;border:none;display:none">⛔ Abort</button>
             <div class="dep-actions-right">
                 <select class="dep-strategy" id="dep-strategy" title="Update strategy">
@@ -782,11 +796,33 @@ function _depRenderOpPanel(scopeId) {
                 <label class="dep-dev-check"><input type="checkbox" id="dep-opt-dev"> dev</label>
             </div>
         </div>
+        <div class="dep-cmd-preview" id="dep-cmd-preview">${_depCmdPreview(scopeId)}</div>
         <div class="dep-terminal" id="dep-terminal"></div>
         <div class="dep-progress">
             <span class="dep-progress-left" id="dep-op-progress"></span>
             <span class="dep-progress-right" id="dep-op-status"></span>
         </div>`;
+}
+
+function _depCmdPreview(scopeId) {
+    const target = _depActiveTarget || 'system';
+    const targetInfo = (_depVenvInfo?.targets || []).find(t => t.path === target);
+    const pyLabel = targetInfo ? targetInfo.python_bin || target : target;
+
+    if (_depSelectedPkg) {
+        const name = _depSelectedPkg.label ? _depSelectedPkg.label.split(' ')[0] : '?';
+        return `<span style="color:var(--text-muted)">Target:</span> ${esc(target)} <span style="color:var(--text-muted)">·</span> <span style="color:var(--text-muted)">Package:</span> ${esc(name)}`;
+    }
+    const eco = (_depTree?.children || []).find(e => e.id === scopeId);
+    if (eco) {
+        const n = (eco.children || []).length;
+        return `<span style="color:var(--text-muted)">Target:</span> ${esc(target)} <span style="color:var(--text-muted)">·</span> <span style="color:var(--text-muted)">Scope:</span> ${n} packages in ${esc(eco.ecosystem || '')}`;
+    }
+    if (scopeId === 'global') {
+        const n = (_depTree?.children || []).length;
+        return `<span style="color:var(--text-muted)">Target:</span> ${esc(target)} <span style="color:var(--text-muted)">·</span> <span style="color:var(--text-muted)">Scope:</span> all ${n} ecosystems`;
+    }
+    return '';
 }
 
 async function _depDoAction(action) {
@@ -942,7 +978,7 @@ function _depRenderEcoOverview(scopeId) {
             h += `<span style="color:var(--text-secondary);min-width:10rem;overflow:hidden;text-overflow:ellipsis">${esc(st.name)}</span>`;
             h += `<span style="font-family:var(--font-mono);font-size:0.6rem;color:var(--text-muted);min-width:4.5rem">${esc(st.declared)}</span>`;
             h += verHtml;
-            h += `<span style="font-size:0.54rem;color:var(--text-muted);background:var(--bg-inset);padding:0 0.2rem;border-radius:2px;flex-shrink:0;margin-left:auto">[${esc(group)}]</span>`;
+            h += `<span class="dep-node-group" data-group="${esc(group)}" style="margin-left:auto">${esc(group)}</span>`;
             h += `</div>`;
         }
         h += `</div>`;
@@ -1454,7 +1490,7 @@ function _depRenderCard(pulse, children) {
                 h += `<span style="color:var(--text-secondary);min-width:10rem;overflow:hidden;text-overflow:ellipsis">${esc(st.name)}</span>`;
                 h += `<span style="font-family:var(--font-mono);font-size:0.6rem;color:var(--text-muted);min-width:4.5rem">${esc(st.declared)}</span>`;
                 h += verHtml;
-                h += `<span style="font-size:0.54rem;color:var(--text-muted);background:var(--bg-inset);padding:0 0.2rem;border-radius:2px;flex-shrink:0;margin-left:auto">[${esc(group)}]</span>`;
+                h += `<span class="dep-node-group" data-group="${esc(group)}" style="margin-left:auto">${esc(group)}</span>`;
                 h += `</div>`;
             }
             h += `</div>`;
