@@ -29,10 +29,12 @@ function depRunOperation(scope, action, opts) {
     const term = document.getElementById('dep-terminal');
     const status = document.getElementById('dep-op-status');
     const progress = document.getElementById('dep-op-progress');
+    const progressBar = progress?.parentElement;
     if (!term || !status) return () => {};
 
     term.textContent = '';
     if (progress) progress.textContent = '';
+    if (progressBar) progressBar.setAttribute('data-status', 'running');
     status.textContent = '⏳ Starting...';
 
     _depAbort = new AbortController();
@@ -77,9 +79,10 @@ function depRunOperation(scope, action, opts) {
         progress.textContent = p.join(' · ');
     }
 
-    function done() {
+    function done(opStatus) {
         if (_depTimerId) { clearInterval(_depTimerId); _depTimerId = null; }
         _depSetRunning(false);
+        if (progressBar) progressBar.setAttribute('data-status', opStatus || '');
         // Refresh tree after operation
         api('/dependencies/tree?bust=1').then(data => {
             _depTree = data;
@@ -133,7 +136,7 @@ function depRunOperation(scope, action, opts) {
                 status.innerHTML = ok
                     ? `<span style="color:var(--success)">✅ ${esc(evt.message || 'Done')} — ${dur}s</span>`
                     : `<span style="color:var(--error)">❌ ${esc(evt.message || 'Failed')}</span>`;
-                done();
+                done(ok ? 'ok' : 'error');
                 break;
             }
             case 'batch_start':
@@ -146,7 +149,7 @@ function depRunOperation(scope, action, opts) {
                 status.innerHTML = ok
                     ? `<span style="color:var(--success)">✅ ${esc(evt.message || 'Done')} — ${dur}s</span>`
                     : `<span style="color:var(--error)">❌ ${esc(evt.message || 'Failed')}</span>`;
-                done();
+                done(ok ? 'ok' : 'error');
                 break;
             }
             case 'rollback_start':

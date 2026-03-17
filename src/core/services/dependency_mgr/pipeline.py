@@ -110,7 +110,7 @@ def _emit_timeline_event(
 def run_operation(
     project_root: Path,
     scope: str,
-    action: Literal["install", "update", "rollback"],
+    action: Literal["install", "update", "rollback", "clean"],
     *,
     registry: EcosystemRegistry,
     packages: list[str] | None = None,
@@ -120,6 +120,7 @@ def run_operation(
     correlation_id: str | None = None,
     target_python: str | None = None,
     break_system: bool = False,
+    force_reinstall: bool = False,
 ) -> Iterator[OpEvent]:
     """Execute a dependency operation and stream events.
 
@@ -153,11 +154,38 @@ def run_operation(
                        severity="error")
         return
 
-    if not adapter.is_available():
-        yield OpEvent(type="error", scope=scope,
-                       message=f"{adapter.cli} not installed or not in PATH",
-                       severity="error")
-        return
+    # Check availability against the TARGET Python, not the server's own
+    if target_python:
+        # Target-specific check: can the target python run pip?
+        import subprocess as _sp
+        try:
+            _r = _sp.run([target_python, "-m", "pip", "--version"],
+                         capture_output=True, timeout=5)
+            target_available = _r.returncode == 0
+        except Exception:
+            target_available = False
+        # Fallback: check uv for the target
+        if not target_available:
+            try:
+                import shutil as _sh
+                target_available = _sh.which("uv") is not None
+            except Exception:
+                pass
+        if not target_available:
+            yield OpEvent(type="error", scope=scope,
+                           message=f"pip not available in target {target_python}",
+                           severity="error")
+            return
+    elif not adapter.is_available():
+        # Last chance: check if uv is available as fallback
+        import shutil as _sh
+        if ecosystem_id == "pip" and _sh.which("uv"):
+            pass  # uv will handle pip commands via rewriting below
+        else:
+            yield OpEvent(type="error", scope=scope,
+                           message=f"{adapter.cli} not installed or not in PATH",
+                           severity="error")
+            return
 
     directory = project_root / rel_path
     if not directory.is_dir():
@@ -200,6 +228,36 @@ def run_operation(
             cmd = adapter.update_single_cmd(directory, packages[0])
         else:
             cmd = adapter.update_cmd(directory, packages)
+        if force_reinstall and cmd:
+            cmd.append("--force-reinstall")
+    elif action == "clean":
+        # Uninstall packages
+        if packages:
+            cmd = [sys.executable, "-m", "pip", "uninstall", "-y"] + packages
+        else:
+            # Ecosystem clean — uninstall all packages from manifest
+            # Get package names from the tree
+            eco_pkgs = []
+            try:
+                from src.core.services.mediator import get_mediator
+                m = get_mediator()
+                tree_result = m.get("dependency.tree")
+                if tree_result and tree_result.get("data"):
+                    for eco_node in tree_result["data"].get("children", []):
+                        if eco_node.get("id") == scope:
+                            for pkg_node in eco_node.get("children", []):
+                                name = pkg_node.get("label", "").split(" ")[0]
+                                if name:
+                                    eco_pkgs.append(name)
+            except Exception:
+                pass
+            if eco_pkgs:
+                cmd = [sys.executable, "-m", "pip", "uninstall", "-y"] + eco_pkgs
+            else:
+                yield OpEvent(type="error", scope=scope,
+                               message="No packages found to clean",
+                               severity="error")
+                return
     elif action == "rollback":
         if not snapshot_id:
             yield OpEvent(type="error", scope=scope,
@@ -222,9 +280,52 @@ def run_operation(
         return
 
     # ── 3b. Target rewriting (venv selection for pip) ───────
-    if target_python and cmd and cmd[0] == sys.executable:
-        cmd[0] = target_python
-    if break_system and "-m" in cmd and "pip" in cmd:
+    if cmd and target_python:
+        # Replace the python binary in the command
+        if cmd[0] == sys.executable:
+            cmd[0] = target_python
+
+        # If the target has no pip but has uv, rewrite pip commands to uv pip
+        if "-m" in cmd and "pip" in cmd:
+            import subprocess as _sp
+            try:
+                _check = _sp.run([target_python, "-m", "pip", "--version"],
+                                 capture_output=True, timeout=5)
+                has_pip = _check.returncode == 0
+            except Exception:
+                has_pip = False
+
+            if not has_pip:
+                import shutil as _sh
+                if _sh.which("uv"):
+                    # Rewrite: [python, -m, pip, install, ...] → [uv, pip, install, ...]
+                    # Extract the pip subcommand (install, list, etc.) and args
+                    pip_idx = cmd.index("pip") if "pip" in cmd else -1
+                    if pip_idx >= 0:
+                        pip_args = cmd[pip_idx + 1:]  # everything after "pip"
+                        cmd = ["uv", "pip"] + pip_args
+                        # Set VIRTUAL_ENV so uv targets the right env
+                        import os
+                        venv_dir = os.path.dirname(os.path.dirname(target_python))
+                        os.environ["VIRTUAL_ENV"] = venv_dir
+
+    # Also rewrite for the server's own venv if pip is missing
+    if cmd and not target_python and "-m" in cmd and "pip" in cmd:
+        import subprocess as _sp2
+        try:
+            _check2 = _sp2.run([cmd[0], "-m", "pip", "--version"],
+                               capture_output=True, timeout=5)
+            if _check2.returncode != 0:
+                import shutil as _sh2
+                if _sh2.which("uv"):
+                    pip_idx2 = cmd.index("pip") if "pip" in cmd else -1
+                    if pip_idx2 >= 0:
+                        pip_args2 = cmd[pip_idx2 + 1:]
+                        cmd = ["uv", "pip"] + pip_args2
+        except Exception:
+            pass
+
+    if break_system and cmd and "-m" in cmd and "pip" in cmd:
         if "--break-system-packages" not in cmd:
             cmd.append("--break-system-packages")
 
@@ -289,7 +390,7 @@ def run_operation(
 def run_batch_operation(
     project_root: Path,
     scopes: list[str],
-    action: Literal["install", "update"],
+    action: Literal["install", "update", "clean"],
     *,
     registry: EcosystemRegistry,
     correlation_id: str | None = None,

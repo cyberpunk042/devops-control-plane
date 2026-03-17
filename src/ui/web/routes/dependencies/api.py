@@ -191,7 +191,10 @@ def _stream_operation(action):
     target_python = None
     break_system = body.get("break_system", False)
 
-    if target_venv and target_venv != "system":
+    if target_venv == "system":
+        from src.core.services.dependency_mgr.venv_info import _find_system_python
+        target_python = _find_system_python()
+    elif target_venv:
         tp = root / target_venv / "bin" / "python"
         if tp.is_file():
             target_python = str(tp)
@@ -205,11 +208,12 @@ def _stream_operation(action):
         correlation_id=body.get("correlation_id"),
         target_python=target_python,
         break_system=break_system,
+        force_reinstall=body.get("force_reinstall", False),
     )
 
     def sse():
         # Batch mode: global scope with multiple ecosystems
-        if scope == "global" and action in ("install", "update"):
+        if scope == "global" and action in ("install", "update", "clean"):
             scopes = body.get("scopes", [])
             if not scopes:
                 # Fallback: get all ecosystems from tree
@@ -259,6 +263,13 @@ def dep_rollback_stream():
     return _stream_operation("rollback")
 
 
+@dep_bp.route("/dependencies/clean/stream", methods=["POST"])
+@tracked("dependency.install.started")
+def dep_clean_stream():
+    """SSE stream: uninstall/clean packages at scope."""
+    return _stream_operation("clean")
+
+
 # ═════════════════════════════════════════════════════════════════
 #  Write endpoints — synchronous
 # ═════════════════════════════════════════════════════════════════
@@ -280,7 +291,10 @@ def _sync_operation(action):
     target_venv = body.get("target_venv")
     target_python = None
     break_system = body.get("break_system", False)
-    if target_venv and target_venv != "system":
+    if target_venv == "system":
+        from src.core.services.dependency_mgr.venv_info import _find_system_python
+        target_python = _find_system_python()
+    elif target_venv:
         tp = root / target_venv / "bin" / "python"
         if tp.is_file():
             target_python = str(tp)

@@ -114,6 +114,10 @@ async function depOpenModal(initialScope, initialAction) {
             setTimeout(() => _depDoAction(initialAction), 300);
         }
 
+        // Background: trigger version intel computation (may take a while)
+        // When it completes, the SSE listener will auto-refresh
+        api('/dependencies/versions').catch(() => {});
+
     } catch (e) {
         document.getElementById('dep-tree-panel').innerHTML =
             `<div class="dep-empty"><div class="dep-empty-title" style="color:var(--error)">Failed to load</div><div class="dep-empty-hint">${esc(e.message)}</div></div>`;
@@ -470,8 +474,13 @@ function _depRenderTree(tree) {
 
         h += `<div style="margin-left:0.5rem">`;
 
-        // Ecosystem header with health
-        h += `<div class="dep-node${_depSelectedScope === id ? ' selected' : ''}" data-eco="${esc(id)}" onclick="_depSelectScope('${esc(id)}')">`;
+        // Ecosystem header with health — data attributes for CSS color coding
+        const ecoDataAttrs = eStats.missing ? ' data-has-missing="true"' :
+            eStats.deprecated ? ' data-has-deprecated="true"' :
+            eStats.outdated ? ' data-has-outdated="true"' :
+            (eStats.current === eStats.total && eStats.total > 0) ? ' data-all-current="true"' : '';
+
+        h += `<div class="dep-node${_depSelectedScope === id ? ' selected' : ''}" data-eco="${esc(id)}"${ecoDataAttrs} onclick="_depSelectScope('${esc(id)}')">`;
         h += `<span class="dep-node-chevron" onclick="_depToggleExpand('${esc(id)}',event)">${expanded ? '▼' : '▶'}</span>`;
         h += `<input type="checkbox" ${_depChecked.has(id) ? 'checked' : ''} onclick="_depToggleCheck('${esc(id)}',event)">`;
         h += `<span class="dep-node-label">${esc(label)}</span>`;
@@ -485,8 +494,8 @@ function _depRenderTree(tree) {
             for (const pkg of pkgs) {
                 const st = _depPkgState(pkg);
                 const sel = _depSelectedPkg && _depSelectedPkg.id === pkg.id;
-                h += `<div class="dep-pkg-node${sel ? ' selected' : ''}" data-pkg="${esc(pkg.id)}" onclick='_depSelectPackage(${JSON.stringify(pkg).replace(/'/g, "&#39;")})' title="${esc(st.detail)}">`;
-                h += `<span class="dep-node-label">${esc(st.name)}${st.declared ? ' ' + esc(st.declared) : ''}</span>`;
+                h += `<div class="dep-pkg-node${sel ? ' selected' : ''}" data-pkg="${esc(pkg.id)}" data-status="${esc(st.status)}" onclick='_depSelectPackage(${JSON.stringify(pkg).replace(/'/g, "&#39;")})' title="${esc(st.detail)}">`;
+                h += `<span class="dep-node-label">${esc(st.name)}${st.declared ? ' <span style="color:var(--text-muted)">' + esc(st.declared) + '</span>' : ''}</span>`;
                 h += _depHintHtml(st);
                 h += `<span class="dep-node-status">${_depStatusHtml(st)}</span>`;
                 if (pkg.group) h += `<span class="dep-node-group">[${esc(pkg.group)}]</span>`;
@@ -508,9 +517,11 @@ function _depRenderTree(tree) {
 function _depPkgState(pkg) {
     const name = pkg.label ? pkg.label.split(' ')[0] : '';
     const declared = pkg.version || '';
-    const installed = pkg.installedVersion
-        || (_depTargetInstalled && _depTargetInstalled[name.toLowerCase()])
-        || '';
+    // When target-specific installed data is loaded, it is the SOURCE OF TRUTH
+    // — it overrides the tree's installedVersion (which comes from the server's active venv)
+    const installed = _depInstalledLoaded
+        ? (_depTargetInstalled[name.toLowerCase()] || '')
+        : (pkg.installedVersion || '');
     const latest = pkg.latestVersion || '';
     const regStatus = pkg.status || '';  // From version intel registry
     const note = pkg.note || '';
@@ -552,12 +563,20 @@ function _depPkgState(pkg) {
         hint = installed;
         detail = `Up to date (${installed})`;
     } else if (installed && !latest) {
-        // Installed but no registry data — show installed as-is
-        status = 'installed';
-        icon = '●';
-        color = 'var(--text-secondary)';
-        hint = installed;
-        detail = `Installed ${installed} (no registry data)`;
+        // Installed, no registry data — check if installed satisfies declared constraint
+        if (declared && _depVersionMismatch(declared, installed)) {
+            status = 'mismatch';
+            icon = '⚡';
+            color = 'var(--warning)';
+            hint = `${installed} ≠ ${declared}`;
+            detail = `Installed ${installed} does not match declared ${declared}`;
+        } else {
+            status = 'installed';
+            icon = '●';
+            color = 'var(--success)';
+            hint = installed;
+            detail = `Installed ${installed}`;
+        }
     } else if (regStatus === 'outdated' && latest) {
         status = 'outdated';
         icon = '⚠';
@@ -586,15 +605,38 @@ function _depStatusHtml(state) {
     return `<span style="color:${state.color}">${state.icon}</span>`;
 }
 
+function _depRowStyle(st) {
+    // Returns inline style for a package row — colored left border + subtle bg
+    const borders = {
+        missing: 'var(--error)', deprecated: 'var(--error)', eol: 'var(--error)', yanked: 'var(--error)',
+        outdated: 'var(--warning)', mismatch: 'var(--warning)', current: 'var(--success)',
+        installed: 'var(--success)', acknowledged: '#818cf8',
+    };
+    const bgs = {
+        missing: 'rgba(239,68,68,0.04)', deprecated: 'rgba(239,68,68,0.03)',
+        eol: 'rgba(239,68,68,0.03)', outdated: 'rgba(245,158,11,0.03)',
+        acknowledged: 'rgba(129,140,248,0.03)',
+    };
+    const bc = borders[st.status] || 'transparent';
+    const bg = bgs[st.status] || '';
+    return `border-left:2px solid ${bc};${bg ? 'background:' + bg + ';' : ''}`;
+}
+
 function _depHintHtml(state) {
     if (!state.hint) return '';
-    return `<span class="dep-node-hint" title="${esc(state.detail)}">${esc(state.hint)}</span>`;
+    // Color the hint based on status
+    const hintColor = state.status === 'missing' ? 'var(--error)'
+        : state.status === 'outdated' ? 'var(--warning)'
+        : state.status === 'deprecated' || state.status === 'eol' ? 'var(--error)'
+        : state.status === 'current' ? 'var(--success)'
+        : 'var(--text-muted)';
+    return `<span class="dep-node-hint" style="color:${hintColor}" title="${esc(state.detail)}">${esc(state.hint)}</span>`;
 }
 
 // Legacy wrapper for places that just need the icon
 function _depStatusIcon(status) {
-    const m = { current:'✓', outdated:'⚠', deprecated:'⛔', eol:'⛔', yanked:'⛔', missing:'❌', installed:'●', acknowledged:'📝' };
-    const c = { current:'var(--success)', outdated:'var(--warning)', deprecated:'var(--error)', eol:'var(--error)', yanked:'var(--error)', missing:'var(--error)', installed:'var(--text-secondary)', acknowledged:'#818cf8' };
+    const m = { current:'✓', outdated:'⚠', deprecated:'⛔', eol:'⛔', yanked:'⛔', missing:'❌', installed:'●', mismatch:'⚡', acknowledged:'📝' };
+    const c = { current:'var(--success)', outdated:'var(--warning)', deprecated:'var(--error)', eol:'var(--error)', yanked:'var(--error)', missing:'var(--error)', installed:'var(--success)', mismatch:'var(--warning)', acknowledged:'#818cf8' };
     return `<span style="color:${c[status] || 'var(--text-muted)'}">${m[status] || '◌'}</span>`;
 }
 
@@ -637,7 +679,7 @@ function _depHealthBadges(s) {
     if (s.deprecated) h += `<span style="color:var(--error);font-size:0.58rem;flex-shrink:0" title="${s.deprecated} deprecated">${s.deprecated}⛔</span>`;
     if (s.outdated) h += `<span style="color:var(--warning);font-size:0.58rem;flex-shrink:0" title="${s.outdated} outdated">${s.outdated}⚠</span>`;
     if (!h && s.current === s.total && s.total > 0) h = `<span style="color:var(--success);font-size:0.58rem;flex-shrink:0">✓</span>`;
-    if (!h && s.installed > 0) h = `<span style="color:var(--text-secondary);font-size:0.58rem;flex-shrink:0">${s.installed}●</span>`;
+    if (!h && s.installed > 0) h = `<span style="color:var(--success);font-size:0.58rem;flex-shrink:0">${s.installed}●</span>`;
     return h;
 }
 
@@ -727,6 +769,7 @@ function _depRenderOpPanel(scopeId) {
         <div class="dep-actions" id="dep-action-buttons">
             <button class="btn btn-sm" onclick="_depDoAction('install')">Install</button>
             <button class="btn btn-sm" onclick="_depDoAction('update')">Update</button>
+            <button class="btn btn-sm" onclick="_depDoAction('reinstall')">Reinstall</button>
             <button class="btn btn-sm" onclick="_depDoAction('clean')">Clean</button>
             <button class="btn btn-sm btn-ghost" onclick="_depDoAction('rollback')">Rollback</button>
             <button class="btn btn-sm" id="dep-cancel-btn" onclick="depAbortOperation()" style="background:var(--error);color:white;border:none;display:none">⛔ Abort</button>
@@ -758,14 +801,27 @@ async function _depDoAction(action) {
         break_system: !!(targetInfo && targetInfo.is_system && (targetInfo.pep668 || targetInfo.risky)),
     };
 
+    // If a single package is selected, scope the operation to that package
+    if (_depSelectedPkg) {
+        const pkgName = _depSelectedPkg.label ? _depSelectedPkg.label.split(' ')[0] : '';
+        if (pkgName) {
+            opts.packages = [pkgName];
+        }
+    }
+
     if (action === 'rollback') {
         _depToggleSnapshots();
         return;
     }
 
     if (action === 'clean') {
-        opts.frozen = false;
-        action = 'install';
+        opts.uninstall = true;
+        action = 'clean';
+    }
+
+    if (action === 'reinstall') {
+        opts.force_reinstall = true;
+        action = 'update';
     }
 
     // Impact check for updates on shared packages (E10)
@@ -881,7 +937,7 @@ function _depRenderEcoOverview(scopeId) {
                 verHtml += `<span style="font-size:0.62rem;color:var(--text-muted)">latest: ${esc(st.latest)}</span>`;
             }
 
-            h += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;padding:0.15rem 0.2rem;overflow:hidden;white-space:nowrap;cursor:pointer;border-radius:2px;transition:background 0.1s" onmouseenter="this.style.background='var(--bg-card-hover)'" onmouseleave="this.style.background=''" onclick='_depSelectPackage(${JSON.stringify(pkg).replace(/'/g,"&#39;")})' title="${esc(st.detail)}">`;
+            h += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;padding:0.15rem 0.3rem;overflow:hidden;white-space:nowrap;cursor:pointer;border-radius:3px;transition:all 0.1s;${_depRowStyle(st)}" onmouseenter="this.style.opacity='0.85'" onmouseleave="this.style.opacity=''" onclick='_depSelectPackage(${JSON.stringify(pkg).replace(/'/g,"&#39;")})' title="${esc(st.detail)}">`;
             h += `<span style="color:${st.color};min-width:0.9rem;text-align:center;flex-shrink:0">${st.icon}</span>`;
             h += `<span style="color:var(--text-secondary);min-width:10rem;overflow:hidden;text-overflow:ellipsis">${esc(st.name)}</span>`;
             h += `<span style="font-family:var(--font-mono);font-size:0.6rem;color:var(--text-muted);min-width:4.5rem">${esc(st.declared)}</span>`;
@@ -920,7 +976,7 @@ function _depRenderIntel(pkg) {
 
     const st = _depPkgState(pkg);
 
-    let h = `<div class="dep-intel">`;
+    let h = `<div class="dep-intel" data-status="${esc(st.status)}">`;
 
     // Header with status
     h += `<div class="dep-intel-header">`;
@@ -1056,6 +1112,56 @@ function _depIsMajorBump(from, to) {
     const f = (from || '').replace(/^[^\d]*/, '').split('.');
     const t = (to || '').replace(/^[^\d]*/, '').split('.');
     return f.length > 0 && t.length > 0 && parseInt(t[0]) > parseInt(f[0]);
+}
+
+function _depVersionMismatch(declared, installed) {
+    // Check if installed version violates the declared constraint
+    // Handles: ==1.2.3, >=1.2, ~=1.2, ^1.2, <=1.2, !=1.2
+    if (!declared || !installed) return false;
+    const d = declared.trim();
+    const iv = installed.trim().replace(/^[^\d]*/, '');
+    const iParts = iv.split('.').map(Number);
+
+    // Exact pin: ==1.2.3
+    if (d.startsWith('==')) {
+        const pin = d.slice(2).trim();
+        return iv !== pin;
+    }
+    // Minimum: >=1.2
+    if (d.startsWith('>=')) {
+        const min = d.slice(2).trim().replace(/^[^\d]*/, '');
+        return _depVerLt(iv, min);
+    }
+    // Maximum: <=1.2
+    if (d.startsWith('<=')) {
+        const max = d.slice(2).trim().replace(/^[^\d]*/, '');
+        return _depVerLt(max, iv);
+    }
+    // Caret: ^1.2 means >=1.2.0, <2.0.0
+    if (d.startsWith('^')) {
+        const base = d.slice(1).trim().replace(/^[^\d]*/, '');
+        if (_depVerLt(iv, base)) return true;
+        const bParts = base.split('.').map(Number);
+        return iParts[0] > bParts[0]; // Major must match
+    }
+    // Compatible: ~=1.2 or ~1.2 means >=1.2, <2.0
+    if (d.startsWith('~')) {
+        const base = d.replace(/^~=?/, '').trim().replace(/^[^\d]*/, '');
+        return _depVerLt(iv, base);
+    }
+    return false;
+}
+
+function _depVerLt(a, b) {
+    // Is version a < version b?
+    const ap = (a || '').split('.').map(Number);
+    const bp = (b || '').split('.').map(Number);
+    for (let i = 0; i < Math.max(ap.length, bp.length); i++) {
+        const ai = ap[i] || 0, bi = bp[i] || 0;
+        if (ai < bi) return true;
+        if (ai > bi) return false;
+    }
+    return false;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1304,14 +1410,15 @@ function _depRenderCard(pulse, children) {
         if (eDep) healthHtml += `<span style="color:var(--error);font-weight:600;font-size:0.68rem">${eDep} ⛔</span> `;
         if (eOut) healthHtml += `<span style="color:var(--warning);font-weight:600;font-size:0.68rem">${eOut} ⚠</span> `;
         if (!healthHtml && eCur === pkgs.length && pkgs.length > 0) healthHtml = `<span style="color:var(--success);font-size:0.68rem">✓ up to date</span>`;
-        else if (!healthHtml && eInst > 0) healthHtml = `<span style="color:var(--text-secondary);font-size:0.68rem">${eInst} ● installed</span>`;
+        else if (!healthHtml && eInst > 0) healthHtml = `<span style="color:var(--success);font-size:0.68rem">${eInst} ● installed</span>`;
         if (!healthHtml) healthHtml = `<span style="color:var(--text-muted);font-size:0.68rem">◌</span>`;
 
         // Derive module name from path
         const modName = eco.path === '.' ? 'root' : eco.path.replace(/^\.?\//, '');
 
-        // ── Ecosystem header row ─────────────────────────────
-        h += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.3rem;cursor:pointer;border-radius:var(--radius-sm);transition:background 0.1s" onmouseenter="this.style.background='var(--bg-card-hover)'" onmouseleave="this.style.background=''" onclick="_depCardToggle('${esc(ecoId)}')">`;
+        // ── Ecosystem header row — with status-colored left border ──
+        const ecoBorderColor = eMiss ? 'var(--error)' : eDep ? 'var(--error)' : eOut ? 'var(--warning)' : (eCur === pkgs.length && pkgs.length > 0) ? 'var(--success)' : eInst > 0 ? 'var(--success)' : 'transparent';
+        h += `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.3rem 0.35rem 0.5rem;cursor:pointer;border-radius:var(--radius-sm);transition:background 0.1s;border-left:3px solid ${ecoBorderColor}" onmouseenter="this.style.background='var(--bg-card-hover)'" onmouseleave="this.style.background=''" onclick="_depCardToggle('${esc(ecoId)}')">`;
         h += `<span style="font-size:0.5rem;min-width:0.8rem;color:var(--text-muted)">${expanded ? '▼' : '▶'}</span>`;
         h += `<span style="font-size:0.85rem">${icon}</span>`;
         h += `<span style="font-size:0.78rem;font-weight:500;color:var(--text-primary)">${esc(modName)}</span>`;
@@ -1342,7 +1449,7 @@ function _depRenderCard(pulse, children) {
                     verHtml += `<span style="font-size:0.62rem;color:var(--error)">not installed</span>`;
                 }
 
-                h += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;padding:0.15rem 0.2rem;overflow:hidden;white-space:nowrap;border-radius:2px;transition:background 0.1s" onmouseenter="this.style.background='var(--bg-card-hover)'" onmouseleave="this.style.background=''" title="${esc(st.detail)}">`;
+                h += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;padding:0.15rem 0.3rem;overflow:hidden;white-space:nowrap;border-radius:3px;transition:all 0.1s;${_depRowStyle(st)}" onmouseenter="this.style.opacity='0.85'" onmouseleave="this.style.opacity=''" title="${esc(st.detail)}">`;
                 h += `<span style="color:${st.color};min-width:0.9rem;text-align:center;flex-shrink:0">${st.icon}</span>`;
                 h += `<span style="color:var(--text-secondary);min-width:10rem;overflow:hidden;text-overflow:ellipsis">${esc(st.name)}</span>`;
                 h += `<span style="font-family:var(--font-mono);font-size:0.6rem;color:var(--text-muted);min-width:4.5rem">${esc(st.declared)}</span>`;
@@ -1372,7 +1479,7 @@ function _depRenderCard(pulse, children) {
     if (gOutdated) summary += ` · <span style="color:var(--warning)">${gOutdated} ⚠ outdated</span>`;
     if (gDeprecated) summary += ` · <span style="color:var(--error)">${gDeprecated} ⛔ deprecated</span>`;
     if (gCurrent) summary += ` · <span style="color:var(--success)">${gCurrent} ✓</span>`;
-    if (gInstalled) summary += ` · <span style="color:var(--text-secondary)">${gInstalled} ●</span>`;
+    if (gInstalled) summary += ` · <span style="color:var(--success)">${gInstalled} ●</span>`;
     summary += `</span>`;
     h += summary;
 
