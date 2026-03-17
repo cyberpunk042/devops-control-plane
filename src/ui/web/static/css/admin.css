@@ -9535,6 +9535,12 @@ select option {
 .dep-node-group[data-group="build"] { color: var(--text-muted); background: var(--bg-inset); }
 .dep-node-group[data-group="test"]  { color: #a78bfa; background: rgba(167,139,250,0.1); }
 .dep-node-group[data-group="optional"] { color: var(--text-muted); background: var(--bg-inset); border: 1px dashed var(--border-subtle); }
+.dep-eco-chip             { display: inline-flex; align-items: center; gap: 0.2rem;
+                            font-size: 0.62rem; padding: 0.1rem 0.4rem;
+                            background: var(--bg-inset); border-radius: 3px;
+                            color: var(--text-secondary); white-space: nowrap;
+                            transition: background 0.1s; }
+.dep-eco-chip:hover       { background: var(--bg-card); }
 .dep-peek-btn             { font-size: 0.5rem; width: 16px; height: 16px;
                             display: inline-flex; align-items: center; justify-content: center;
                             border-radius: 50%; border: 1px solid var(--accent);
