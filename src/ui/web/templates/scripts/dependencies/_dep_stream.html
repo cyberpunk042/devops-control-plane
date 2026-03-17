@@ -106,9 +106,13 @@ function depRunOperation(scope, action, opts) {
             const savedProgress = document.getElementById('dep-op-progress')?.innerHTML || '';
             const savedStatus = document.getElementById('dep-op-status')?.innerHTML || '';
 
-            // Re-render tree + panels with fresh state
+            // Re-render tree + panels with fresh state — preserve focused package
             if (typeof _depRenderTree === 'function') _depRenderTree(_depTree);
-            if (typeof _depUpdateOpForSelection === 'function') _depUpdateOpForSelection();
+            if (_depSelectedPkg && typeof _depRenderOpPanel === 'function') {
+                _depRenderOpPanel(_depSelectedScope);
+            } else if (typeof _depUpdateOpForSelection === 'function') {
+                _depUpdateOpForSelection();
+            }
             if (_depSelectedPkg && typeof _depRenderIntel === 'function') _depRenderIntel(_depSelectedPkg);
             else if (_depSelectedScope && typeof _depRenderEcoOverview === 'function') _depRenderEcoOverview(_depSelectedScope);
 

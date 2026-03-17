@@ -163,15 +163,28 @@ def dep_history():
         m = get_mediator()
         if not m or not getattr(m, '_event_store', None):
             return jsonify({"events": []})
-        raw = m._event_store.query(types=["dependency."], limit=10)
-        events = [{
-            "type": evt.type,
-            "summary": evt.summary,
-            "status": evt.status,
-            "ts": evt.ts,
-            "duration_ms": evt.duration_ms,
-            "detail": evt.detail,
-        } for evt in raw]
+        # Only show completed/failed user operations, not starts or cache recomputations
+        _OP_SUFFIXES = (".completed", ".failed")
+        _OP_PREFIXES = (
+            "dependency.install.", "dependency.update.",
+            "dependency.clean.", "dependency.rollback.",
+        )
+        raw = m._event_store.query(types=["dependency."], limit=50)
+        events = []
+        for evt in raw:
+            if (any(evt.type.startswith(p) for p in _OP_PREFIXES)
+                    and any(evt.type.endswith(s) for s in _OP_SUFFIXES)):
+                events.append({
+                    "type": evt.type,
+                    "summary": evt.summary,
+                    "status": evt.status,
+                    "ts": evt.ts,
+                    "duration_ms": evt.duration_ms,
+                    "detail": evt.detail,
+                    "correlation_id": evt.correlation_id,
+                })
+                if len(events) >= 10:
+                    break
         return jsonify({"events": events})
     except Exception:
         return jsonify({"events": []})

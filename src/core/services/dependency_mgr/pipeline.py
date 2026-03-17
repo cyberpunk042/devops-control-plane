@@ -63,6 +63,26 @@ def _parse_scope(scope: str) -> tuple[str, str]:
 # ═════════════════════════════════════════════════════════════════
 
 
+def _venv_from_target(target_python: str | None) -> str:
+    """Derive venv directory name from a target python path.
+
+    Examples::
+
+        "/home/user/project/.venv/bin/python"   → ".venv"
+        "/home/user/project/.venv-ft/bin/python" → ".venv-ft"
+        None                                     → "active"
+        "/usr/bin/python3"                       → "system"
+    """
+    if not target_python:
+        return "active"
+    tp = Path(target_python).resolve()
+    if "bin" in tp.parts:
+        venv_dir = tp.parent.parent
+        if (venv_dir / "pyvenv.cfg").is_file():
+            return venv_dir.name
+    return "system"
+
+
 def _emit_timeline_event(
     action: str,
     scope: str,
@@ -72,10 +92,16 @@ def _emit_timeline_event(
     warning_count: int,
     error_count: int,
     correlation_id: str,
+    *,
+    target_venv: str = "",
+    packages: list[str] | None = None,
+    exit_code: int | None = None,
 ) -> None:
     """Emit a timeline event at operation boundaries.  Fail-safe."""
     try:
         from src.core.services.events.emit import emit_event
+
+        ecosystem = scope.split(":")[0] if ":" in scope else scope
 
         if status == "ok":
             event_type = f"dependency.{action}.completed"
@@ -93,9 +119,13 @@ def _emit_timeline_event(
             detail={
                 "scope": scope,
                 "action": action,
+                "ecosystem": ecosystem,
                 "resolved": resolved_count,
                 "warnings": warning_count,
                 "errors": error_count,
+                "target_venv": target_venv,
+                "packages": packages or [],
+                "exit_code": exit_code,
             },
         )
         # Invalidate dependency caches so everything picks up the change
@@ -204,12 +234,20 @@ def run_operation(
     chain_id = correlation_id or f"dependency:{uuid.uuid4().hex[:8]}"
 
     # Emit start timeline event
+    target_venv = _venv_from_target(target_python)
     try:
         from src.core.services.events.emit import emit_event
         emit_event(
             f"dependency.{action}.started",
             summary=f"Dependency {action}: {scope}",
             correlation_id=chain_id,
+            detail={
+                "scope": scope,
+                "action": action,
+                "ecosystem": ecosystem_id,
+                "packages": packages or [],
+                "target_venv": target_venv,
+            },
         )
     except Exception:
         pass
@@ -392,6 +430,9 @@ def run_operation(
                 len(parser.warnings),
                 len(parser.errors),
                 chain_id,
+                target_venv=target_venv,
+                packages=packages,
+                exit_code=chunk.exit_code,
             )
 
 

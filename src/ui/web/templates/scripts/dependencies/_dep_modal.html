@@ -1241,7 +1241,7 @@ function _depPkgButtons(st, name, pkgId) {
         }
         const cls = isPrimary ? 'btn btn-sm' : 'btn btn-sm btn-ghost';
         const style = extraStyle ? ` style="${extraStyle}"` : '';
-        return `<button class="${cls}" onclick="_depDoAction('${action}')" title="${esc(tip || '')}"${style}>${label}</button>`;
+        return `<button class="${cls}" onclick="_depDoActionForPkg('${action}','${esc(name)}')" title="${esc(tip || '')}"${style}>${label}</button>`;
     }
 
     const isMissing = s === 'missing';
@@ -1311,6 +1311,29 @@ function _depCmdPreview(scopeId) {
         return `<span style="color:var(--text-muted)">Target:</span> ${esc(target)} <span style="color:var(--text-muted)">·</span> <span style="color:var(--text-muted)">Scope:</span> all ${n} ecosystems`;
     }
     return '';
+}
+
+function _depDoActionForPkg(action, pkgName) {
+    const scope = _depSelectedScope || 'global';
+    const target = _depActiveTarget || 'system';
+    const targetInfo = (_depVenvInfo?.targets || []).find(t => t.path === target);
+
+    const opts = {
+        dev: _depDevMode,
+        frozen: true,
+        target_venv: target,
+        break_system: !!(targetInfo && targetInfo.is_system && (targetInfo.pep668 || targetInfo.risky)),
+        packages: [pkgName],
+    };
+
+    if (action === 'reinstall') {
+        opts.force_reinstall = true;
+        action = 'update';
+    }
+
+    if (typeof depRunOperation === 'function') {
+        depRunOperation(scope, action, opts);
+    }
 }
 
 async function _depDoAction(action) {
@@ -1580,7 +1603,7 @@ function _depRenderIntel(pkg) {
     // ── Actions row ───────────────────────────────────────
     h += `<div class="dep-intel-actions" style="margin-top:var(--space-sm);padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">`;
     if (st.status === 'missing') {
-        h += `<button class="btn btn-sm" onclick="_depDoAction('install')" style="background:var(--error);color:white;border:none">Install Now</button>`;
+        h += `<button class="btn btn-sm" onclick="_depDoActionForPkg('install','${esc(st.name)}')" style="background:var(--error);color:white;border:none">Install Now</button>`;
     } else if (st.status === 'outdated' && st.latest) {
         h += `<button class="btn btn-sm" onclick="_depUpdatePkg('${esc(pkg.ecosystem)}','${esc(st.name)}','${esc(st.latest)}')">Update to ${esc(st.latest)}</button>`;
         if (st.installed) {
@@ -1864,18 +1887,39 @@ async function _depLoadHistory() {
             return;
         }
 
+        const _actionIcons = {install:'📥', update:'📦', clean:'🧹', rollback:'⏪'};
         let h = '';
         for (const evt of events) {
             const ts = new Date(evt.ts * 1000);
             const time = ts.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-            const statusIcon = evt.status === 'ok' ? '✓' : evt.status === 'error' ? '✗' : '●';
-            const statusColor = evt.status === 'ok' ? 'var(--success)' : evt.status === 'error' ? 'var(--error)' : 'var(--text-muted)';
-            const dur = evt.duration_ms ? ` (${(evt.duration_ms / 1000).toFixed(1)}s)` : '';
+            const statusColor = evt.status === 'ok' ? 'var(--success)' : 'var(--error)';
+            const d = evt.detail || {};
+            const action = d.action || evt.type.split('.')[1] || '';
+            const icon = _actionIcons[action] || '●';
+            const eco = d.ecosystem || (d.scope || '').split(':')[0] || '';
+            const venv = d.target_venv || '';
+            const pkgs = d.packages || [];
+            const resolved = d.resolved || 0;
+            const warns = d.warnings || 0;
+            const errs = d.errors || 0;
+            const dur = evt.duration_ms ? (evt.duration_ms / 1000).toFixed(1) + 's' : '';
 
-            h += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.64rem;padding:0.15rem 0;color:var(--text-secondary)">`;
-            h += `<span style="color:${statusColor};min-width:0.8rem">${statusIcon}</span>`;
+            // "install · pip · .venv · 5 pkg · 1.2s"
+            const parts = [];
+            if (action) parts.push(action);
+            if (eco) parts.push(eco);
+            if (venv && venv !== 'active') parts.push(venv);
+            if (pkgs.length && pkgs.length <= 3) parts.push(pkgs.join(', '));
+            else if (resolved) parts.push(resolved + ' pkg');
+            if (warns) parts.push(`<span style="color:var(--warning)">${warns} ⚠</span>`);
+            if (errs) parts.push(`<span style="color:var(--error)">${errs} ✗</span>`);
+            if (dur) parts.push(dur);
+
+            h += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.64rem;padding:0.15rem 0;color:var(--text-secondary)" title="${esc(evt.summary)}">`;
+            h += `<span style="min-width:0.9rem">${icon}</span>`;
             h += `<span style="color:var(--text-muted);min-width:2.5rem">${time}</span>`;
-            h += `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(evt.summary)}${dur}</span>`;
+            h += `<span style="color:${statusColor};min-width:0.6rem">${evt.status === 'ok' ? '✓' : '✗'}</span>`;
+            h += `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${parts.join(' · ')}</span>`;
             h += `</div>`;
         }
         container.innerHTML = h;
