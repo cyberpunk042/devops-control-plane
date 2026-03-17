@@ -21,6 +21,14 @@ let _depSearchQuery = '';
 let _depCheckedPkgs = new Set();
 let _depDevMode = true;          // Include dev/optional deps — persisted in state // Unified: all checked package IDs (pkg-level only)
 
+// ── Target-aware installed URL ──────────────────────────────
+function _depInstalledUrl(query) {
+    const base = _depActiveTarget
+        ? '/dependencies/installed/' + encodeURIComponent(_depActiveTarget)
+        : '/dependencies/installed';
+    return query ? base + '?' + query : base;
+}
+
 // ── State persistence ────────────────────────────────────────
 function _depSaveState() {
     try {
@@ -126,7 +134,7 @@ async function depOpenModal(initialScope, initialAction) {
         // Load installed packages BEFORE rendering tree
         // so _depPkgState has data and doesn't show everything as ❌
         try {
-            _depTargetInstalled = await api('/dependencies/installed');
+            _depTargetInstalled = await api(_depInstalledUrl());
             _depInstalledLoaded = true;
         } catch (e) {
             // Installed data not available — tree will show ◌ instead of ❌
@@ -183,7 +191,7 @@ async function _depBustModal() {
         // Bust backend caches + re-fetch everything
         const [treeData, installed] = await Promise.all([
             api('/dependencies/tree?bust=1'),
-            api('/dependencies/installed?bust=1'),
+            api(_depInstalledUrl('bust=1')),
         ]);
 
         _depTree = treeData;
@@ -2099,7 +2107,7 @@ async function _depLoadCard() {
         const [tree, venvs, installed] = await Promise.all([
             (async () => { const c = cardCached('dep-card-data'); if (c) return c; const d = await api('/dependencies/tree'); cardStore('dep-card-data', d); return d; })(),
             (async () => { try { return await api('/dependencies/venvs'); } catch(_) { return null; } })(),
-            (async () => { try { return await api('/dependencies/installed'); } catch(_) { return {}; } })(),
+            (async () => { try { return await api(_depInstalledUrl()); } catch(_) { return {}; } })(),
         ]);
 
         _depCardTree = tree;
@@ -2307,7 +2315,7 @@ async function _depBustCard() {
         // Bust all dependency caches
         await Promise.all([
             api('/dependencies/tree?bust=1'),
-            api('/dependencies/installed?bust=1'),
+            api(_depInstalledUrl('bust=1')),
         ]);
     } catch (e) { /* silent */ }
     _depLoadCard();
@@ -2344,7 +2352,7 @@ document.addEventListener('cache:done', function(e) {
             _depLoadCard();
             // If modal is open, refresh it too
             if (document.getElementById('dep-modal')) {
-                api('/dependencies/installed').then(function(d) {
+                api(_depInstalledUrl()).then(function(d) {
                     _depTargetInstalled = d || {};
                     _depInstalledLoaded = Object.keys(_depTargetInstalled).length > 0;
                     api('/dependencies/tree').then(function(t) {
