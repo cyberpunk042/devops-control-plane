@@ -293,7 +293,9 @@ def _pip_show(project_root: Path, package: str, venv_path: str | None) -> dict[s
             cwd=str(project_root), env=env,
         )
         if r.returncode == 0 and r.stdout.strip():
-            return _parse_pip_show(r.stdout)
+            parsed = _parse_pip_show(r.stdout)
+            _enrich_from_dist_info(parsed)
+            return parsed
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
         pass
 
@@ -354,7 +356,10 @@ def _pip_show_batch(
             cwd=str(project_root), env=env,
         )
         if r.returncode == 0 and r.stdout.strip():
-            return _parse_pip_show_batch(r.stdout)
+            batch = _parse_pip_show_batch(r.stdout)
+            for parsed in batch.values():
+                _enrich_from_dist_info(parsed)
+            return batch
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
         pass
 
@@ -398,3 +403,68 @@ def _parse_pip_show(output: str) -> dict[str, str]:
             norm_key = key.strip().lower().replace("-", "_")
             result[norm_key] = value.strip()
     return result
+
+
+def _enrich_from_dist_info(parsed: dict[str, str]) -> None:
+    """Fill missing metadata (summary, license, author) from .dist-info/METADATA.
+
+    ``uv pip show`` only returns name/version/location/requires/required-by.
+    The full metadata lives in the METADATA file inside the dist-info dir.
+    This reads it directly from disk — no subprocess needed.
+    """
+    if parsed.get("summary"):
+        return  # already has metadata, nothing to do
+
+    location = parsed.get("location", "")
+    name = parsed.get("name", "")
+    version = parsed.get("version", "")
+    if not location or not name:
+        return
+
+    # dist-info dir: {name}-{version}.dist-info or normalized variants
+    site_packages = Path(location)
+    if not site_packages.is_dir():
+        return
+
+    # Try exact match first, then glob for case/normalization variants
+    candidates = [
+        site_packages / f"{name}-{version}.dist-info" / "METADATA",
+        site_packages / f"{name.replace('-', '_')}-{version}.dist-info" / "METADATA",
+    ]
+    # Glob fallback for weird normalization
+    globs = list(site_packages.glob(f"{name.replace('-', '?')}*.dist-info/METADATA"))
+
+    metadata_path = None
+    for c in candidates:
+        if c.is_file():
+            metadata_path = c
+            break
+    if not metadata_path and globs:
+        metadata_path = globs[0]
+    if not metadata_path:
+        return
+
+    try:
+        # Only read the header portion (before first blank line = end of headers)
+        text = metadata_path.read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines():
+            if not line.strip():
+                break  # end of headers
+            if ":" not in line:
+                continue
+            key, _, value = line.partition(":")
+            norm = key.strip().lower().replace("-", "_")
+            if norm == "summary" and not parsed.get("summary"):
+                parsed["summary"] = value.strip()
+            elif norm == "author_email" and not parsed.get("author") and not parsed.get("author_email"):
+                parsed["author_email"] = value.strip()
+            elif norm == "author" and not parsed.get("author"):
+                parsed["author"] = value.strip()
+            elif norm == "license_expression" and not parsed.get("license_expression"):
+                parsed["license_expression"] = value.strip()
+            elif norm == "license" and not parsed.get("license") and not parsed.get("license_expression"):
+                parsed["license"] = value.strip()
+            elif norm == "home_page" and not parsed.get("home_page"):
+                parsed["home_page"] = value.strip()
+    except OSError:
+        pass
