@@ -113,13 +113,23 @@ def register_dependencies(mediator: QueryMediator) -> None:
 
     def _resolve_installed():
         from src.core.services.dependency_mgr.venv_info import get_installed_packages
-        return get_installed_packages(mediator.project_root)
+
+        # Resolve active venv from dependency.venvs — don't hardcode sys.executable
+        venv_path = None
+        venvs_result = mediator.peek("dependency.venvs")
+        if venvs_result and venvs_result.get("data"):
+            active = venvs_result["data"].get("active", "")
+            if active and active != "system":
+                venv_path = active
+
+        return get_installed_packages(mediator.project_root, venv_path=venv_path)
 
     tree.register(TreeRegistration(
         path="dependency.installed",
         resolver=_resolve_installed,
         ttl=300,
         persist=True,
+        depends_on=["dependency.venvs"],
         size=1,
     ))
 
