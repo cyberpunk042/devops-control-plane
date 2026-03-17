@@ -181,6 +181,20 @@ def dep_history():
         return jsonify({"events": []})
 
 
+@dep_bp.route("/dependencies/subdeps/<package_name>")
+def dep_subdeps(package_name):
+    """Sub-dependencies for a single package.
+
+    Query params:
+        venv: target venv (e.g. .venv-ft). Default = active.
+    """
+    from src.core.services.dependency_mgr.subdeps import get_package_deps
+
+    venv = request.args.get("venv", None)
+    deps = get_package_deps(_project_root(), package_name, venv_path=venv)
+    return jsonify(deps)
+
+
 @dep_bp.route("/dependencies/snapshots/<snapshot_id>/packages")
 def dep_snapshot_packages(snapshot_id):
     """Parse the backed up manifest in a snapshot to show what packages were at what versions."""

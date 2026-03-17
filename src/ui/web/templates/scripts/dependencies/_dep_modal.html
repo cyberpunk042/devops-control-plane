@@ -133,7 +133,7 @@ async function depOpenModal(initialScope, initialAction) {
 
         _depRenderTree(data);
         _depLoadSnapshots();
-        _depLoadTargets();
+        await _depLoadTargets();
 
         // If scope was pre-selected, render its panels
         if (_depSelectedScope) {
@@ -264,9 +264,13 @@ async function _depLoadTargets() {
         const targets = venvInfo.targets || [];
         if (targets.length <= 1) { bar.style.display = 'none'; return; }
 
-        // Set default active target
-        if (!_depActiveTarget) {
+        // Set active target — always sync with server's active venv
+        if (!_depActiveTarget || _depActiveTarget === 'null') {
             _depActiveTarget = venvInfo.active || 'system';
+        }
+        // Verify the target still exists in the target list
+        if (!targets.find(t => t.path === _depActiveTarget)) {
+            _depActiveTarget = venvInfo.active || targets[0]?.path || 'system';
         }
 
         let h = `<span class="dep-target-bar-label">Target:</span>`;
@@ -593,13 +597,20 @@ function _depRenderTree(tree) {
                 const st = _depPkgState(pkg);
                 const sel = _depSelectedPkg && _depSelectedPkg.id === pkg.id;
                 const pkgChecked = _depCheckedPkgs.has(pkg.id);
+                const pkgExpKey = 'subdep:' + pkg.id;
+                const pkgSubExpanded = _depExpanded.has(pkgExpKey);
                 h += `<div class="dep-pkg-node${sel ? ' selected' : ''}" data-pkg="${esc(pkg.id)}" data-status="${esc(st.status)}" onclick='_depSelectPackage(${JSON.stringify(pkg).replace(/'/g, "&#39;")})' ondblclick='_depFocusPackage(${JSON.stringify(pkg).replace(/'/g, "&#39;")})' title="${esc(st.detail)}">`;
+                if (st.installed) h += `<span onclick="_depTogglePkgSub('${esc(pkgExpKey)}','${esc(st.name)}',event)" style="font-size:0.45rem;min-width:0.6rem;color:var(--text-muted);cursor:pointer;flex-shrink:0">${pkgSubExpanded ? '▼' : '▸'}</span>`;
                 h += `<input type="checkbox" ${pkgChecked ? 'checked' : ''} onclick="_depTogglePkg('${esc(pkg.id)}',event)" style="width:11px;height:11px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">`;
                 h += `<span class="dep-node-label">${esc(st.name)}${st.declared ? ' <span style="color:var(--text-muted)">' + esc(st.declared) + '</span>' : ''}</span>`;
                 h += _depHintHtml(st);
                 h += `<span class="dep-node-status">${_depStatusHtml(st)}</span>`;
                 if (pkg.group) h += `<span class="dep-node-group" data-group="${esc(pkg.group)}">${esc(pkg.group)}</span>`;
                 h += `</div>`;
+                // Inline sub-deps (if expanded)
+                if (pkgSubExpanded) {
+                    h += `<div id="dep-pkg-sub-${esc(pkg.id)}" class="dep-pkg-list" style="margin-left:1rem;border-left:1px solid var(--border-subtle);padding-left:0.3rem"></div>`;
+                }
             }
             if (_depSearchQuery && filteredPkgs.length < pkgs.length) {
                 h += `<div style="font-size:0.6rem;color:var(--text-muted);padding:0.2rem 0.3rem">${filteredPkgs.length}/${pkgs.length} shown</div>`;
@@ -799,6 +810,47 @@ function _depFilterByStatus(status) {
     // Update op panel to reflect selection
     if (_depCheckedPkgs.size > 0) {
         _depRenderOpPanelForCheckedPkgs();
+    }
+}
+
+function _depTogglePkgSub(expKey, pkgName, e) {
+    e.stopPropagation();
+    if (_depExpanded.has(expKey)) {
+        _depExpanded.delete(expKey);
+    } else {
+        _depExpanded.add(expKey);
+    }
+    _depRenderTree(_depTree);
+
+    // Lazy-load sub-deps into the expanded container
+    if (_depExpanded.has(expKey)) {
+        const pkgId = expKey.replace('subdep:', '');
+        const container = document.getElementById('dep-pkg-sub-' + pkgId);
+        if (container && !container.dataset.loaded) {
+            container.dataset.loaded = '1';
+            container.innerHTML = '<div style="font-size:0.6rem;color:var(--text-muted);padding:0.2rem">◌ Loading...</div>';
+            const venv = _depActiveTarget || '';
+            const venvParam = venv ? '?venv=' + encodeURIComponent(venv) : '';
+            api('/dependencies/subdeps/' + encodeURIComponent(pkgName) + venvParam).then(data => {
+                let sh = '';
+                for (const r of (data.requires_detail || [])) {
+                    const ic = r.installed ? '●' : '❌';
+                    const clr = r.installed ? 'var(--success)' : 'var(--error)';
+                    sh += `<div style="display:flex;align-items:center;gap:0.3rem;font-size:0.64rem;padding:0.1rem 0;color:var(--text-secondary)">`;
+                    sh += `<span style="color:${clr};font-size:0.6rem">${ic}</span>`;
+                    sh += `<span>${esc(r.name)}</span>`;
+                    if (r.installed) sh += `<span style="font-family:var(--font-mono);font-size:0.58rem;color:var(--text-muted)">${esc(r.installed)}</span>`;
+                    sh += `</div>`;
+                }
+                if (!sh) sh = '<div style="font-size:0.6rem;color:var(--text-muted);padding:0.1rem">No sub-dependencies</div>';
+                if (data.required_by && data.required_by.length) {
+                    sh += `<div style="font-size:0.58rem;color:var(--text-muted);padding:0.2rem 0 0;border-top:1px solid var(--border-subtle);margin-top:0.2rem">Required by: ${data.required_by.map(n => esc(n)).join(', ')}</div>`;
+                }
+                container.innerHTML = sh;
+            }).catch(() => {
+                container.innerHTML = '<div style="font-size:0.6rem;color:var(--error)">Failed to load</div>';
+            });
+        }
     }
 }
 
@@ -1106,7 +1158,9 @@ function _depRenderOpPanel(scopeId) {
         if (focusSt?.latest) scopeDetail += ` · latest: ${esc(focusSt.latest)}`;
     } else {
         scopeTitle = label;
-        scopeDetail = `${pkgCount} packages${groupStr ? ' (' + groupStr + ')' : ''}`;
+        const tc = _depTransitiveCounts();
+        const transInfo = tc ? ` · ${tc.installed} total installed (${tc.transitive} transitive)` : '';
+        scopeDetail = `${pkgCount} declared${groupStr ? ' (' + groupStr + ')' : ''}${transInfo}`;
     }
 
     panel.innerHTML = `
@@ -1302,7 +1356,11 @@ function _depRenderEcoOverview(scopeId) {
         h += `<div class="dep-intel-grid">`;
         h += `<span class="dep-intel-label">Ecosystems:</span><span class="dep-intel-value">${children.length}</span>`;
         const total = children.reduce((s, e) => s + (e.children || []).length, 0);
-        h += `<span class="dep-intel-label">Total packages:</span><span class="dep-intel-value">${total}</span>`;
+        h += `<span class="dep-intel-label">Declared:</span><span class="dep-intel-value">${total} packages</span>`;
+        const gtc = _depTransitiveCounts();
+        if (gtc) {
+            h += `<span class="dep-intel-label">Installed:</span><span class="dep-intel-value">${gtc.installed} total (${gtc.transitive} transitive)</span>`;
+        }
         const stats = _depCountStatuses(children);
         if (stats.current) h += `<span class="dep-intel-label">Current:</span><span class="dep-intel-value" style="color:var(--success)">${stats.current}</span>`;
         if (stats.outdated) h += `<span class="dep-intel-label">Outdated:</span><span class="dep-intel-value" style="color:var(--warning)">${stats.outdated}</span>`;
@@ -1335,7 +1393,11 @@ function _depRenderEcoOverview(scopeId) {
     h += `<div class="dep-intel-header"><span class="dep-intel-name">${esc(eco.label)}</span></div>`;
     h += `<div class="dep-intel-grid" style="margin-bottom:var(--space-sm)">`;
     h += `<span class="dep-intel-label">Path:</span><span class="dep-intel-value">${esc(eco.path || '.')}${eco.path === '.' ? ' (project root)' : ''}</span>`;
-    h += `<span class="dep-intel-label">Packages:</span><span class="dep-intel-value">${pkgs.length} (${Object.entries(groups).map(([g,n]) => n + ' ' + g).join(' · ')})</span>`;
+    const tc = _depTransitiveCounts();
+    h += `<span class="dep-intel-label">Declared:</span><span class="dep-intel-value">${pkgs.length} packages (${Object.entries(groups).map(([g,n]) => n + ' ' + g).join(' · ')})</span>`;
+    if (tc) {
+        h += `<span class="dep-intel-label">Installed:</span><span class="dep-intel-value">${tc.installed} total (${tc.transitive} transitive sub-dependencies)</span>`;
+    }
     // Count using real state
     let missing = 0, installed = 0;
     for (const p of pkgs) {
@@ -1478,8 +1540,64 @@ function _depRenderIntel(pkg) {
     }
     h += `</div>`;
 
+    // Sub-dependencies section (lazy-loaded)
+    if (st.installed) {
+        h += `<div style="margin-top:var(--space-sm)">`;
+        h += `<details ontoggle="_depLoadSubDeps(this,'${esc(st.name)}')">`;
+        h += `<summary style="font-size:0.72rem;color:var(--text-muted);cursor:pointer;user-select:none;font-weight:500;list-style:none">Dependencies & required by</summary>`;
+        h += `<div class="dep-subdeps-content" style="padding-top:var(--space-xs)"></div>`;
+        h += `</details>`;
+        h += `</div>`;
+    }
+
     h += `</div>`;
     panel.innerHTML = h;
+}
+
+function _depLoadSubDeps(detailsEl, pkgName) {
+    if (!detailsEl.open) return;  // Closing, not opening
+    const container = detailsEl.querySelector('.dep-subdeps-content');
+    if (!container || container.dataset.loaded) return;
+    container.dataset.loaded = '1';
+    container.innerHTML = '<span style="font-size:0.66rem;color:var(--text-muted)">◌ Loading...</span>';
+
+    const venv = _depActiveTarget || '';
+    const venvParam = venv ? '?venv=' + encodeURIComponent(venv) : '';
+
+    api('/dependencies/subdeps/' + encodeURIComponent(pkgName) + venvParam).then(data => {
+        let h = '';
+
+        // Requires (children)
+        const reqs = data.requires_detail || [];
+        if (reqs.length) {
+            h += `<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.2rem;font-weight:500">Requires (${reqs.length})</div>`;
+            for (const r of reqs) {
+                const instColor = r.installed ? 'var(--success)' : 'var(--error)';
+                const instIcon = r.installed ? '●' : '❌';
+                h += `<div style="display:flex;align-items:center;gap:0.3rem;font-size:0.68rem;padding:0.1rem 0 0.1rem 0.5rem">`;
+                h += `<span style="color:${instColor}">${instIcon}</span>`;
+                h += `<span style="color:var(--text-secondary)">${esc(r.name)}</span>`;
+                if (r.installed) h += `<span style="font-family:var(--font-mono);font-size:0.6rem;color:var(--text-muted)">${esc(r.installed)}</span>`;
+                else h += `<span style="font-size:0.6rem;color:var(--error)">not installed</span>`;
+                h += `</div>`;
+            }
+        } else {
+            h += `<div style="font-size:0.66rem;color:var(--text-muted)">No sub-dependencies (leaf package)</div>`;
+        }
+
+        // Required by (parents)
+        const reqBy = data.required_by || [];
+        if (reqBy.length) {
+            h += `<div style="font-size:0.68rem;color:var(--text-muted);margin-top:var(--space-sm);margin-bottom:0.2rem;font-weight:500">Required by (${reqBy.length})</div>`;
+            for (const parent of reqBy) {
+                h += `<div style="font-size:0.68rem;padding:0.1rem 0 0.1rem 0.5rem;color:var(--text-secondary)">← ${esc(parent)}</div>`;
+            }
+        }
+
+        container.innerHTML = h || '<span style="font-size:0.66rem;color:var(--text-muted)">No dependency information available</span>';
+    }).catch(e => {
+        container.innerHTML = `<span style="font-size:0.66rem;color:var(--error)">Failed: ${esc(e.message)}</span>`;
+    });
 }
 
 function _depUpdatePkg(eco, pkg, ver) {
@@ -1544,6 +1662,31 @@ function _depCheckVersion(eco, pkg) {
     api('/dependencies/versions?bust=1').then(() => {
         api('/dependencies/tree?bust=1').then(data => { _depTree = data; _depRenderTree(data); });
     }).catch(e => console.error('Version check failed:', e));
+}
+
+function _depTransitiveCounts() {
+    // Compare declared packages (from tree) vs all installed (from pip list)
+    // Anything installed but not declared = transitive
+    if (!_depInstalledLoaded || !_depTree) return null;
+
+    const declared = new Set();
+    for (const eco of (_depTree.children || [])) {
+        if (eco.ecosystem !== 'pip' && eco.ecosystem !== 'npm') continue;
+        for (const pkg of (eco.children || [])) {
+            const name = pkg.label ? pkg.label.split(' ')[0].toLowerCase() : '';
+            if (name) declared.add(name);
+        }
+    }
+
+    const installed = Object.keys(_depTargetInstalled);
+    const transitive = installed.filter(name => !declared.has(name));
+
+    return {
+        declared: declared.size,
+        installed: installed.length,
+        transitive: transitive.length,
+        transitiveNames: transitive.slice(0, 20),  // First 20 for display
+    };
 }
 
 function _depTimeAgo(epochSec) {
@@ -2031,7 +2174,9 @@ function _depRenderCard(pulse, children) {
     h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-top:var(--space-sm);padding-top:var(--space-sm);border-top:1px solid var(--border-subtle);flex-wrap:wrap;gap:var(--space-xs)">`;
 
     // Left: summary
-    let summary = `<span style="font-size:0.68rem;color:var(--text-muted)">${totalPkg} packages`;
+    const cardTc = _depTransitiveCounts();
+    const transStr = cardTc ? ` · ${cardTc.installed} installed (${cardTc.transitive} transitive)` : '';
+    let summary = `<span style="font-size:0.68rem;color:var(--text-muted)">${totalPkg} declared${transStr}`;
     if (gMissing) summary += ` · <span style="color:var(--error)">${gMissing} ❌ missing</span>`;
     if (gOutdated) summary += ` · <span style="color:var(--warning)">${gOutdated} ⚠ outdated</span>`;
     if (gDeprecated) summary += ` · <span style="color:var(--error)">${gDeprecated} ⛔ deprecated</span>`;
