@@ -1,12 +1,13 @@
 """
 Posture domain registration — wires system posture into the mediator tree.
 
-Registers 6 nodes matching the existing posture cache keys::
+Registers 7 nodes matching the existing posture cache keys::
 
     posture.platform   — OS, kernel, glibc, WSL, arch  (TTL=inf)
     posture.toolchain  — installed tool versions vs EOL (TTL=300s)
     posture.project    — code health / project probes   (TTL=60s)
     posture.runtime    — circuit breakers, retry queue  (TTL=0, always fresh)
+    posture.modules    — module stack health / floor    (TTL=60s)
     posture.full       — assembled SystemPosture        (TTL=60s)
     posture.summary    — lightweight dict for nav badge (TTL=30s)
 
@@ -15,7 +16,8 @@ Dependency graph::
     posture.platform  ─┐
     posture.toolchain ─┤
     posture.project   ─┼──→ posture.full ──→ posture.summary
-    posture.runtime   ─┘
+    posture.runtime   ─┤
+    posture.modules   ─┘
 
 Resolvers point to the RAW scanner/bridge functions in the
 orchestrator module (not the cached wrappers).  The mediator
@@ -52,6 +54,7 @@ def register_posture(mediator: QueryMediator) -> None:
     # These are the orchestrator's internal functions that handle
     # error isolation (try/except) already.
     from src.core.services.system_posture.orchestrator import (
+        _bridge_modules,
         _bridge_project,
         _bridge_runtime,
         _scan_platform,
@@ -88,10 +91,17 @@ def register_posture(mediator: QueryMediator) -> None:
         ttl=0,               # always fresh — mediator skips cache
     ))
 
+    tree.register(TreeRegistration(
+        path="posture.modules",
+        resolver=lambda: _bridge_modules(mediator.project_root),
+        ttl=60,              # 1 minute (bridges to detection + config)
+        persist=True,
+    ))
+
     # ── Assembled nodes (depend on pillars) ────────────────────
 
     def _resolve_full():
-        """Assemble full posture from the 4 pillars via the mediator.
+        """Assemble full posture from all 5 pillars via the mediator.
 
         Instead of calling _assemble_posture (which goes through the
         old cache's get_or_compute), we get each pillar from the
@@ -107,6 +117,7 @@ def register_posture(mediator: QueryMediator) -> None:
         toolchain = mediator.get("posture.toolchain")["data"]
         project = mediator.get("posture.project")["data"]
         runtime = mediator.get("posture.runtime")["data"]
+        modules = mediator.get("posture.modules")["data"]
 
         posture = SystemPosture(
             pillars={
@@ -114,6 +125,7 @@ def register_posture(mediator: QueryMediator) -> None:
                 "toolchain": toolchain,
                 "project": project,
                 "runtime": runtime,
+                "modules": modules,
             },
             scan_duration_ms=round((_time.time() - t0) * 1000),
         )
@@ -184,6 +196,7 @@ def register_posture(mediator: QueryMediator) -> None:
             "posture.toolchain",
             "posture.project",
             "posture.runtime",
+            "posture.modules",
         ],
     ))
 
@@ -200,4 +213,4 @@ def register_posture(mediator: QueryMediator) -> None:
         depends_on=["posture.full"],
     ))
 
-    logger.debug("registered posture.* nodes (6 total)")
+    logger.debug("registered posture.* nodes (7 total)")

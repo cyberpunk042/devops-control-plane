@@ -158,9 +158,9 @@
         `;
 
         // ── Pillar status bar (at-a-glance) ───────────────────
-        const pillarOrder = ['platform', 'toolchain', 'project', 'runtime'];
-        const pillarIcons = { platform: '💻', toolchain: '🔧', project: '📦', runtime: '⚡' };
-        const pillarLabels = { platform: 'Platform', toolchain: 'Toolchain', project: 'Project', runtime: 'Runtime' };
+        const pillarOrder = ['platform', 'toolchain', 'project', 'runtime', 'modules'];
+        const pillarIcons = { platform: '💻', toolchain: '🔧', project: '📦', runtime: '⚡', modules: '🧩' };
+        const pillarLabels = { platform: 'Platform', toolchain: 'Toolchain', project: 'Project', runtime: 'Runtime', modules: 'Modules' };
 
         html += '<div class="posture-status-bar">';
         for (const key of pillarOrder) {
@@ -185,7 +185,11 @@
         for (const key of pillarOrder) {
             const pillar = pillars[key];
             if (!pillar) continue;
-            html += renderPillar(key, pillar, pillarIcons[key], pillarLabels[key]);
+            if (key === 'modules') {
+                html += renderModulePillar(pillar);
+            } else {
+                html += renderPillar(key, pillar, pillarIcons[key], pillarLabels[key]);
+            }
         }
         html += '</div>';
         return html;
@@ -268,6 +272,696 @@
             html += '<div class="posture-recs-title">Recommendations</div>';
             for (const r of recommendations) {
                 html += `<div class="posture-rec-line">→ ${r}</div>`;
+            }
+            html += '</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    }
+
+    // ── Module peek panel system (follows dep-peek pattern) ────
+    let _modulePeekItems = [];  // stored for peek content builders
+
+    function _moduleShowPeek(html, x, y) {
+        _moduleHidePeek();
+        const el = document.createElement('div');
+        el.className = 'module-peek';
+        el.id = 'module-peek-card';
+        el.innerHTML = html;
+        document.body.appendChild(el);
+
+        const rect = el.getBoundingClientRect();
+        let left = x + 12;
+        let top = y - 20;
+        if (left + rect.width > window.innerWidth - 16) left = x - rect.width - 12;
+        if (top + rect.height > window.innerHeight - 16) top = window.innerHeight - rect.height - 16;
+        if (top < 8) top = 8;
+        el.style.left = left + 'px';
+        el.style.top = top + 'px';
+
+        setTimeout(() => { document.addEventListener('mousedown', _modulePeekOutside); }, 0);
+    }
+
+    function _moduleHidePeek() {
+        const el = document.getElementById('module-peek-card');
+        if (el) el.remove();
+        document.removeEventListener('mousedown', _modulePeekOutside);
+    }
+    window._moduleHidePeek = _moduleHidePeek;
+
+    function _modulePeekOutside(e) {
+        const peek = document.getElementById('module-peek-card');
+        if (peek && !peek.contains(e.target)) _moduleHidePeek();
+    }
+
+    // Click handler — dispatches to per-column content builder
+    window.modulePeek = function(col, idx, evt) {
+        const item = _modulePeekItems[idx];
+        if (!item) return;
+        const builders = {
+            module: _peekModule,
+            stack: _peekStack,
+            declared: _peekDeclared,
+            deps: _peekDeps,
+            code: _peekCode,
+            effective: _peekEffective,
+            compat: _peekCompat,
+            floor: _peekFloor,
+            status: _peekStatus,
+        };
+        const builder = builders[col];
+        if (!builder) return;
+        _moduleShowPeek(builder(item), evt.clientX, evt.clientY);
+    };
+
+    // ── Per-column content builders (conversational) ───────
+    function _peekModule(item) {
+        const meta = item.module_meta || {};
+        let h = `<div class="mp-title">${esc(item._moduleName)}</div>`;
+        if (meta.description) h += `<div class="mp-row">${esc(meta.description)}</div>`;
+        h += '<div class="mp-divider"></div>';
+        h += '<div class="mp-grid">';
+        h += `<span class="mp-grid-label">Path</span><span><code>${esc(meta.path || '')}</code></span>`;
+        h += `<span class="mp-grid-label">Domain</span><span>${esc(meta.domain || '')}</span>`;
+        h += `<span class="mp-grid-label">Stack</span><span>${esc(item.stack || '')}</span>`;
+        h += '</div>';
+        const verdict = item.verdict || '';
+        if (verdict === 'gap') {
+            h += `<div class="mp-muted" style="margin-top:0.5rem">⚠️ This module has a compatibility gap — click the Status column for details and options.</div>`;
+        } else if (verdict === 'consistent') {
+            h += `<div class="mp-muted" style="margin-top:0.5rem">✅ This module's compatibility layers are aligned.</div>`;
+        }
+        return h;
+    }
+
+    function _peekStack(item) {
+        const meta = item.stack_meta || {};
+        const stackName = item.stack || '';
+        let h = `<div class="mp-title">${esc(stackName)}</div>`;
+        if (meta.parent) {
+            h += `<div class="mp-row">This is a <strong>${esc(stackName)}</strong> stack, which extends the <code>${esc(meta.parent)}</code> base stack.</div>`;
+        } else {
+            h += `<div class="mp-row">This is a base <strong>${esc(stackName)}</strong> stack.</div>`;
+        }
+        if (meta.requires && meta.requires.length) {
+            h += '<div class="mp-divider"></div>';
+            h += '<div class="mp-section">Runtime requirements</div>';
+            for (const r of meta.requires) {
+                if (r.min_version) {
+                    h += `<div class="mp-row">Needs <strong>${esc(r.adapter)}</strong> version <code>≥${esc(r.min_version)}</code> to run.</div>`;
+                } else {
+                    h += `<div class="mp-row">Uses <strong>${esc(r.adapter)}</strong> (no specific version required).</div>`;
+                }
+            }
+        }
+        if (meta.capabilities && meta.capabilities.length) {
+            h += '<div class="mp-section">What this stack can do</div>';
+            h += `<div class="mp-row">${meta.capabilities.map(c => '<code>' + esc(c) + '</code>').join(' · ')}</div>`;
+        }
+        return h;
+    }
+
+    function _peekDeclared(item) {
+        const tiers = item.floor_tiers || {};
+        const t1 = tiers.tier1 || {};
+        const t2 = tiers.tier2 || {};
+        const t3 = tiers.tier3 || {};
+        const used = tiers.used || '';
+        const declaredVal = item.value || '—';
+
+        let h = `<div class="mp-title">Declared: ${esc(declaredVal)}</div>`;
+
+        // Explain what "declared" means
+        if (used === 'module') {
+            h += `<div class="mp-row">This module declares its own Python floor in its config file.</div>`;
+        } else if (used === 'stack') {
+            h += `<div class="mp-row">This module doesn't have its own config file, so the floor comes from the <strong>${esc(t2.stack_name || '')}</strong> stack definition.</div>`;
+        } else if (used === 'project') {
+            h += `<div class="mp-row">Neither the module nor its stack declare a floor. This value comes from the project root config.</div>`;
+        }
+
+        h += '<div class="mp-divider"></div>';
+        h += '<div class="mp-section">How the floor was determined</div>';
+        h += `<div class="mp-row ${used === 'module' ? 'active' : (t1.found ? '' : 'dim')}">`;
+        h += used === 'module' ? '→ ' : '  ';
+        h += `Module config: ${esc(t1.value || '—')}</div>`;
+
+        h += `<div class="mp-row ${used === 'stack' ? 'active' : (t2.found ? '' : 'dim')}">`;
+        h += used === 'stack' ? '→ ' : '  ';
+        h += `Stack (${esc(t2.stack_name || '')}): ${esc(t2.value || '—')}</div>`;
+
+        h += `<div class="mp-row ${used === 'project' ? 'active' : (t3.found ? '' : 'dim')}">`;
+        h += used === 'project' ? '→ ' : '  ';
+        h += `Project root: ${esc(t3.value || '—')}</div>`;
+
+        if (used === 'stack' && t3.found) {
+            h += `<div class="mp-muted">Note: the project root declares ${esc(t3.value || '')}, which is stricter. But the stack baseline is used because the module has no own config. You can add a <code>requires-python</code> to the module's own <code>pyproject.toml</code> to override this.</div>`;
+        }
+        return h;
+    }
+
+    function _peekDeps(item) {
+        const details = item.deps_details || [];
+        const depsFloor = item.deps_floor || '—';
+
+        let h = `<div class="mp-title">Dependencies need: ${esc(depsFloor)}</div>`;
+
+        if (!details.length) {
+            h += '<div class="mp-row">This module\'s imports don\'t have Python version constraints, or no third-party packages were detected.</div>';
+            h += '<div class="mp-muted">The platform scans the module\'s import statements and looks up each package\'s <code>Requires-Python</code> metadata.</div>';
+            return h;
+        }
+
+        // Sort by floor descending
+        const sorted = [...details].sort((a, b) => {
+            const av = (a.floor || '').split('.').map(Number);
+            const bv = (b.floor || '').split('.').map(Number);
+            for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+                if ((bv[i] || 0) !== (av[i] || 0)) return (bv[i] || 0) - (av[i] || 0);
+            }
+            return 0;
+        });
+
+        const topPkg = sorted[0];
+        h += `<div class="mp-row">The package <strong>${esc(topPkg.package)}</strong> requires Python <code>${esc(topPkg.requires_python)}</code>, which sets the floor for this module.</div>`;
+
+        if (sorted.length > 1) {
+            h += '<div class="mp-divider"></div>';
+            h += '<div class="mp-section">All dependency constraints</div>';
+            for (let i = 0; i < sorted.length; i++) {
+                const d = sorted[i];
+                const isTop = i === 0;
+                h += `<div class="mp-row ${isTop ? 'active' : ''}"><code>${esc(d.package)}</code> needs ${esc(d.requires_python)}${isTop ? ' ← highest' : ''}</div>`;
+            }
+        }
+
+        h += `<div class="mp-muted">${details.length} package(s) analyzed from this module's imports.</div>`;
+        return h;
+    }
+
+    function _peekCode(item) {
+        const features = item.code_features || [];
+        const codeFloor = item.code_floor || '—';
+
+        let h = `<div class="mp-title">Code uses: Python ${esc(codeFloor)}+ features</div>`;
+
+        if (!features.length) {
+            h += '<div class="mp-row">No version-specific language features were detected in this module\'s source files.</div>';
+            h += '<div class="mp-muted">The platform scans <code>.py</code> files for syntax that requires specific Python versions (match/case, walrus operator, runtime generics, etc.).</div>';
+            return h;
+        }
+
+        const topFeature = features[0];
+        h += `<div class="mp-row">The highest feature found is <strong>${esc(topFeature.feature)}</strong>, which requires Python ${esc(topFeature.version)}+.</div>`;
+
+        h += '<div class="mp-divider"></div>';
+        h += '<div class="mp-section">Features found</div>';
+        for (const f of features) {
+            const shortFile = (f.file || '').split('/').slice(-2).join('/');
+            h += `<div class="mp-row"><strong>${esc(f.version)}</strong> — ${esc(f.feature)}</div>`;
+            h += `<div class="mp-muted" style="margin-top:0;margin-bottom:0.3rem;padding-left:1rem">found in <code>${esc(shortFile)}:${f.line || '?'}</code></div>`;
+        }
+
+        h += `<div class="mp-muted">Files with <code>from __future__ import annotations</code> have their type hints evaluated as strings — they don't raise the floor. Only runtime syntax counts.</div>`;
+        return h;
+    }
+
+    function _peekEffective(item) {
+        const eff = item.effective_floor || '—';
+        const effClean = eff.replace('≥', '');
+        const declared = (item.value || '').replace('≥', '');
+        const deps = (item.deps_floor || '').replace('≥', '');
+        const code = item.code_floor || '';
+
+        let h = `<div class="mp-title">Real minimum: Python ${esc(effClean)}+</div>`;
+        h += `<div class="mp-row">This is the <strong>highest</strong> of all three layers. It's the actual minimum Python version this module needs to run.</div>`;
+
+        h += '<div class="mp-divider"></div>';
+        h += '<div class="mp-section">Layer comparison</div>';
+
+        const layers = [
+            { label: 'Declared', value: declared, source: item.floor_source },
+            { label: 'Dependencies', value: deps },
+            { label: 'Code', value: code },
+        ];
+
+        for (const l of layers) {
+            const isHighest = l.value === effClean;
+            const hasValue = l.value && l.value !== '—' && l.value !== '';
+            let line = `<div class="mp-row ${isHighest ? 'active' : (hasValue ? '' : 'dim')}">`;
+            line += isHighest ? '→ ' : '  ';
+            line += `${l.label}: `;
+            if (hasValue) {
+                line += `<code>${esc(l.value)}</code>`;
+                if (l.source) line += ` <span class="mp-muted" style="display:inline">(from ${esc(l.source)})</span>`;
+                if (isHighest) line += ' ← determines the floor';
+            } else {
+                line += '—';
+            }
+            line += '</div>';
+            h += line;
+        }
+
+        if (declared && effClean && declared !== effClean) {
+            h += `<div class="mp-muted" style="margin-top:0.5rem">The declared floor (${esc(declared)}) differs from the effective floor (${esc(effClean)}). This means the module claims compatibility with Python ${esc(declared)}+ but actually needs ${esc(effClean)}+.</div>`;
+        }
+        return h;
+    }
+
+    function _peekCompat(item) {
+        const count = item.compat_count || 0;
+        const range = item.range_display || '';
+
+        let h = `<div class="mp-title">Compatible with ${count} Python version(s)</div>`;
+
+        if (!count) {
+            h += '<div class="mp-row">No version range data available.</div>';
+            return h;
+        }
+
+        h += `<div class="mp-row">This module can run on Python versions <code>${esc(range)}</code>.</div>`;
+
+        const parts = range.split('—').map(s => s.trim());
+        if (parts.length === 2) {
+            const fromMinor = parseInt(parts[0].split('.')[1] || '0');
+            const toMinor = parseInt(parts[1].split('.')[1] || '0');
+            const major = parts[0].split('.')[0];
+            h += '<div class="mp-divider"></div>';
+            for (let m = fromMinor; m <= toMinor; m++) {
+                const v = major + '.' + m;
+                const isCurrent = m === toMinor;
+                h += `<div class="mp-row">${isCurrent ? '🟢' : '✓'} Python ${esc(v)}${isCurrent ? ' (current)' : ''}</div>`;
+            }
+        }
+
+        h += `<div class="mp-muted" style="margin-top:0.4rem">Wider compatibility means this module can run in more environments. ${count >= 4 ? 'This is a strong compatibility range.' : count <= 2 ? 'Consider whether wider support is needed.' : ''}</div>`;
+        return h;
+    }
+
+    function _peekFloor(item) {
+        const rank = item.rank || 'unknown';
+        const emoji = RANK_EMOJI[rank] || '⚪';
+        const eol = item.eol_date || '';
+        const cves = item.cves || [];
+        const effClean = (item.effective_floor || '').replace('≥', '');
+
+        let h = '';
+
+        if (rank === 'current') {
+            h += `<div class="mp-title">${emoji} Floor is healthy</div>`;
+            h += `<div class="mp-row">Python ${esc(effClean)} is actively maintained and receives security patches. You're in good shape.</div>`;
+        } else if (rank === 'outdated') {
+            h += `<div class="mp-title">${emoji} Floor approaching end-of-life</div>`;
+            h += `<div class="mp-row warn">Python ${esc(effClean)} reaches end-of-life in <strong>${esc(eol)}</strong>. After that date, no more security patches will be released.</div>`;
+            h += `<div class="mp-muted">This doesn't mean things break immediately, but any new vulnerabilities discovered after EOL won't be patched.</div>`;
+        } else if (rank === 'deprecated') {
+            h += `<div class="mp-title">${emoji} Floor is past end-of-life</div>`;
+            h += `<div class="mp-row warn">Python ${esc(effClean)} is past its end-of-life date (${esc(eol)}). It no longer receives any updates.</div>`;
+            h += `<div class="mp-muted">Deployments on this version are running unpatched software.</div>`;
+        } else if (rank === 'dangerous') {
+            h += `<div class="mp-title">${emoji} Floor has known vulnerabilities</div>`;
+            h += `<div class="mp-row warn">Python ${esc(effClean)} has <strong>${cves.length} known CVE(s)</strong>:</div>`;
+            for (const c of cves) {
+                h += `<div class="mp-row warn" style="padding-left:0.75rem">• <code>${esc(c)}</code></div>`;
+            }
+            h += `<div class="mp-muted" style="margin-top:0.4rem">Deployments on this version are exposed to these vulnerabilities. Consider raising the effective floor.</div>`;
+        } else {
+            h += `<div class="mp-title">${emoji} Floor health unknown</div>`;
+            h += `<div class="mp-row">Unable to determine the health status of this floor version.</div>`;
+        }
+
+        if (item.version_note) {
+            h += '<div class="mp-divider"></div>';
+            h += `<div class="mp-row">📝 <em>${esc(item.version_note)}</em></div>`;
+        }
+        return h;
+    }
+
+    function _peekStatus(item) {
+        const verdict = item.verdict || '';
+        const detail = item.verdict_detail || '';
+        const name = item._moduleName || '';
+        const effClean = (item.effective_floor || '').replace('≥', '');
+        const declared = (item.value || '').replace('≥', '');
+
+        let h = '';
+        if (verdict === 'consistent') {
+            h += '<div class="mp-title">✅ Everything lines up</div>';
+            h += `<div class="mp-row">This module's declared floor matches what its code and dependencies actually need. No action required.</div>`;
+            if (item.version_note) {
+                h += '<div class="mp-divider"></div>';
+                h += `<div class="mp-row">📝 <em>${esc(item.version_note)}</em></div>`;
+            }
+        } else if (verdict === 'gap') {
+            h += '<div class="mp-title">⚠️ Compatibility gap</div>';
+            h += `<div class="mp-row warn">This module claims to support Python ${esc(declared)}+, but it actually needs <strong>${esc(effClean)}+</strong> to run.</div>`;
+
+            // Explain what drives the gap
+            const deps = item.deps_details || [];
+            const features = item.code_features || [];
+
+            if (deps.length) {
+                const sorted = [...deps].sort((a,b) => {
+                    const av = (a.floor||'').split('.').map(Number);
+                    const bv = (b.floor||'').split('.').map(Number);
+                    return (bv[1]||0) - (av[1]||0);
+                });
+                h += `<div class="mp-muted" style="margin-top:0.3rem">• <strong>${esc(sorted[0].package)}</strong> requires Python ≥${esc(sorted[0].floor)}</div>`;
+            }
+            if (features.length) {
+                h += `<div class="mp-muted">• Code uses <strong>${esc(features[0].feature)}</strong> which needs Python ${esc(features[0].version)}+</div>`;
+            }
+
+            h += `<div class="mp-row" style="margin-top:0.5rem">If someone tries to run this module on Python ${esc(declared)}, it will fail.</div>`;
+
+            if (item.version_note) {
+                h += '<div class="mp-divider"></div>';
+                h += `<div class="mp-row">📝 <em>${esc(item.version_note)}</em></div>`;
+            }
+
+            h += '<div class="mp-actions">';
+            h += `<button class="posture-btn" onclick="_moduleHidePeek();moduleAcknowledge('${esc(name)}')">📝 Add note</button>`;
+            h += `<button class="posture-btn" onclick="_moduleHidePeek();moduleViewReport('${esc(name)}')">📋 Full report</button>`;
+            h += '</div>';
+        } else if (verdict === 'could_lower') {
+            h += '<div class="mp-title">ℹ️ Floor could be lower</div>';
+            h += `<div class="mp-row">The declared floor is ${esc(declared)}, but neither the code nor the dependencies need more than <strong>${esc(effClean)}</strong>.</div>`;
+            h += '<div class="mp-muted">This module could support a wider range of Python versions if you lower the declared floor. This is informational — no action is required.</div>';
+
+            h += '<div class="mp-actions">';
+            h += `<button class="posture-btn" onclick="_moduleHidePeek();moduleAcknowledge('${esc(name)}')">📝 Add note</button>`;
+            h += '</div>';
+        } else {
+            h += '<div class="mp-title">— No analysis available</div>';
+            h += '<div class="mp-row">This module doesn\'t have enough data for a compatibility verdict.</div>';
+        }
+        return h;
+    }
+
+    // ── Action handlers ─────────────────────────────────────
+    window.moduleAcknowledge = function(moduleName) {
+        if (typeof modalOpen !== 'function') return;
+        const bodyHtml = typeof modalFormField === 'function'
+            ? modalFormField({ name: 'note', label: 'Version Note', type: 'textarea',
+                placeholder: 'Explain why this gap is acceptable or what the plan is...',
+                hint: 'Saved to project.yml as version_note' })
+            : '<textarea id="mf-note" style="width:100%;min-height:80px" placeholder="Note..."></textarea>';
+
+        modalOpen({
+            title: '📝 Acknowledge: ' + moduleName,
+            replace: false,
+            body: bodyHtml,
+            size: 'md',
+            footerButtons: [
+                { label: '💾 Save', cls: 'btn-primary', onclick: "moduleSaveNote('" + moduleName + "')" },
+                { label: 'Cancel', onclick: 'modalClose()' },
+            ],
+        });
+    };
+
+    window.moduleSaveNote = async function(moduleName) {
+        const note = typeof mfVal === 'function' ? mfVal('note') : (document.getElementById('mf-note') || {}).value || '';
+        try {
+            const resp = await fetch('/api/posture/module-note', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, version_note: note }),
+            });
+            if (resp.ok) {
+                toast('📝 Note saved for ' + moduleName, 'success');
+                modalClose();
+            } else {
+                const data = await resp.json();
+                toast('⚠️ ' + (data.error || 'Failed to save'), 'error');
+            }
+        } catch (e) {
+            toast('❌ ' + e.message, 'error');
+        }
+    };
+
+    window.moduleViewReport = function(moduleName) {
+        const item = _modulePeekItems.find(i => i._moduleName === moduleName);
+        if (!item || typeof modalOpen !== 'function') return;
+
+        let body = '';
+        body += '<div style="display:flex;flex-direction:column;gap:1rem">';
+
+        // Declared section
+        body += '<div>' + _peekDeclared(item) + '</div>';
+
+        // Deps section
+        body += '<div>' + _peekDeps(item) + '</div>';
+
+        // Code section
+        body += '<div>' + _peekCode(item) + '</div>';
+
+        // Effective
+        body += '<div>' + _peekEffective(item) + '</div>';
+
+        // Floor health
+        body += '<div>' + _peekFloor(item) + '</div>';
+
+        body += '</div>';
+
+        modalOpen({
+            title: '📋 Full Report: ' + moduleName,
+            replace: false,
+            body: body,
+            size: 'wide',
+            footerButtons: [
+                { label: 'Close', onclick: 'modalClose()' },
+            ],
+        });
+    };
+
+    // ── Render: module pillar (matrix table — 9 columns) ───────
+    function renderModulePillar(pillar) {
+        const rank = pillar.rank || 'unknown';
+        const emoji = RANK_EMOJI[rank] || '⚪';
+        const items = pillar.items || [];
+        const warnings = pillar.warnings || [];
+
+        let html = `
+            <div class="posture-pillar expanded" data-rank="${rank}" id="posture-pillar-modules">
+                <div class="posture-pillar-header" onclick="this.parentElement.classList.toggle('expanded')">
+                    <span class="posture-pillar-icon">🧩</span>
+                    <span class="posture-pillar-label">Module Stack Health</span>
+                    <span class="posture-pillar-rank">${emoji}</span>
+                    <span class="posture-pillar-count">${items.length}</span>
+                    <span class="posture-pillar-chevron">▸</span>
+                </div>
+                <div class="posture-pillar-body">
+        `;
+
+        // Store items for peek panel content builders
+        _modulePeekItems = items.map(item => {
+            let moduleName = item.name || '';
+            const nameMatch = moduleName.match(/^(.+?)\s*\((.+)\)$/);
+            if (nameMatch) moduleName = nameMatch[1];
+            return { ...item, _moduleName: moduleName };
+        });
+
+        if (items.length > 0) {
+            html += `
+                <table class="posture-table posture-module-table">
+                    <thead>
+                        <tr class="posture-module-header-row">
+                            <th>Module</th>
+                            <th>Stack</th>
+                            <th>Declared</th>
+                            <th>Deps</th>
+                            <th>Code</th>
+                            <th>Effective</th>
+                            <th>Compat.</th>
+                            <th>Floor</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            for (let idx = 0; idx < items.length; idx++) {
+                const item = items[idx];
+                const iRank = item.rank || 'unknown';
+                const iEmoji = RANK_EMOJI[iRank] || '⚪';
+                const iCss = RANK_CSS[iRank] || '';
+                const isNA = iRank === 'na';
+
+                let moduleName = item.name || '';
+                let lang = '';
+                const nameMatch = moduleName.match(/^(.+?)\s*\((.+)\)$/);
+                if (nameMatch) { moduleName = nameMatch[1]; lang = nameMatch[2]; }
+
+                const stack = item.stack || lang || '—';
+                const declared = item.value || '—';
+                const depsFloor = item.deps_floor || '—';
+                const codeFloor = item.code_floor || '—';
+                const effective = item.effective_floor || '—';
+                const note = item.version_note || '';
+                const verdict = item.verdict || '';
+
+                // Compat bar
+                let compatDisplay = '—';
+                const compatCount = item.compat_count || 0;
+                if (compatCount > 0) {
+                    const maxBars = 8;
+                    const filled = Math.min(compatCount, maxBars);
+                    const empty = maxBars - filled;
+                    compatDisplay = '<span class="posture-compat-bar">' +
+                        '█'.repeat(filled) + '░'.repeat(empty) +
+                        '</span> ' + compatCount + 'v';
+                }
+
+                // Floor health — just the emoji
+                let floorDisplay = iEmoji;
+                if (note) floorDisplay += ' 📝';
+
+                // Verdict icon
+                let verdictDisplay = '—';
+                if (verdict === 'consistent') verdictDisplay = '✅';
+                else if (verdict === 'gap') verdictDisplay = '⚠️';
+                else if (verdict === 'could_lower') verdictDisplay = 'ℹ️';
+
+                // Floor source tag
+                const floorSource = item.floor_source || '';
+                let sourceTag = '';
+                if (floorSource === 'stack') sourceTag = ' <span class="posture-floor-source">stack</span>';
+                else if (floorSource === 'project') sourceTag = ' <span class="posture-floor-source">project</span>';
+
+                // Click handler shorthand
+                const pk = (col) => `data-peek onclick="modulePeek('${col}',${idx},event)"`;
+
+                if (isNA) {
+                    html += `
+                        <tr class="posture-row posture-module-row posture-module-na">
+                            <td ${pk('module')}>${esc(moduleName)}</td>
+                            <td ${pk('stack')}>${esc(stack)}</td>
+                            <td colspan="5" class="posture-module-cell-na">—</td>
+                            <td>⚪</td>
+                            <td>—</td>
+                        </tr>
+                    `;
+                } else {
+                    html += `
+                        <tr class="posture-row posture-module-row ${iCss}">
+                            <td class="posture-module-cell-name" ${pk('module')}>${esc(moduleName)}</td>
+                            <td class="posture-module-cell-stack" ${pk('stack')}>${esc(stack)}</td>
+                            <td class="posture-module-cell-declared" ${pk('declared')}><code>${esc(declared)}</code>${sourceTag}</td>
+                            <td class="posture-module-cell-deps" ${pk('deps')}>${esc(depsFloor)}</td>
+                            <td class="posture-module-cell-code" ${pk('code')}>${esc(codeFloor)}</td>
+                            <td class="posture-module-cell-effective" ${pk('effective')}><code>${esc(effective)}</code></td>
+                            <td class="posture-module-cell-compat" ${pk('compat')}>${compatDisplay}</td>
+                            <td class="posture-module-cell-health" ${pk('floor')}>${floorDisplay}</td>
+                            <td class="posture-module-cell-verdict" ${pk('status')}>${verdictDisplay}</td>
+                        </tr>
+                    `;
+
+                    if (note) {
+                        html += `<tr class="posture-module-note-row"><td colspan="9" class="posture-module-note-cell">📝 ${esc(note)}</td></tr>`;
+                    }
+                }
+            }
+            html += '</tbody></table>';
+        }
+
+        // ── Below-table sections (conversational) ─────────────
+
+        const stratItems = items.filter(i => i.rank !== 'na');
+        const gapItems = stratItems.filter(i => i.verdict === 'gap');
+        const okItems = stratItems.filter(i => i.verdict === 'consistent');
+        const lowerItems = stratItems.filter(i => i.verdict === 'could_lower');
+
+        // ── Findings — what needs attention ──────────────────
+        if (gapItems.length > 0) {
+            html += '<div class="posture-section-warnings">';
+            html += '<div class="posture-recs-title">Needs attention</div>';
+            for (const item of gapItems) {
+                const n = (item.name || '').split(' (')[0];
+                const effClean = (item.effective_floor || '').replace('≥', '');
+                const declared = (item.value || '').replace('≥', '');
+                const deps = item.deps_details || [];
+                const features = item.code_features || [];
+
+                let explanation = `<strong>${esc(n)}</strong> declares support for Python ${esc(declared)}+, but actually needs <strong>${esc(effClean)}+</strong>.`;
+
+                // What drives the gap
+                if (deps.length) {
+                    const sorted = [...deps].sort((a,b) => {
+                        const av = (a.floor||'').split('.').map(Number);
+                        const bv = (b.floor||'').split('.').map(Number);
+                        return (bv[1]||0) - (av[1]||0);
+                    });
+                    explanation += ` The package <code>${esc(sorted[0].package)}</code> requires ≥${esc(sorted[0].floor)}.`;
+                }
+                if (features.length && features[0].version > (deps.length ? deps[0].floor : '')) {
+                    explanation += ` The code uses <code>${esc(features[0].feature)}</code> (${esc(features[0].version)}+).`;
+                }
+
+                html += `<div class="posture-warn-line" style="line-height:1.6">⚠️ ${explanation}</div>`;
+            }
+            html += '</div>';
+        }
+
+        // ── Status summary ───────────────────────────────────
+        if (okItems.length > 0 || lowerItems.length > 0) {
+            html += '<div class="posture-module-status-section">';
+            for (const item of okItems) {
+                const n = (item.name || '').split(' (')[0];
+                html += `<div class="posture-module-status-line ok">✅ <strong>${esc(n)}</strong> — all layers aligned, no issues.</div>`;
+            }
+            for (const item of lowerItems) {
+                const n = (item.name || '').split(' (')[0];
+                const effClean = (item.effective_floor || '').replace('≥', '');
+                const declared = (item.value || '').replace('≥', '');
+                html += `<div class="posture-module-status-line info">ℹ️ <strong>${esc(n)}</strong> — floor is ${esc(declared)} but only needs ${esc(effClean)}. Could support a wider range.</div>`;
+            }
+            html += '</div>';
+        }
+
+        // ── Strategy ─────────────────────────────────────────
+        if (stratItems.length > 0) {
+            const allDeduced = stratItems.every(i => i.strategy_deduced);
+            html += '<div class="posture-module-strategy-row">';
+
+            const parts = [];
+            for (const item of stratItems) {
+                const n = (item.name || '').split(' (')[0];
+                const s = item.version_strategy || '';
+                const d = item.strategy_deduced;
+                const note = item.version_note || '';
+                let label = s === 'compatibility' ? (d ? 'compat.✱' : 'compat.') :
+                            s === 'latest' ? (d ? 'latest✱' : 'latest') : '—';
+                if (note) label += ' 📝';
+                parts.push(`${esc(n)}: <span class="posture-strategy-badge ${s}${d ? ' deduced' : ''}">${label}</span>`);
+            }
+
+            html += '<span class="posture-module-strategy-title">Strategy:</span> ' + parts.join(' · ');
+
+            if (allDeduced) {
+                html += '<div class="mp-muted" style="margin-top:0.4rem">All strategies are deduced from the constraint gap. You can set them explicitly in <code>project.yml</code> by adding <code>version_strategy: latest</code> or <code>version_strategy: compatibility</code> to each module.</div>';
+            }
+            html += '</div>';
+        }
+
+        // ── Notes ────────────────────────────────────────────
+        const noted = items.filter(i => i.version_note);
+        if (noted.length > 0) {
+            html += '<div class="posture-module-notes-section">';
+            for (const item of noted) {
+                const n = (item.name || '').split(' (')[0];
+                html += `<div class="posture-module-note-line">📝 <strong>${esc(n)}</strong>: <em>"${esc(item.version_note)}"</em></div>`;
+            }
+            html += '</div>';
+        }
+
+        // ── Floor advisories ─────────────────────────────────
+        const floorWarnings = warnings.filter(w => !w.includes('⚠️'));
+        if (floorWarnings.length > 0) {
+            html += '<div class="posture-section-warnings">';
+            html += '<div class="posture-recs-title">Floor health</div>';
+            for (const w of floorWarnings) {
+                html += `<div class="posture-warn-line">⚠️ ${w}</div>`;
             }
             html += '</div>';
         }

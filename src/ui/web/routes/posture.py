@@ -5,7 +5,7 @@ Blueprint: ``posture_bp``
 Prefix: ``/api``
 
 Endpoints:
-    GET /posture           → Full posture scan with all 4 pillars
+    GET /posture           → Full posture scan with all 5 pillars
     GET /posture/summary   → Lightweight summary for nav badge polling
     POST /posture/rescan   → Force rescan (cache bust)
     GET /posture/cache     → Cache diagnostics
@@ -24,7 +24,7 @@ posture_bp = Blueprint("posture", __name__)
 def posture_full():  # type: ignore[no-untyped-def]
     """Full system posture scan with action enrichment.
 
-    Returns all four pillars with item-level detail.  Each item
+    Returns all five pillars with item-level detail.  Each item
     is enriched with an ``actions`` list describing what the user
     can do about it (update, navigate, reset, etc.).
 
@@ -34,7 +34,7 @@ def posture_full():  # type: ignore[no-untyped-def]
     Returns:
         200 with full posture JSON including:
         - overall_rank, overall_status, summary
-        - pillars: {platform, toolchain, project, runtime}
+        - pillars: {platform, toolchain, project, runtime, modules}
         - each pillar: {rank, items[], warnings[], recommendations[]}
         - each item may include: actions[]
     """
@@ -72,6 +72,8 @@ def _enrich_posture_actions(posture_dict: dict) -> None:
 
     - **toolchain**: Cross-references ``TOOL_RECIPES`` and
       ``get_update_map()`` to determine if a tool can be updated.
+    - **modules**: Attaches version_strategy, version_note, and
+      strategy_deduced metadata from project.yml for frontend display.
     - **project**: Adds navigation links to the audit tab.
     - **runtime**: Adds reset actions for degraded circuit breakers.
     - **platform**: Adds guide flags for outdated OS versions.
@@ -173,6 +175,194 @@ def _enrich_posture_actions(posture_dict: dict) -> None:
                 "target": "retry_queue",
                 "label": "Clear Exhausted",
             }]
+
+    # ── Modules — full structured display metadata ──────────────
+    modules_pillar = pillars.get("modules", {})
+    mod_items = modules_pillar.get("items", [])
+
+    if mod_items:
+        # Load project config
+        try:
+            from src.core.config.loader import load_project
+
+            project = load_project()
+            module_refs = {ref.name: ref for ref in project.modules}
+        except Exception:
+            module_refs = {}
+
+        # Load all helpers
+        try:
+            from src.core.config.stack_loader import discover_stacks
+            from src.core.services.detection import detect_runtime_constraint
+            from src.core.services.system_posture.bridges.module_intel import (
+                compute_code_floor,
+                compute_dependency_floor,
+                compute_effective_floor,
+                compute_verdict,
+            )
+            from src.core.services.system_posture.bridges.modules import (
+                compute_compat_range,
+                deduce_strategy,
+            )
+
+            all_stacks = discover_stacks()
+            _project_root = current_app.config.get("PROJECT_ROOT")
+        except ImportError:
+            all_stacks = None
+            _project_root = None
+            detect_runtime_constraint = None
+            compute_compat_range = None
+            deduce_strategy = None
+            compute_dependency_floor = None
+            compute_code_floor = None
+            compute_effective_floor = None
+            compute_verdict = None
+
+        for item in mod_items:
+            item_name = item.get("name", "")
+            module_name = item_name.split(" (")[0] if " (" in item_name else item_name
+            lang_match = item_name.split("(")[-1].rstrip(")") if "(" in item_name else ""
+
+            ref = module_refs.get(module_name)
+            strategy_explicit = getattr(ref, "version_strategy", "") if ref else ""
+            note = getattr(ref, "version_note", "") if ref else ""
+            module_path = ref.path if ref else module_name
+
+            floor = item.get("value", "").lstrip("≥") or ""
+            current = item.get("current_version", "")
+            eol_date = item.get("eol_date", "")
+            cves = item.get("cves", [])
+            rank = item.get("rank", "")
+
+            # Stack name
+            item["stack"] = getattr(ref, "stack", "") if ref else lang_match
+
+            # Strategy
+            if strategy_explicit:
+                item["version_strategy"] = strategy_explicit
+                item["strategy_deduced"] = False
+            elif floor and current and deduce_strategy:
+                lifecycle_key = _module_lang_to_lifecycle(lang_match)
+                deduced_strat, _ = deduce_strategy(floor, current, lifecycle_key)
+                item["version_strategy"] = deduced_strat
+                item["strategy_deduced"] = True
+            else:
+                item["version_strategy"] = ""
+                item["strategy_deduced"] = True
+
+            item["version_note"] = note
+
+            # ── Deep analysis: deps floor, code floor, verdict ──
+            deps_floor = None
+            deps_details = []
+            code_floor_ver = None
+            code_features = []
+            effective = None
+            verdict = ""
+            verdict_detail = ""
+            floor_source = None
+
+            if _project_root and rank != "na":
+                from pathlib import Path as _Path
+                pr = _Path(_project_root)
+
+                # Floor source (3-tier detection)
+                if ref and detect_runtime_constraint and all_stacks:
+                    mod_dir = pr / ref.path
+                    _, _, floor_source = detect_runtime_constraint(
+                        mod_dir, ref.stack or lang_match,
+                        project_root=pr, stacks=all_stacks,
+                    )
+
+                # Deps floor — FULL details, not discarded
+                if compute_dependency_floor:
+                    deps_floor, deps_details = compute_dependency_floor(
+                        pr, module_path, lang_match or None,
+                    )
+
+                # Code floor — FULL features, not truncated
+                if compute_code_floor:
+                    code_floor_ver, code_features = compute_code_floor(
+                        pr, module_path, lang_match or None,
+                    )
+
+                # Effective floor
+                if compute_effective_floor:
+                    effective = compute_effective_floor(
+                        floor, deps_floor, code_floor_ver,
+                    )
+
+                # Verdict — with floor source for context-aware wording
+                if compute_verdict:
+                    verdict, verdict_detail = compute_verdict(
+                        floor, deps_floor, code_floor_ver,
+                        floor_source=floor_source,
+                    )
+
+            # ── Set all fields for frontend ──
+            item["floor_source"] = floor_source or ""
+            item["deps_floor"] = f"≥{deps_floor}" if deps_floor else "—"
+            item["deps_details"] = deps_details  # full per-package breakdown
+            item["code_floor"] = code_floor_ver or "—"
+            item["code_features"] = code_features  # full list, not truncated
+            item["effective_floor"] = f"≥{effective}" if effective else "—"
+            item["verdict"] = verdict
+            item["verdict_detail"] = verdict_detail
+
+            # Range display — from effective floor to current
+            range_floor = effective or floor
+            if range_floor and current:
+                item["range_display"] = f"{range_floor} — {current}"
+            else:
+                item["range_display"] = ""
+
+            # Compat count — from effective floor
+            if range_floor and current and compute_compat_range:
+                lifecycle_key = _module_lang_to_lifecycle(lang_match)
+                item["compat_count"] = compute_compat_range(
+                    range_floor, current, lifecycle_key,
+                )
+            else:
+                item["compat_count"] = 0
+
+            # Floor health detail
+            if rank == "dangerous" and cves:
+                item["floor_detail"] = f"EOL {eol_date}, {len(cves)} CVE(s)"
+            elif rank in ("outdated", "deprecated") and eol_date:
+                item["floor_detail"] = f"EOL {eol_date}"
+            elif rank == "current":
+                item["floor_detail"] = "supported"
+            elif rank == "na":
+                item["floor_detail"] = ""
+            else:
+                item["floor_detail"] = item.get("detail", "")
+
+            # Module metadata for tooltips
+            item["module_meta"] = {
+                "path": module_path,
+                "domain": getattr(ref, "domain", "") if ref else "",
+                "description": getattr(ref, "description", "") if ref else "",
+            }
+
+            # Stack metadata for tooltips
+            stack_name = item.get("stack", "")
+            if all_stacks and stack_name and stack_name in all_stacks:
+                sdef = all_stacks[stack_name]
+                item["stack_meta"] = {
+                    "parent": sdef.parent,
+                    "requires": [
+                        {"adapter": r.adapter, "min_version": r.min_version}
+                        for r in sdef.requires
+                    ],
+                    "capabilities": [c.name for c in sdef.capabilities],
+                }
+            else:
+                item["stack_meta"] = {}
+
+            # Floor tier analysis for tooltip
+            item["floor_tiers"] = _build_floor_tiers(
+                ref, floor, floor_source, _project_root, all_stacks,
+            ) if ref and _project_root else {}
 
     # ── Platform — guide flags ─────────────────────────────────
     platform = pillars.get("platform", {})
@@ -333,6 +523,155 @@ def posture_rescan_tool():  # type: ignore[no-untyped-def]
             m.put("posture.toolchain", cascade=True)
             r = m.get("posture.summary", force=True)
             return jsonify(r["data"])
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+def _build_floor_tiers(ref, floor, floor_source, project_root, all_stacks):
+    """Build the 3-tier floor analysis for tooltip display."""
+    from pathlib import Path as _Path
+
+    tiers = {}
+    pr = _Path(project_root) if project_root else None
+
+    # Tier 1: module's own config
+    tier1_found = False
+    if pr and ref:
+        mod_dir = pr / ref.path
+        from src.core.services.detection import _extract_constraint_from_dir
+        raw, _ = _extract_constraint_from_dir(mod_dir, ref.stack or "")
+        tier1_found = raw is not None
+        tiers["tier1"] = {
+            "source": "module config",
+            "found": tier1_found,
+            "value": raw or "no config file in module directory",
+        }
+
+    # Tier 2: stack definition
+    stack_name = ref.stack if ref else ""
+    tier2_found = False
+    tier2_value = ""
+    if all_stacks and stack_name and stack_name in all_stacks:
+        sdef = all_stacks[stack_name]
+        for req in sdef.requires:
+            if req.adapter in ("python", "node") and req.min_version:
+                tier2_found = True
+                tier2_value = f"{req.adapter} ≥{req.min_version}"
+                break
+    tiers["tier2"] = {
+        "source": "stack definition",
+        "found": tier2_found,
+        "value": tier2_value or "no runtime requirement in stack",
+        "stack_name": stack_name,
+    }
+
+    # Tier 3: project root config
+    tier3_found = False
+    if pr:
+        from src.core.services.detection import _extract_constraint_from_dir
+        raw, _ = _extract_constraint_from_dir(pr, ref.stack or "")
+        tier3_found = raw is not None
+        tiers["tier3"] = {
+            "source": "project root",
+            "found": tier3_found,
+            "value": raw or "no constraint in root config",
+        }
+
+    tiers["used"] = floor_source or ""
+    return tiers
+
+
+def _module_lang_to_lifecycle(lang: str) -> str:
+    """Map display language name to lifecycle key."""
+    return {
+        "python": "python",
+        "javascript": "node",
+        "typescript": "node",
+        "go": "go",
+        "rust": "rust",
+        "ruby": "ruby",
+        "java": "java",
+        "csharp": "dotnet",
+        "php": "php",
+        "elixir": "elixir",
+    }.get(lang, lang)
+
+
+@posture_bp.route("/posture/module-note", methods=["POST"])
+@tracked("posture.module.noted")
+def posture_module_note():  # type: ignore[no-untyped-def]
+    """Update version_note or version_strategy for a module in project.yml.
+
+    Request body:
+        {"module": "core", "version_note": "...", "version_strategy": "compatibility"}
+
+    At least one of version_note or version_strategy must be provided.
+    Updates the ModuleRef in project.yml and invalidates posture caches.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    note = body.get("version_note")
+    strategy = body.get("version_strategy")
+
+    if not module_name:
+        return jsonify({"error": "module name required"}), 400
+    if note is None and strategy is None:
+        return jsonify({"error": "version_note or version_strategy required"}), 400
+
+    try:
+        from pathlib import Path as _Path
+
+        from src.core.config.loader import find_project_file
+
+        import yaml
+
+        config_path = find_project_file()
+        if not config_path:
+            return jsonify({"error": "project.yml not found"}), 404
+
+        # Read, modify, write
+        raw = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw)
+
+        # Find module in the YAML data
+        project_data = data.get("project", data) if "project" in data else data
+        modules_list = project_data.get("modules", [])
+
+        found = False
+        for mod in modules_list:
+            if mod.get("name") == module_name:
+                if note is not None:
+                    mod["version_note"] = note
+                if strategy is not None:
+                    if strategy not in ("latest", "compatibility", ""):
+                        return jsonify({"error": f"invalid strategy: {strategy}"}), 400
+                    if strategy:
+                        mod["version_strategy"] = strategy
+                    elif "version_strategy" in mod:
+                        del mod["version_strategy"]
+                found = True
+                break
+
+        if not found:
+            return jsonify({"error": f"module '{module_name}' not found in project.yml"}), 404
+
+        # Write back
+        config_path.write_text(
+            yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        # Invalidate posture caches
+        from src.core.services.system_posture import invalidate_cache
+        invalidate_cache("modules")
+
+        return jsonify({
+            "ok": True,
+            "module": module_name,
+            "version_note": note,
+            "version_strategy": strategy,
+        })
+
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

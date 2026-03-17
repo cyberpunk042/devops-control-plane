@@ -178,6 +178,198 @@ def detect_version(directory: Path, stack_name: str) -> str | None:
     return None
 
 
+def _find_file(filename: str, dirs: list[Path]) -> Path | None:
+    """Find a file in a list of directories, return first match."""
+    for d in dirs:
+        candidate = d / filename
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def detect_runtime_constraint(
+    directory: Path,
+    stack_name: str,
+    project_root: Path | None = None,
+    stacks: dict[str, "Stack"] | None = None,
+) -> tuple[str | None, str | None, str | None]:
+    """Extract the runtime version constraint for a module.
+
+    Uses a 3-tier hierarchy (most specific wins):
+
+    Tier 1 — Module's own config file:
+        pyproject.toml (requires-python), package.json (engines.node),
+        go.mod (go directive), Cargo.toml (rust-version).
+        Checked in the module directory ONLY (not project root).
+        Source: "module"
+
+    Tier 2 — Stack definition's requires:
+        The module's detected stack declares what runtime it needs.
+        e.g. python-flask inherits python ≥ 3.8 from parent python.
+        Uses the adapter's min_version from the resolved stack.
+        Source: "stack"
+
+    Tier 3 — Project root config:
+        Root-level pyproject.toml, package.json, go.mod.
+        Shared across all modules — weakest signal.
+        Source: "project"
+
+    Returns (raw_constraint, floor_version, source):
+    - raw_constraint: the constraint string (e.g. ">=3.8")
+    - floor_version: parsed lowest version (e.g. "3.8")
+    - source: "module" | "stack" | "project" | None
+    """
+
+    # ── Tier 1: Module's own config file ─────────────────────
+    raw, source = _extract_constraint_from_dir(directory, stack_name)
+    if raw is not None:
+        floor = _parse_constraint_floor(raw)
+        if floor:
+            return raw, floor, "module"
+
+    # ── Tier 2: Stack definition's requires ──────────────────
+    if stacks:
+        raw_stack, floor_stack = _extract_constraint_from_stack(
+            stack_name, stacks,
+        )
+        if floor_stack:
+            return raw_stack, floor_stack, "stack"
+
+    # ── Tier 3: Project root config ──────────────────────────
+    if project_root and project_root != directory:
+        raw, source = _extract_constraint_from_dir(project_root, stack_name)
+        if raw is not None:
+            floor = _parse_constraint_floor(raw)
+            if floor:
+                return raw, floor, "project"
+
+    return None, None, None
+
+
+def _extract_constraint_from_dir(
+    directory: Path,
+    stack_name: str,
+) -> tuple[str | None, str | None]:
+    """Extract runtime constraint from config files in a single directory.
+
+    Returns (raw_constraint, source_hint) — source_hint is unused,
+    the caller determines the source tier.
+    """
+    # Python: pyproject.toml → requires-python
+    if stack_name.startswith("python"):
+        pyproject = directory / "pyproject.toml"
+        if pyproject.is_file():
+            try:
+                content = pyproject.read_text(encoding="utf-8")
+                match = re.search(r'requires-python\s*=\s*"([^"]+)"', content)
+                if match:
+                    return match.group(1), None
+            except OSError:
+                pass
+
+    # Node / TypeScript: package.json → engines.node
+    if stack_name.startswith(("node", "typescript")):
+        package_json = directory / "package.json"
+        if package_json.is_file():
+            try:
+                import json
+
+                data = json.loads(package_json.read_text(encoding="utf-8"))
+                engines = data.get("engines", {})
+                node_constraint = engines.get("node")
+                if node_constraint:
+                    return str(node_constraint), None
+            except (OSError, json.JSONDecodeError):
+                pass
+
+    # Go: go.mod → go directive
+    if stack_name.startswith("go"):
+        go_mod = directory / "go.mod"
+        if go_mod.is_file():
+            try:
+                content = go_mod.read_text(encoding="utf-8")
+                match = re.search(
+                    r"^go\s+(\d+\.\d+(?:\.\d+)?)", content, re.MULTILINE,
+                )
+                if match:
+                    return match.group(1), None
+            except OSError:
+                pass
+
+    # Rust: Cargo.toml → rust-version
+    if stack_name.startswith("rust"):
+        cargo = directory / "Cargo.toml"
+        if cargo.is_file():
+            try:
+                content = cargo.read_text(encoding="utf-8")
+                match = re.search(r'rust-version\s*=\s*"([^"]+)"', content)
+                if match:
+                    return match.group(1), None
+            except OSError:
+                pass
+
+    return None, None
+
+
+def _extract_constraint_from_stack(
+    stack_name: str,
+    stacks: dict[str, "Stack"],
+) -> tuple[str | None, str | None]:
+    """Extract runtime floor from a stack definition's requires field.
+
+    Maps adapter names to runtime ecosystems:
+      python → Python runtime (has min_version)
+      node   → Node.js runtime (has min_version)
+      shell  → generic (no runtime version — Go, Rust, etc. use config files)
+
+    Returns (constraint_string, floor_version).
+    """
+    stack = stacks.get(stack_name)
+    if not stack:
+        return None, None
+
+    # Adapters that represent a language runtime with meaningful version
+    _runtime_adapters = {"python", "node"}
+
+    for req in stack.requires:
+        if req.adapter in _runtime_adapters and req.min_version:
+            constraint = f">={req.min_version}"
+            return constraint, req.min_version
+
+    return None, None
+
+
+def _parse_constraint_floor(constraint: str) -> str | None:
+    """Extract the lowest version from a constraint string.
+
+    Handles common formats:
+      ">=3.8"        → "3.8"
+      ">=3.8,<4"     → "3.8"
+      ">=3.8.0"      → "3.8.0"
+      "~=3.8"        → "3.8"
+      "^18"          → "18"
+      ">=18.0.0"     → "18.0.0"
+      "18.x"         → "18"
+      "1.21"         → "1.21"  (bare version, e.g. go.mod)
+    """
+    # Try to find >=X.Y or ~=X.Y pattern first
+    match = re.search(r"[>~^]=?\s*(\d+(?:\.\d+)*)", constraint)
+    if match:
+        return match.group(1)
+
+    # Bare version (e.g. go.mod "1.21", rust-version "1.75")
+    match = re.match(r"(\d+(?:\.\d+)*)", constraint.strip())
+    if match:
+        return match.group(1)
+
+    # "18.x" style
+    match = re.match(r"(\d+)\.x", constraint.strip())
+    if match:
+        return match.group(1)
+
+    return None
+
+
 def detect_language(stack_name: str) -> str | None:
     """Infer primary language from stack name.
 
@@ -277,6 +469,13 @@ def detect_modules(
         # Detect language
         language = detect_language(effective_stack)
 
+        # Detect runtime constraint (3-tier: module → stack → project)
+        runtime_constraint, runtime_floor, floor_source = detect_runtime_constraint(
+            module_dir, effective_stack,
+            project_root=project_root,
+            stacks=stacks,
+        )
+
         module = Module(
             name=ref.name,
             path=ref.path,
@@ -287,6 +486,9 @@ def detect_modules(
             detected_stack=detected_stack_name,
             version=version,
             language=language,
+            runtime_constraint=runtime_constraint,
+            runtime_floor=runtime_floor,
+            runtime_floor_source=floor_source,
         )
         result.modules.append(module)
 

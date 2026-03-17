@@ -95,7 +95,7 @@ def invalidate_cache(key: str | None = None) -> list[str]:
     busted = invalidate(key)
     if busted:
         # Also invalidate downstream caches
-        if key in ("platform", "toolchain", "project", "runtime"):
+        if key in ("platform", "toolchain", "project", "runtime", "modules"):
             invalidate("full")
             invalidate("summary")
     return busted
@@ -154,6 +154,13 @@ def _assemble_posture(
         force=force,
     )
 
+    # ── Modules (60s TTL) ─────────────────────────────────────
+    modules_result = get_or_compute(
+        "modules",
+        lambda: _bridge_modules(project_root),
+        force=force,
+    )
+
     # ── Assemble ────────────────────────────────────────────────
     posture = SystemPosture(
         pillars={
@@ -161,6 +168,7 @@ def _assemble_posture(
             "toolchain": toolchain_result,
             "project": project_result,
             "runtime": runtime_result,
+            "modules": modules_result,
         },
         scan_duration_ms=round((time.time() - t0) * 1000),
     )
@@ -232,4 +240,18 @@ def _bridge_runtime() -> PillarResult:
             pillar="runtime",
             rank=RankLevel.UNKNOWN,
             warnings=[f"Runtime bridge error: {exc}"],
+        )
+
+
+def _bridge_modules(project_root: Path | None) -> PillarResult:
+    """Run modules bridge with error isolation."""
+    try:
+        from .bridges.modules import bridge_modules
+        return bridge_modules(project_root)
+    except Exception as exc:
+        logger.error("modules bridge failed: %s", exc, exc_info=True)
+        return PillarResult(
+            pillar="modules",
+            rank=RankLevel.UNKNOWN,
+            warnings=[f"Modules bridge error: {exc}"],
         )

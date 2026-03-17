@@ -8755,7 +8755,7 @@ select option {
 
 .posture-status-bar {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 0.5rem;
     margin-bottom: 1rem;
 }
@@ -9038,6 +9038,312 @@ select option {
     color: var(--accent);
     padding: 2px 0;
     line-height: 1.4;
+}
+
+/* ── Module Stack Health table ─────────────────────────────────── */
+
+.posture-module-table {
+    border-collapse: separate;
+    border-spacing: 0 2px;
+}
+
+.posture-module-header-row th {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.posture-module-row td {
+    padding: 0.5rem 0.5rem;
+    vertical-align: middle;
+}
+
+.posture-module-cell-name {
+    font-weight: 600;
+    font-size: 0.88rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.posture-module-cell-stack {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.posture-module-cell-floor code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    background: var(--surface);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
+.posture-module-cell-current {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.posture-module-cell-range {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.posture-module-cell-compat {
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.posture-compat-bar {
+    font-family: monospace;
+    font-size: 0.7rem;
+    letter-spacing: -0.5px;
+    color: var(--accent);
+}
+
+.posture-module-cell-health {
+    white-space: nowrap;
+    font-size: 0.85rem;
+}
+
+.posture-floor-detail {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-left: 0.25rem;
+}
+
+.posture-floor-source {
+    display: inline-block;
+    font-size: 0.62rem;
+    padding: 0px 4px;
+    border-radius: 3px;
+    background: hsla(210, 30%, 50%, 0.1);
+    color: var(--text-muted);
+    margin-left: 0.3rem;
+    vertical-align: middle;
+    font-style: italic;
+}
+
+.posture-note-icon {
+    cursor: help;
+    margin-left: 0.25rem;
+}
+
+.posture-module-note-row {
+    background: none;
+}
+
+.posture-module-note-cell {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    padding: 0.15rem 0.5rem 0.5rem 1.5rem;
+    font-style: italic;
+    border-bottom: 1px solid var(--border);
+}
+
+/* N/A modules (docs, markdown — no runtime constraint) */
+.posture-module-na-line {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    padding: 0.4rem 0.5rem;
+    font-style: italic;
+}
+
+/* Strategy summary row */
+.posture-module-strategy-row {
+    margin-top: 0.75rem;
+    padding: 0.55rem 0.75rem;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.posture-module-strategy-title {
+    font-weight: 700;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.posture-strategy-item {
+    white-space: nowrap;
+}
+
+.posture-strategy-badge {
+    display: inline-block;
+    font-size: 0.68rem;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: hsla(210, 50%, 50%, 0.12);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.posture-strategy-badge.compatibility {
+    background: hsla(210, 50%, 50%, 0.12);
+    color: var(--accent);
+}
+
+.posture-strategy-badge.latest {
+    background: hsla(150, 50%, 50%, 0.12);
+    color: hsl(150, 60%, 60%);
+}
+
+.posture-strategy-badge.deduced {
+    background: hsla(38, 70%, 50%, 0.12);
+    color: hsl(38, 70%, 65%);
+}
+
+/* Notes section */
+.posture-module-notes-section {
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.posture-module-note-line {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    padding: 2px 0;
+    line-height: 1.5;
+}
+
+/* Deduced strategy hints */
+.posture-module-deduced-section {
+    margin-top: 0.35rem;
+    padding: 0.4rem 0.75rem;
+}
+
+.posture-module-deduced-line {
+    font-size: 0.78rem;
+    color: hsl(38, 70%, 65%);
+    padding: 2px 0;
+    line-height: 1.4;
+}
+
+.posture-module-cell-declared code,
+.posture-module-cell-effective code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    background: var(--surface);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
+.posture-module-cell-deps,
+.posture-module-cell-code {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.posture-module-cell-verdict {
+    text-align: center;
+    font-size: 0.95rem;
+}
+
+.posture-module-cell-na {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    font-style: italic;
+    text-align: center;
+}
+
+.posture-module-na {
+    opacity: 0.6;
+}
+
+.posture-verdict-gap {
+    cursor: help;
+}
+
+.posture-verdict-info {
+    cursor: help;
+}
+
+/* Status section */
+.posture-module-status-section {
+    margin-top: 0.75rem;
+    padding: 0.55rem 0.75rem;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.posture-module-status-line {
+    font-size: 0.82rem;
+    padding: 2px 0;
+    line-height: 1.5;
+}
+
+.posture-module-status-line.ok {
+    color: var(--success);
+}
+
+.posture-module-status-line.gap {
+    color: var(--warning);
+}
+
+.posture-module-status-line.info {
+    color: var(--accent);
+}
+
+/* ── Module peek panel (follows dep-peek pattern) ────────────── */
+.module-peek                { position: fixed; z-index: 1002;
+                              background: var(--bg-card); border: 1px solid var(--border);
+                              border-radius: var(--radius-lg);
+                              box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+                              padding: var(--space-md); max-width: 380px; min-width: 260px;
+                              font-size: 0.75rem; line-height: 1.55;
+                              animation: dep-peek-in 0.12s ease-out; }
+.module-peek code           { font-size: 0.68rem; padding: 0.05rem 0.3rem;
+                              background: var(--bg-inset); border-radius: 3px; }
+
+.mp-title                   { font-size: 0.82rem; font-weight: 700;
+                              color: var(--text-primary); margin-bottom: 0.4rem; }
+.mp-section                 { font-size: 0.68rem; font-weight: 600;
+                              color: var(--text-muted); text-transform: uppercase;
+                              letter-spacing: 0.04em; margin: 0.5rem 0 0.25rem; }
+.mp-grid                    { display: grid; grid-template-columns: auto 1fr;
+                              gap: 0.15rem 0.6rem; color: var(--text-secondary); }
+.mp-grid-label              { color: var(--text-muted); white-space: nowrap; }
+.mp-row                     { color: var(--text-secondary); padding: 1px 0; }
+.mp-row.active              { color: var(--accent); font-weight: 600; }
+.mp-row.dim                 { color: var(--text-muted); opacity: 0.7; }
+.mp-row.warn                { color: var(--warning); }
+.mp-muted                   { color: var(--text-muted); font-size: 0.7rem;
+                              margin-top: 0.35rem; }
+.mp-divider                 { border-top: 1px solid var(--border-subtle);
+                              margin: 0.5rem 0; }
+.mp-actions                 { display: flex; gap: 0.4rem; margin-top: 0.5rem;
+                              padding-top: 0.5rem; border-top: 1px solid var(--border-subtle); }
+.mp-actions .posture-btn    { font-size: 0.7rem; }
+
+/* Clickable cells in module table */
+.posture-module-row td[data-peek] { cursor: pointer; }
+.posture-module-row td[data-peek]:hover { background: var(--surface-2); }
+
+/* Module row severity coloring */
+.posture-module-row.degraded .posture-module-cell-name {
+    color: var(--warning);
+}
+
+.posture-module-row.failed .posture-module-cell-name {
+    color: var(--error);
 }
 
 /* ── Action Buttons ────────────────────────────────────────────── */

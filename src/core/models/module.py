@@ -39,6 +39,9 @@ class Module(BaseModel):
     version: str | None = None   # detected version (from pyproject.toml, package.json, etc.)
     language: str | None = None  # primary language (python, node, go, etc.)
     dependencies: list[str] = Field(default_factory=list)  # inter-module deps
+    runtime_constraint: str | None = None  # raw constraint from config (e.g. ">=3.8")
+    runtime_floor: str | None = None       # parsed lowest version (e.g. "3.8")
+    runtime_floor_source: str | None = None  # where the floor came from: "module" | "stack" | "project"
 
     # ── Runtime state ────────────────────────────────────────────
     health: ModuleHealth = Field(default_factory=ModuleHealth)

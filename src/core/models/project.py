@@ -7,6 +7,8 @@ the project is, what it contains, and how it's organized.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -40,6 +42,8 @@ class ModuleRef(BaseModel):
     domain: str = "service"
     stack: str = ""
     description: str = ""
+    version_strategy: Literal["latest", "compatibility", ""] = ""
+    version_note: str = ""
 
 
 class WebSettings(BaseModel):

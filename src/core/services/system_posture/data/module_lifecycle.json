@@ -1,0 +1,116 @@
+{
+    "_meta": {
+        "description": "Module stack lifecycle data — language/runtime EOL for module floor health evaluation",
+        "format": "language → { current, min_supported, eol_versions, notes }",
+        "last_updated": "2026-03",
+        "purpose": "Used by the modules posture pillar to evaluate floor health of module runtime constraints. Separate from tool_lifecycle.json which serves the toolchain pillar.",
+        "sources": [
+            "https://endoflife.date",
+            "https://devguide.python.org/versions/",
+            "https://nodejs.org/en/about/previous-releases",
+            "https://go.dev/doc/devel/release",
+            "https://releases.rs",
+            "https://www.ruby-lang.org/en/downloads/branches/",
+            "https://www.php.net/supported-versions.php"
+        ]
+    },
+    "python": {
+        "current": "3.13",
+        "min_supported": "3.10",
+        "eol_versions": {
+            "3.9": "2025-10",
+            "3.8": {
+                "eol": "2024-10",
+                "cves": ["CVE-2024-6232"]
+            },
+            "3.7": "2023-06",
+            "3.6": "2021-12",
+            "3.5": "2020-09",
+            "2.7": "2020-01"
+        },
+        "notes": "Python releases a new minor annually. Each minor supported ~5 years. 3.9 EOL Oct 2025. 3.10 EOL Oct 2026. 3.11 EOL Oct 2027. 3.12 EOL Oct 2028. 3.13 EOL Oct 2029."
+    },
+    "node": {
+        "current": "22",
+        "min_supported": "20",
+        "eol_versions": {
+            "19": "2023-06",
+            "18": "2025-04",
+            "17": "2022-06",
+            "16": {
+                "eol": "2023-09",
+                "cves": ["CVE-2023-44487"]
+            },
+            "15": "2021-06",
+            "14": "2023-04",
+            "12": "2022-04"
+        },
+        "notes": "Even-numbered releases are LTS (~30 months). Odd-numbered are current (~6 months). Node 18 LTS ends Apr 2025. Node 20 LTS ends Apr 2026. Node 22 LTS ends Apr 2027."
+    },
+    "go": {
+        "current": "1.23",
+        "min_supported": "1.22",
+        "eol_versions": {
+            "1.21": "2024-08",
+            "1.20": "2024-02",
+            "1.19": "2023-08",
+            "1.18": "2023-02",
+            "1.17": "2022-08"
+        },
+        "notes": "Go supports the two most recent minor releases. New minor every ~6 months. go.mod go directive declares the minimum Go version required."
+    },
+    "rust": {
+        "current": "1.83",
+        "min_supported": "1.75",
+        "eol_versions": {},
+        "notes": "Rust releases every 6 weeks. Only the latest release is officially supported. rust-version in Cargo.toml declares MSRV (minimum supported Rust version). No formal EOL — older versions just miss features and fixes."
+    },
+    "ruby": {
+        "current": "3.3",
+        "min_supported": "3.1",
+        "eol_versions": {
+            "3.0": "2024-03",
+            "2.7": "2023-03",
+            "2.6": "2022-03",
+            "2.5": "2021-03"
+        },
+        "notes": "Ruby supports ~3 most recent minor releases. New minor annually. 3.1 EOL Mar 2025. 3.2 EOL Mar 2026."
+    },
+    "java": {
+        "current": "21",
+        "min_supported": "17",
+        "eol_versions": {
+            "16": "2021-09",
+            "15": "2021-03",
+            "14": "2020-09",
+            "13": "2020-03",
+            "12": "2019-09",
+            "11": "2024-09",
+            "8": "2025-03"
+        },
+        "notes": "Java has LTS releases (8, 11, 17, 21) and short-term releases (6 months). LTS gets extended support. Java 17 LTS until Sep 2029. Java 21 LTS until Sep 2031."
+    },
+    "php": {
+        "current": "8.3",
+        "min_supported": "8.1",
+        "eol_versions": {
+            "8.0": "2023-11",
+            "7.4": {
+                "eol": "2022-11",
+                "cves": ["CVE-2023-3247", "CVE-2023-3823", "CVE-2023-3824"]
+            },
+            "7.3": "2021-12",
+            "7.2": "2020-11"
+        },
+        "notes": "PHP releases annually. Each version gets 2 years active + 1 year security-only. 8.1 security-only ends Dec 2025."
+    },
+    "elixir": {
+        "current": "1.17",
+        "min_supported": "1.15",
+        "eol_versions": {
+            "1.14": "2024-06",
+            "1.13": "2023-06"
+        },
+        "notes": "Elixir supports the latest 3 minor releases. Tied to Erlang/OTP compatibility."
+    }
+}
