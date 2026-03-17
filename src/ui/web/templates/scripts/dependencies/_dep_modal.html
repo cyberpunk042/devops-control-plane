@@ -829,9 +829,18 @@ function _depTogglePkgSub(expKey, pkgName, e) {
         if (container && !container.dataset.loaded) {
             container.dataset.loaded = '1';
             container.innerHTML = '<div style="font-size:0.6rem;color:var(--text-muted);padding:0.2rem">◌ Loading...</div>';
-            const venv = _depActiveTarget || '';
-            const venvParam = venv ? '?venv=' + encodeURIComponent(venv) : '';
-            api('/dependencies/subdeps/' + encodeURIComponent(pkgName) + venvParam).then(data => {
+            // Find the package data from tree to get ecosystem + path
+            let treeEco = '', treePath = '';
+            for (const eco of (_depTree?.children || [])) {
+                const found = (eco.children || []).find(p => p.id === pkgId);
+                if (found) { treeEco = found.ecosystem || ''; treePath = found.path || ''; break; }
+            }
+            const subParams = new URLSearchParams();
+            if (_depActiveTarget) subParams.set('venv', _depActiveTarget);
+            if (treeEco) subParams.set('eco', treeEco);
+            if (treePath) subParams.set('path', treePath);
+            const subQs = subParams.toString() ? '?' + subParams.toString() : '';
+            api('/dependencies/subdeps/' + encodeURIComponent(pkgName) + subQs).then(data => {
                 let sh = '';
                 for (const r of (data.requires_detail || [])) {
                     const ic = r.installed ? '●' : '❌';
@@ -1475,57 +1484,77 @@ function _depRenderIntel(pkg) {
     if (!panel || !pkg) return;
 
     const st = _depPkgState(pkg);
+    const targetLabel = _depActiveTarget || 'active';
 
     let h = `<div class="dep-intel" data-status="${esc(st.status)}">`;
 
-    // Header with status
+    // ── Header with status ────────────────────────────────
     h += `<div class="dep-intel-header">`;
     h += `<span class="dep-intel-name">${esc(st.name)}</span>`;
     h += `<span style="font-size:0.9rem">${_depStatusHtml(st)}</span>`;
     h += `<span style="font-size:0.72rem;color:${st.color};font-weight:500">${esc(st.status.toUpperCase())}</span>`;
     h += `</div>`;
 
-    // Info grid
-    h += `<div class="dep-intel-grid">`;
+    // ── 3-column layout: Info | Dependencies | Required by ──
+    h += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-md);margin-top:var(--space-sm)">`;
+
+    // ── Column 1: Package info ────────────────────────────
+    h += `<div>`;
+    h += `<div style="font-size:0.66rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:var(--space-xs)">Info</div>`;
+    h += `<div class="dep-intel-grid" style="font-size:0.7rem">`;
     h += `<span class="dep-intel-label">Declared:</span><span class="dep-intel-value"><code>${esc(st.declared || '(any)')}</code></span>`;
-
-    // Installed version with target context
-    const targetLabel = _depActiveTarget || 'active';
     if (st.installed) {
-        h += `<span class="dep-intel-label">Installed:</span><span class="dep-intel-value"><code>${esc(st.installed)}</code> <span style="font-size:0.62rem;color:var(--text-muted)">in ${esc(targetLabel)}</span></span>`;
+        h += `<span class="dep-intel-label">Installed:</span><span class="dep-intel-value"><code>${esc(st.installed)}</code></span>`;
     } else if (st.status === 'missing') {
-        h += `<span class="dep-intel-label">Installed:</span><span class="dep-intel-value" style="color:var(--error)">❌ Not found in ${esc(targetLabel)}</span>`;
-    } else {
-        h += `<span class="dep-intel-label">Installed:</span><span class="dep-intel-value" style="color:var(--text-muted)">unknown</span>`;
+        h += `<span class="dep-intel-label">Installed:</span><span class="dep-intel-value" style="color:var(--error)">❌ missing</span>`;
     }
-
     if (st.latest) {
         h += `<span class="dep-intel-label">Latest:</span><span class="dep-intel-value"><code>${esc(st.latest)}</code></span>`;
     }
     h += `<span class="dep-intel-label">Status:</span><span class="dep-intel-value" style="color:${st.color}">${esc(st.detail)}</span>`;
-
     if (st.status === 'outdated' || st.status === 'deprecated') {
         const breaking = st.latest && st.declared
-            ? (_depIsMajorBump(st.declared, st.latest) ? 'Yes (major version bump)' : 'No (minor/patch)')
-            : (st.latest && st.installed ? (_depIsMajorBump(st.installed, st.latest) ? 'Yes (major)' : 'No') : 'Unknown');
+            ? (_depIsMajorBump(st.declared, st.latest) ? 'Yes (major)' : 'No')
+            : (st.latest && st.installed ? (_depIsMajorBump(st.installed, st.latest) ? 'Yes' : 'No') : '?');
         h += `<span class="dep-intel-label">Breaking:</span><span class="dep-intel-value">${esc(breaking)}</span>`;
     }
-    if (pkg.group) {
-        h += `<span class="dep-intel-label">Group:</span><span class="dep-intel-value">${esc(pkg.group)}</span>`;
-    }
+    if (pkg.group) h += `<span class="dep-intel-label">Group:</span><span class="dep-intel-value"><span class="dep-node-group" data-group="${esc(pkg.group)}">${esc(pkg.group)}</span></span>`;
     h += `<span class="dep-intel-label">Target:</span><span class="dep-intel-value">${esc(targetLabel)}</span>`;
-    h += `<span class="dep-intel-label">Source:</span><span class="dep-intel-value">${esc(pkg.ecosystem || '')} (${esc(pkg.path || '.')})</span>`;
     h += `</div>`;
-
     // Note
     if (st.note) {
-        h += `<div class="dep-intel-note">📝 ${esc(st.note)}</div>`;
-    } else {
-        h += `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:var(--space-sm)">📝 Notes: (none)</div>`;
+        h += `<div class="dep-intel-note" style="margin-top:var(--space-xs)">📝 ${esc(st.note)}</div>`;
     }
+    h += `</div>`;
 
-    // Actions
-    h += `<div class="dep-intel-actions">`;
+    // ── Column 2: Dependencies (what it requires) ─────────
+    h += `<div>`;
+    h += `<div style="font-size:0.66rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:var(--space-xs)">Dependencies</div>`;
+    h += `<div id="dep-intel-requires" style="font-size:0.68rem">`;
+    if (st.installed) {
+        h += `<span style="color:var(--text-muted)">◌ Loading...</span>`;
+    } else {
+        h += `<span style="color:var(--text-muted)">Not installed — install to see dependencies</span>`;
+    }
+    h += `</div>`;
+    h += `</div>`;
+
+    // ── Column 3: Required by (who needs it) ──────────────
+    h += `<div>`;
+    h += `<div style="font-size:0.66rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:var(--space-xs)">Required by</div>`;
+    h += `<div id="dep-intel-required-by" style="font-size:0.68rem">`;
+    if (st.installed) {
+        h += `<span style="color:var(--text-muted)">◌ Loading...</span>`;
+    } else {
+        h += `<span style="color:var(--text-muted)">—</span>`;
+    }
+    h += `</div>`;
+    h += `</div>`;
+
+    h += `</div>`;  // End 3-column grid
+
+    // ── Actions row ───────────────────────────────────────
+    h += `<div class="dep-intel-actions" style="margin-top:var(--space-sm);padding-top:var(--space-sm);border-top:1px solid var(--border-subtle)">`;
     if (st.status === 'missing') {
         h += `<button class="btn btn-sm" onclick="_depDoAction('install')" style="background:var(--error);color:white;border:none">Install Now</button>`;
     } else if (st.status === 'outdated' && st.latest) {
@@ -1540,18 +1569,56 @@ function _depRenderIntel(pkg) {
     }
     h += `</div>`;
 
-    // Sub-dependencies section (lazy-loaded)
-    if (st.installed) {
-        h += `<div style="margin-top:var(--space-sm)">`;
-        h += `<details ontoggle="_depLoadSubDeps(this,'${esc(st.name)}')">`;
-        h += `<summary style="font-size:0.72rem;color:var(--text-muted);cursor:pointer;user-select:none;font-weight:500;list-style:none">Dependencies & required by</summary>`;
-        h += `<div class="dep-subdeps-content" style="padding-top:var(--space-xs)"></div>`;
-        h += `</details>`;
-        h += `</div>`;
-    }
-
     h += `</div>`;
     panel.innerHTML = h;
+
+    // ── Auto-load sub-deps into columns 2 & 3 ────────────
+    if (st.installed) {
+        const params = new URLSearchParams();
+        if (_depActiveTarget) params.set('venv', _depActiveTarget);
+        if (pkg.ecosystem) params.set('eco', pkg.ecosystem);
+        if (pkg.path) params.set('path', pkg.path);
+        const qs = params.toString() ? '?' + params.toString() : '';
+
+        api('/dependencies/subdeps/' + encodeURIComponent(st.name) + qs).then(data => {
+            // Fill "Dependencies" column
+            const reqEl = document.getElementById('dep-intel-requires');
+            if (reqEl) {
+                const reqs = data.requires_detail || [];
+                if (reqs.length) {
+                    let rh = '';
+                    for (const r of reqs) {
+                        const ic = r.installed ? '●' : '❌';
+                        const clr = r.installed ? 'var(--success)' : 'var(--error)';
+                        rh += `<div style="display:flex;align-items:center;gap:0.25rem;padding:0.1rem 0">`;
+                        rh += `<span style="color:${clr};font-size:0.6rem">${ic}</span>`;
+                        rh += `<span style="color:var(--text-secondary)">${esc(r.name)}</span>`;
+                        if (r.installed) rh += `<span style="font-family:var(--font-mono);font-size:0.58rem;color:var(--text-muted)">${esc(r.installed)}</span>`;
+                        rh += `</div>`;
+                    }
+                    reqEl.innerHTML = rh;
+                } else {
+                    reqEl.innerHTML = '<span style="color:var(--text-muted)">None (leaf package)</span>';
+                }
+            }
+
+            // Fill "Required by" column
+            const rbEl = document.getElementById('dep-intel-required-by');
+            if (rbEl) {
+                const reqBy = data.required_by || [];
+                if (reqBy.length) {
+                    rbEl.innerHTML = reqBy.map(name =>
+                        `<div style="padding:0.1rem 0;color:var(--text-secondary)">← ${esc(name)}</div>`
+                    ).join('');
+                } else {
+                    rbEl.innerHTML = '<span style="color:var(--text-muted)">None (top-level)</span>';
+                }
+            }
+        }).catch(() => {
+            const reqEl = document.getElementById('dep-intel-requires');
+            if (reqEl) reqEl.innerHTML = '<span style="color:var(--error)">Failed to load</span>';
+        });
+    }
 }
 
 function _depLoadSubDeps(detailsEl, pkgName) {
@@ -1561,10 +1628,14 @@ function _depLoadSubDeps(detailsEl, pkgName) {
     container.dataset.loaded = '1';
     container.innerHTML = '<span style="font-size:0.66rem;color:var(--text-muted)">◌ Loading...</span>';
 
-    const venv = _depActiveTarget || '';
-    const venvParam = venv ? '?venv=' + encodeURIComponent(venv) : '';
+    // Build query params including ecosystem and module path
+    const params = new URLSearchParams();
+    if (_depActiveTarget) params.set('venv', _depActiveTarget);
+    if (_depSelectedPkg?.ecosystem) params.set('eco', _depSelectedPkg.ecosystem);
+    if (_depSelectedPkg?.path) params.set('path', _depSelectedPkg.path);
+    const qs = params.toString() ? '?' + params.toString() : '';
 
-    api('/dependencies/subdeps/' + encodeURIComponent(pkgName) + venvParam).then(data => {
+    api('/dependencies/subdeps/' + encodeURIComponent(pkgName) + qs).then(data => {
         let h = '';
 
         // Requires (children)
@@ -1979,8 +2050,13 @@ async function _depLoadSnapshotPkgs(snapId, idx) {
 }
 
 function _depRestore(snapId) {
+    if (!snapId) { console.error('No snapshot ID'); return; }
     if (typeof depRunOperation === 'function') {
-        depRunOperation(_depSelectedScope || 'pip:.', 'rollback', { snapshot_id: snapId });
+        depRunOperation(
+            _depSelectedScope || (_depTree?.children?.[0]?.id) || 'pip:.',
+            'rollback',
+            { snapshot_id: snapId, target_venv: _depActiveTarget || '' }
+        );
     }
 }
 

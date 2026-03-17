@@ -187,11 +187,18 @@ def dep_subdeps(package_name):
 
     Query params:
         venv: target venv (e.g. .venv-ft). Default = active.
+        eco: ecosystem (pip/npm). Auto-detected if not set.
+        path: module path for npm (e.g. .pages/code-docs).
     """
     from src.core.services.dependency_mgr.subdeps import get_package_deps
 
     venv = request.args.get("venv", None)
-    deps = get_package_deps(_project_root(), package_name, venv_path=venv)
+    eco = request.args.get("eco", None)
+    mod_path = request.args.get("path", None)
+    deps = get_package_deps(
+        _project_root(), package_name,
+        venv_path=venv, ecosystem=eco, module_path=mod_path,
+    )
     return jsonify(deps)
 
 

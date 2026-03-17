@@ -32,19 +32,38 @@ def get_package_deps(
     project_root: Path,
     package: str,
     venv_path: str | None = None,
+    ecosystem: str | None = None,
+    module_path: str | None = None,
 ) -> dict[str, Any]:
     """Get sub-dependencies for a single package.
 
     Args:
         project_root: Project root.
-        package: Package name (e.g. ``"flask"``).
-        venv_path: Target venv (e.g. ``".venv-ft"``). ``None`` = active.
+        package: Package name (e.g. ``"flask"`` or ``"react"``).
+        venv_path: Target venv for pip (e.g. ``".venv-ft"``). ``None`` = active.
+        ecosystem: ``"pip"`` or ``"npm"``. Auto-detected if None.
+        module_path: For npm — directory containing package.json (relative).
 
     Returns:
         Dict with ``name``, ``version``, ``requires`` (list of names),
         ``required_by`` (list of names), ``requires_detail`` (list of
-        dicts with name + version_spec), and ``location``.
+        dicts with name + installed version), and ``location``.
     """
+    # Detect ecosystem from package name heuristics if not specified
+    if not ecosystem:
+        if package.startswith("@") or module_path:
+            ecosystem = "npm"
+        else:
+            ecosystem = "pip"
+
+    if ecosystem == "npm":
+        return _npm_deps(project_root, package, module_path)
+
+    return _pip_deps(project_root, package, venv_path)
+
+
+def _pip_deps(project_root: Path, package: str, venv_path: str | None) -> dict[str, Any]:
+    """Get sub-dependencies for a pip package."""
     result = {
         "name": package,
         "version": "",
@@ -62,17 +81,14 @@ def get_package_deps(
     result["version"] = raw.get("version", "")
     result["location"] = raw.get("location", "")
 
-    # Parse Requires field — comma-separated package names
     requires_str = raw.get("requires", "")
     if requires_str:
         result["requires"] = [r.strip() for r in requires_str.split(",") if r.strip()]
 
-    # Parse Required-by field
     required_by_str = raw.get("required_by", "")
     if required_by_str:
         result["required_by"] = [r.strip() for r in required_by_str.split(",") if r.strip()]
 
-    # Enrich requires with installed versions
     from .venv_info import get_installed_packages
     installed = get_installed_packages(project_root, venv_path)
 
@@ -82,6 +98,86 @@ def get_package_deps(
             "name": req_name,
             "installed": inst_ver,
         })
+
+    return result
+
+
+def _npm_deps(project_root: Path, package: str, module_path: str | None) -> dict[str, Any]:
+    """Get sub-dependencies for an npm package.
+
+    Reads the package's own package.json from node_modules to get
+    its declared dependencies. Uses npm ls for required-by info.
+    """
+    result = {
+        "name": package,
+        "version": "",
+        "requires": [],
+        "required_by": [],
+        "requires_detail": [],
+        "location": "",
+    }
+
+    base_dir = project_root / module_path if module_path else project_root
+    node_modules = base_dir / "node_modules"
+
+    # Read the package's own package.json from node_modules
+    pkg_dir = node_modules / package
+    pkg_json = pkg_dir / "package.json"
+
+    if pkg_json.is_file():
+        try:
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+            result["name"] = data.get("name", package)
+            result["version"] = data.get("version", "")
+            result["location"] = str(pkg_dir)
+
+            # Its declared dependencies
+            for dep_name, ver_spec in data.get("dependencies", {}).items():
+                result["requires"].append(dep_name)
+                # Check if installed in node_modules
+                dep_pkg_json = node_modules / dep_name / "package.json"
+                inst_ver = ""
+                if dep_pkg_json.is_file():
+                    try:
+                        dep_data = json.loads(dep_pkg_json.read_text(encoding="utf-8"))
+                        inst_ver = dep_data.get("version", "")
+                    except Exception:
+                        pass
+                result["requires_detail"].append({
+                    "name": dep_name,
+                    "installed": inst_ver,
+                    "version_spec": ver_spec,
+                })
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Required-by: use npm ls to find reverse deps
+    try:
+        r = subprocess.run(
+            ["npm", "ls", "--json", "--depth=0"],
+            capture_output=True, text=True, timeout=10,
+            cwd=str(base_dir),
+        )
+        if r.returncode in (0, 1) and r.stdout.strip():
+            ls_data = json.loads(r.stdout)
+            # Check which top-level packages have this as a dependency
+            for top_name, top_info in ls_data.get("dependencies", {}).items():
+                if top_name == package:
+                    continue
+                # Read the top-level package's package.json to check its deps
+                top_pkg_json = node_modules / top_name / "package.json"
+                if top_pkg_json.is_file():
+                    try:
+                        top_data = json.loads(top_pkg_json.read_text(encoding="utf-8"))
+                        all_deps = {}
+                        all_deps.update(top_data.get("dependencies", {}))
+                        all_deps.update(top_data.get("peerDependencies", {}))
+                        if package in all_deps:
+                            result["required_by"].append(top_name)
+                    except Exception:
+                        pass
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+        pass
 
     return result
 
