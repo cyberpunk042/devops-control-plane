@@ -155,6 +155,32 @@ def dep_impact():
     return jsonify(impact.to_dict())
 
 
+@dep_bp.route("/dependencies/history")
+def dep_history():
+    """Recent dependency operations from the event store."""
+    try:
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        if not m or not getattr(m, '_event_store', None):
+            return jsonify({"events": []})
+        events = []
+        for evt in m._event_store.recent(100):
+            if evt.type.startswith('dependency.'):
+                events.append({
+                    "type": evt.type,
+                    "summary": evt.summary,
+                    "status": evt.status,
+                    "ts": evt.ts,
+                    "duration_ms": evt.duration_ms,
+                    "detail": evt.detail,
+                })
+                if len(events) >= 10:
+                    break
+        return jsonify({"events": events})
+    except Exception:
+        return jsonify({"events": []})
+
+
 @dep_bp.route("/dependencies/snapshots")
 def dep_snapshots():
     """List rollback snapshots."""

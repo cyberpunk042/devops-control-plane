@@ -10,13 +10,42 @@
 let _depTree = null;
 let _depSelectedScope = null;
 let _depSelectedPkg = null;
-let _depChecked = new Set();
 let _depExpanded = new Set();
 let _depSnapshots = [];
 let _depActiveTab = 'tree';
-let _depActiveTarget = null;     // Current target venv path (e.g. ".venv-ft", ".venv", "system")
-let _depTargetInstalled = {};    // Installed packages for the currently viewed target
-let _depInstalledLoaded = false; // True once we've fetched installed data at least once
+let _depActiveTarget = null;
+let _depTargetInstalled = {};
+let _depInstalledLoaded = false;
+let _depLastTerminal = '';
+let _depSearchQuery = '';
+let _depCheckedPkgs = new Set(); // Unified: all checked package IDs (pkg-level only)
+
+// ── State persistence ────────────────────────────────────────
+function _depSaveState() {
+    try {
+        sessionStorage.setItem('dep-state', JSON.stringify({
+            expanded: Array.from(_depExpanded),
+            scope: _depSelectedScope,
+            target: _depActiveTarget,
+            tab: _depActiveTab,
+            search: _depSearchQuery,
+            checked: Array.from(_depCheckedPkgs),
+        }));
+    } catch (e) { /* quota exceeded — ignore */ }
+}
+function _depRestoreState() {
+    try {
+        const raw = sessionStorage.getItem('dep-state');
+        if (!raw) return;
+        const s = JSON.parse(raw);
+        if (s.expanded) _depExpanded = new Set(s.expanded);
+        if (s.scope) _depSelectedScope = s.scope;
+        if (s.target) _depActiveTarget = s.target;
+        if (s.tab) _depActiveTab = s.tab;
+        if (s.search) _depSearchQuery = s.search;
+        if (s.checked) _depCheckedPkgs = new Set(s.checked);
+    } catch (e) { /* corrupt — ignore */ }
+}
 
 // CSS is in admin.css (dep-overlay, dep-modal, dep-node, etc.)
 
@@ -27,6 +56,9 @@ let _depInstalledLoaded = false; // True once we've fetched installed data at le
 async function depOpenModal(initialScope, initialAction) {
     const old = document.getElementById('dep-modal');
     if (old) old.remove();
+
+    // Restore state from previous session (unless explicit scope given)
+    if (!initialScope) _depRestoreState();
 
     const el = document.createElement('div');
     el.className = 'dep-overlay';
@@ -114,6 +146,18 @@ async function depOpenModal(initialScope, initialAction) {
             setTimeout(() => _depDoAction(initialAction), 300);
         }
 
+        // Restore last terminal output if reopening
+        if (_depLastTerminal && _depSelectedScope) {
+            const term = document.getElementById('dep-terminal');
+            if (term) term.innerHTML = _depLastTerminal;
+        }
+
+        // Restore search filter
+        if (_depSearchQuery) {
+            const searchEl = document.getElementById('dep-search');
+            if (searchEl) searchEl.value = _depSearchQuery;
+        }
+
         // Background: trigger version intel computation (may take a while)
         // When it completes, the SSE listener will auto-refresh
         api('/dependencies/versions').catch(() => {});
@@ -148,12 +192,12 @@ async function _depBustModal() {
         _depLoadTargets();
         _depLoadSnapshots();
 
-        if (_depSelectedScope) {
-            _depRenderOpPanel(_depSelectedScope);
-            _depRenderEcoOverview(_depSelectedScope);
-        }
+        // Restore panels respecting checked state
+        _depUpdateOpForSelection();
         if (_depSelectedPkg) {
             _depRenderIntel(_depSelectedPkg);
+        } else if (_depSelectedScope) {
+            _depRenderEcoOverview(_depSelectedScope);
         }
     } catch (e) {
         if (tree) tree.innerHTML = `<div class="dep-empty"><div class="dep-empty-title" style="color:var(--error)">Refresh failed</div><div class="dep-empty-hint">${esc(e.message)}</div></div>`;
@@ -165,6 +209,11 @@ async function _depBustModal() {
 }
 
 function depCloseModal() {
+    // Preserve terminal output
+    const term = document.getElementById('dep-terminal');
+    if (term && term.innerHTML) _depLastTerminal = term.innerHTML;
+    _depSaveState();
+
     if (typeof depAbortOperation === 'function') depAbortOperation();
     const el = document.getElementById('dep-modal');
     if (el) {
@@ -173,16 +222,31 @@ function depCloseModal() {
     }
 }
 
+let _depRightPanelBackup = '';  // Backup of right panel HTML before graph view
+
 function _depSwitchTab(tab) {
     _depActiveTab = tab;
     document.getElementById('dep-tab-tree').className = 'dep-tab' + (tab === 'tree' ? ' active' : '');
     document.getElementById('dep-tab-graph').className = 'dep-tab' + (tab === 'graph' ? ' active' : '');
+
     if (tab === 'graph') {
+        // Backup right panel before graph replaces it
+        const rp = document.getElementById('dep-right-panel');
+        if (rp) _depRightPanelBackup = rp.innerHTML;
         if (typeof _depRenderGraphView === 'function') _depRenderGraphView();
     } else {
+        // Restore tree view
         document.getElementById('dep-tree-panel').style.display = '';
-        document.getElementById('dep-right-panel').style.display = '';
+        const rp = document.getElementById('dep-right-panel');
+        if (rp && _depRightPanelBackup) {
+            rp.innerHTML = _depRightPanelBackup;
+            _depRightPanelBackup = '';
+        }
         _depRenderTree(_depTree);
+        if (_depSelectedScope) {
+            _depRenderOpPanel(_depSelectedScope);
+            _depRenderEcoOverview(_depSelectedScope);
+        }
     }
 }
 
@@ -455,15 +519,33 @@ function _depRenderTree(tree) {
     const totalPkgs = children.reduce((s, e) => s + (e.children || []).length, 0);
     let h = '';
 
-    // Tree panel header
+    // Tree panel header + search
     h += `<div class="dep-tree-header"><span>Scope</span><span style="font-weight:400">${totalPkgs} packages</span></div>`;
+    h += `<div style="padding:0 var(--space-xs) var(--space-xs);position:relative">`;
+    h += `<input id="dep-search" type="text" placeholder="Filter packages..." value="${esc(_depSearchQuery)}" oninput="_depOnSearch(this.value)" style="width:100%;font-size:0.68rem;padding:0.25rem 1.5rem 0.25rem 0.4rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-family:var(--font-sans)">`;
+    if (_depSearchQuery) h += `<button onclick="_depOnSearch('');document.getElementById('dep-search').value=''" style="position:absolute;right:0.6rem;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.7rem;padding:0">✕</button>`;
+    h += `</div>`;
 
     // Compute global health
     const gStats = _depTreeStats(children);
 
+    // Bulk filter pills (only show if there's something to filter)
+    if (gStats.missing || gStats.outdated || gStats.deprecated) {
+        h += `<div style="display:flex;gap:0.2rem;padding:0 var(--space-xs) var(--space-xs);flex-wrap:wrap">`;
+        if (gStats.missing) h += `<button onclick="_depFilterByStatus('missing')" style="font-size:0.58rem;padding:0.1rem 0.3rem;border:1px solid var(--error);border-radius:3px;background:rgba(239,68,68,0.08);color:var(--error);cursor:pointer">${gStats.missing} ❌ missing</button>`;
+        if (gStats.outdated) h += `<button onclick="_depFilterByStatus('outdated')" style="font-size:0.58rem;padding:0.1rem 0.3rem;border:1px solid var(--warning);border-radius:3px;background:rgba(245,158,11,0.08);color:var(--warning);cursor:pointer">${gStats.outdated} ⚠ outdated</button>`;
+        if (gStats.deprecated) h += `<button onclick="_depFilterByStatus('deprecated')" style="font-size:0.58rem;padding:0.1rem 0.3rem;border:1px solid var(--error);border-radius:3px;background:rgba(239,68,68,0.08);color:var(--error);cursor:pointer">${gStats.deprecated} ⛔ deprecated</button>`;
+        h += `<button onclick="_depFilterByStatus('')" style="font-size:0.58rem;padding:0.1rem 0.3rem;border:1px solid var(--border-subtle);border-radius:3px;background:transparent;color:var(--text-muted);cursor:pointer">all</button>`;
+        h += `</div>`;
+    }
+
     // Global root with health
     h += `<div class="dep-node${_depSelectedScope === 'global' ? ' selected' : ''}" onclick="_depSelectScope('global')">`;
-    h += `<input type="checkbox" id="dep-chk-global" onclick="_depToggleGlobalCheck(event)" ${_depChecked.size === children.length && children.length > 0 ? 'checked' : ''}>`;
+    const allPkgIds = [];
+    for (const e of children) for (const p of (e.children || [])) allPkgIds.push(p.id);
+    const globalAllChecked = allPkgIds.length > 0 && allPkgIds.every(id => _depCheckedPkgs.has(id));
+    const globalSomeChecked = !globalAllChecked && allPkgIds.some(id => _depCheckedPkgs.has(id));
+    h += `<input type="checkbox" id="dep-chk-global" onclick="_depToggleGlobalCheck(event)" ${globalAllChecked ? 'checked' : ''} ${globalSomeChecked ? 'data-indeterminate="1"' : ''}>`;
     h += `<span class="dep-node-label" style="font-weight:600">Global</span>`;
     h += `<span class="dep-node-badge">${children.length} eco · ${totalPkgs} pkg</span>`;
     h += _depHealthBadges(gStats);
@@ -475,6 +557,9 @@ function _depRenderTree(tree) {
         const expanded = _depExpanded.has(id);
         const pkgs = eco.children || [];
         const label = eco.label || id;
+
+        // Skip ecosystem entirely if search has no matches
+        if (_depSearchQuery && !pkgs.some(_depPkgMatchesSearch)) continue;
 
         // Per-ecosystem health
         const eStats = _depEcoStats(pkgs);
@@ -489,24 +574,35 @@ function _depRenderTree(tree) {
 
         h += `<div class="dep-node${_depSelectedScope === id ? ' selected' : ''}" data-eco="${esc(id)}"${ecoDataAttrs} onclick="_depSelectScope('${esc(id)}')">`;
         h += `<span class="dep-node-chevron" onclick="_depToggleExpand('${esc(id)}',event)">${expanded ? '▼' : '▶'}</span>`;
-        h += `<input type="checkbox" ${_depChecked.has(id) ? 'checked' : ''} onclick="_depToggleCheck('${esc(id)}',event)">`;
+        const ecoChildIds = pkgs.map(p => p.id);
+        const ecoAllChecked = ecoChildIds.length > 0 && ecoChildIds.every(pid => _depCheckedPkgs.has(pid));
+        const ecoSomeChecked = !ecoAllChecked && ecoChildIds.some(pid => _depCheckedPkgs.has(pid));
+        h += `<input type="checkbox" ${ecoAllChecked ? 'checked' : ''} ${ecoSomeChecked ? 'data-indeterminate="1"' : ''} onclick="_depToggleEcoCheck('${esc(id)}',event)">`;
         h += `<span class="dep-node-label">${esc(label)}</span>`;
         h += `<span class="dep-node-badge">${pkgs.length}</span>`;
         h += _depHealthBadges(eStats);
         h += `</div>`;
 
-        // Packages
-        if (expanded && pkgs.length) {
+        // Packages — filtered by search query
+        const filteredPkgs = _depSearchQuery ? pkgs.filter(_depPkgMatchesSearch) : pkgs;
+        const showPkgs = expanded || (_depSearchQuery && filteredPkgs.length > 0);
+
+        if (showPkgs && filteredPkgs.length) {
             h += `<div class="dep-pkg-list">`;
-            for (const pkg of pkgs) {
+            for (const pkg of filteredPkgs) {
                 const st = _depPkgState(pkg);
                 const sel = _depSelectedPkg && _depSelectedPkg.id === pkg.id;
-                h += `<div class="dep-pkg-node${sel ? ' selected' : ''}" data-pkg="${esc(pkg.id)}" data-status="${esc(st.status)}" onclick='_depSelectPackage(${JSON.stringify(pkg).replace(/'/g, "&#39;")})' title="${esc(st.detail)}">`;
+                const pkgChecked = _depCheckedPkgs.has(pkg.id);
+                h += `<div class="dep-pkg-node${sel ? ' selected' : ''}" data-pkg="${esc(pkg.id)}" data-status="${esc(st.status)}" onclick='_depSelectPackage(${JSON.stringify(pkg).replace(/'/g, "&#39;")})' ondblclick='_depFocusPackage(${JSON.stringify(pkg).replace(/'/g, "&#39;")})' title="${esc(st.detail)}">`;
+                h += `<input type="checkbox" ${pkgChecked ? 'checked' : ''} onclick="_depTogglePkg('${esc(pkg.id)}',event)" style="width:11px;height:11px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">`;
                 h += `<span class="dep-node-label">${esc(st.name)}${st.declared ? ' <span style="color:var(--text-muted)">' + esc(st.declared) + '</span>' : ''}</span>`;
                 h += _depHintHtml(st);
                 h += `<span class="dep-node-status">${_depStatusHtml(st)}</span>`;
                 if (pkg.group) h += `<span class="dep-node-group" data-group="${esc(pkg.group)}">${esc(pkg.group)}</span>`;
                 h += `</div>`;
+            }
+            if (_depSearchQuery && filteredPkgs.length < pkgs.length) {
+                h += `<div style="font-size:0.6rem;color:var(--text-muted);padding:0.2rem 0.3rem">${filteredPkgs.length}/${pkgs.length} shown</div>`;
             }
             h += `</div>`;
         }
@@ -515,6 +611,9 @@ function _depRenderTree(tree) {
     }
 
     panel.innerHTML = h;
+
+    // Set indeterminate state on checkboxes (can't be done via HTML attribute)
+    panel.querySelectorAll('[data-indeterminate="1"]').forEach(el => { el.indeterminate = true; });
 }
 
 // ── Centralized package state computation ─────────────────────
@@ -647,6 +746,174 @@ function _depStatusIcon(status) {
     return `<span style="color:${c[status] || 'var(--text-muted)'}">${m[status] || '◌'}</span>`;
 }
 
+// ── Search/filter ────────────────────────────────────────────
+
+let _depSearchTimer = null;
+function _depOnSearch(query) {
+    clearTimeout(_depSearchTimer);
+    _depSearchTimer = setTimeout(() => {
+        _depSearchQuery = (query || '').toLowerCase().trim();
+        _depRenderTree(_depTree);
+    }, 150);
+}
+
+let _depStatusFilter = '';  // '' = show all, 'missing'/'outdated'/'deprecated' = filter
+
+function _depPkgMatchesSearch(pkg) {
+    // Text search
+    if (_depSearchQuery) {
+        const name = (pkg.label || '').toLowerCase();
+        const group = (pkg.group || '').toLowerCase();
+        if (!name.includes(_depSearchQuery) && !group.includes(_depSearchQuery)) return false;
+    }
+    // Status filter
+    if (_depStatusFilter) {
+        const st = _depPkgState(pkg);
+        if (_depStatusFilter === 'deprecated') {
+            return st.status === 'deprecated' || st.status === 'eol' || st.status === 'yanked';
+        }
+        return st.status === _depStatusFilter;
+    }
+    return true;
+}
+
+function _depFilterByStatus(status) {
+    _depStatusFilter = status;
+    // Also check/uncheck matching packages
+    _depCheckedPkgs.clear();
+    if (status) {
+        for (const eco of (_depTree?.children || [])) {
+            for (const pkg of (eco.children || [])) {
+                const st = _depPkgState(pkg);
+                let matches = false;
+                if (status === 'deprecated') {
+                    matches = st.status === 'deprecated' || st.status === 'eol' || st.status === 'yanked';
+                } else {
+                    matches = st.status === status;
+                }
+                if (matches) _depCheckedPkgs.add(pkg.id);
+            }
+        }
+    }
+    _depRenderTree(_depTree);
+    // Update op panel to reflect selection
+    if (_depCheckedPkgs.size > 0) {
+        _depRenderOpPanelForCheckedPkgs();
+    }
+}
+
+function _depTogglePkg(pkgId, e) {
+    e.stopPropagation();
+    if (_depCheckedPkgs.has(pkgId)) _depCheckedPkgs.delete(pkgId);
+    else _depCheckedPkgs.add(pkgId);
+    _depRenderTree(_depTree);  // Re-render to update parent eco checkbox state
+    _depUpdateOpForSelection();
+}
+
+function _depRenderOpPanelForCheckedPkgs() {
+    const panel = document.getElementById('dep-op-panel');
+    if (!panel) return;
+
+    const names = [];
+    const statuses = {};
+    for (const eco of (_depTree?.children || [])) {
+        for (const pkg of (eco.children || [])) {
+            if (_depCheckedPkgs.has(pkg.id)) {
+                const name = pkg.label ? pkg.label.split(' ')[0] : '';
+                if (name) names.push(name);
+                const st = _depPkgState(pkg);
+                statuses[st.status] = (statuses[st.status] || 0) + 1;
+            }
+        }
+    }
+
+    const target = _depActiveTarget || 'system';
+
+    // Status breakdown of checked packages
+    let statusLine = '';
+    const statusParts = [];
+    if (statuses.missing) statusParts.push(`<span style="color:var(--error)">${statuses.missing} missing</span>`);
+    if (statuses.outdated) statusParts.push(`<span style="color:var(--warning)">${statuses.outdated} outdated</span>`);
+    if (statuses.deprecated) statusParts.push(`<span style="color:var(--error)">${statuses.deprecated} deprecated</span>`);
+    if (statuses.current || statuses.installed) statusParts.push(`<span style="color:var(--success)">${(statuses.current||0) + (statuses.installed||0)} ok</span>`);
+    if (statusParts.length) statusLine = ' (' + statusParts.join(' · ') + ')';
+
+    // Show focused package with "Add to selection" if it's not already checked
+    let focusLine = '';
+    if (_depSelectedPkg) {
+        const focusName = _depSelectedPkg.label ? _depSelectedPkg.label.split(' ')[0] : '';
+        const focusAlreadyChecked = _depCheckedPkgs.has(_depSelectedPkg.id);
+        if (focusAlreadyChecked) {
+            focusLine = `<div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px">Viewing: ${esc(focusName)} (included in selection)</div>`;
+        } else {
+            focusLine = `<div style="font-size:0.66rem;margin-top:4px;display:flex;align-items:center;gap:var(--space-sm)">` +
+                `<span style="color:var(--text-secondary)">Viewing: <strong>${esc(focusName)}</strong></span>` +
+                `<button class="btn btn-sm" onclick="_depAddToSelection('${esc(_depSelectedPkg.id)}')" style="background:var(--success);color:#000;border:none;font-size:0.62rem;padding:0.1rem 0.4rem">+ Add to selection</button>` +
+                `</div>`;
+        }
+    }
+
+    panel.innerHTML = `
+        <div class="dep-scope-info">
+            <div class="dep-scope-title">☑ ${names.length} packages checked${statusLine}</div>
+            <div class="dep-scope-meta">${esc(names.slice(0, 6).join(', '))}${names.length > 6 ? ', +' + (names.length - 6) + ' more' : ''} <span style="color:var(--text-muted)">→ ${esc(target)}</span></div>
+            ${focusLine}
+        </div>
+        <div class="dep-actions" id="dep-action-buttons">
+            <button class="btn btn-sm" onclick="_depDoActionOnChecked('install')">Install ${names.length}</button>
+            <button class="btn btn-sm" onclick="_depDoActionOnChecked('update')">Update ${names.length}</button>
+            <button class="btn btn-sm" onclick="_depDoActionOnChecked('reinstall')">Reinstall ${names.length}</button>
+            <button class="btn btn-sm" onclick="_depDoActionOnChecked('clean')" style="color:var(--error)">Uninstall ${names.length}</button>
+            <button class="btn btn-sm btn-ghost" onclick="_depCheckedPkgs.clear();_depStatusFilter='';_depRenderTree(_depTree);_depRenderOpPanel(_depSelectedScope)" style="font-size:0.66rem">✕ Clear</button>
+            <button class="btn btn-sm" id="dep-cancel-btn" onclick="depAbortOperation()" style="background:var(--error);color:white;border:none;display:none">⛔ Abort</button>
+        </div>
+        <div class="dep-cmd-preview" id="dep-cmd-preview"><span style="color:var(--text-muted)">Target:</span> ${esc(target)} <span style="color:var(--text-muted)">·</span> <span style="color:var(--text-muted)">Packages:</span> ${names.length} checked</div>
+        <div class="dep-terminal" id="dep-terminal">${_depLastTerminal || ''}</div>
+        <div class="dep-progress">
+            <span class="dep-progress-left" id="dep-op-progress"></span>
+            <span class="dep-progress-right" id="dep-op-status"></span>
+        </div>
+        <details style="margin-top:var(--space-xs)">
+            <summary style="font-size:0.64rem;color:var(--text-muted);cursor:pointer;user-select:none">Recent operations</summary>
+            <div id="dep-history" style="max-height:100px;overflow-y:auto;margin-top:var(--space-xs)"></div>
+        </details>`;
+    _depLoadHistory();
+}
+
+function _depDoActionOnChecked(action) {
+    const names = [];
+    for (const eco of (_depTree?.children || [])) {
+        for (const pkg of (eco.children || [])) {
+            if (_depCheckedPkgs.has(pkg.id)) {
+                const name = pkg.label ? pkg.label.split(' ')[0] : '';
+                if (name) names.push(name);
+            }
+        }
+    }
+    if (!names.length) return;
+
+    const scope = _depSelectedScope || (_depTree?.children?.[0]?.id) || 'pip:.';
+    const target = _depActiveTarget || 'system';
+    const targetInfo = (_depVenvInfo?.targets || []).find(t => t.path === target);
+
+    const opts = {
+        packages: names,
+        target_venv: target,
+        break_system: !!(targetInfo && targetInfo.is_system && (targetInfo.pep668 || targetInfo.risky)),
+    };
+
+    if (action === 'clean') {
+        action = 'clean';
+    } else if (action === 'reinstall') {
+        opts.force_reinstall = true;
+        action = 'update';
+    }
+
+    if (typeof depRunOperation === 'function') {
+        depRunOperation(scope, action, opts);
+    }
+}
+
 // ── Health stats helpers for tree panel ───────────────────────
 
 function _depEcoStats(pkgs) {
@@ -698,34 +965,84 @@ function _depToggleExpand(id, e) {
     _depRenderTree(_depTree);
 }
 
-function _depToggleCheck(id, e) {
+function _depToggleEcoCheck(ecoId, e) {
     e.stopPropagation();
-    if (_depChecked.has(id)) _depChecked.delete(id); else _depChecked.add(id);
+    // Toggle all child packages of this ecosystem
+    const eco = (_depTree?.children || []).find(c => c.id === ecoId);
+    if (!eco) return;
+    const childIds = (eco.children || []).map(p => p.id);
+    const allChecked = childIds.every(id => _depCheckedPkgs.has(id));
+    if (allChecked) {
+        childIds.forEach(id => _depCheckedPkgs.delete(id));
+    } else {
+        childIds.forEach(id => _depCheckedPkgs.add(id));
+    }
     _depRenderTree(_depTree);
+    _depUpdateOpForSelection();
 }
 
 function _depToggleGlobalCheck(e) {
     e.stopPropagation();
-    const all = (_depTree?.children || []).map(c => c.id);
-    if (_depChecked.size === all.length) _depChecked.clear();
-    else { _depChecked.clear(); all.forEach(id => _depChecked.add(id)); }
+    // Toggle ALL packages across all ecosystems
+    const allIds = [];
+    for (const eco of (_depTree?.children || [])) {
+        for (const pkg of (eco.children || [])) {
+            allIds.push(pkg.id);
+        }
+    }
+    const allChecked = allIds.length > 0 && allIds.every(id => _depCheckedPkgs.has(id));
+    if (allChecked) {
+        _depCheckedPkgs.clear();
+    } else {
+        allIds.forEach(id => _depCheckedPkgs.add(id));
+    }
     _depRenderTree(_depTree);
+    _depUpdateOpForSelection();
 }
 
-function _depSelectScope(id) {
-    _depSelectedScope = id;
-    _depSelectedPkg = null;
-    _depRenderTree(_depTree);
-    _depRenderOpPanel(id);
-    _depRenderEcoOverview(id);
-}
-
-function _depSelectPackage(pkg) {
+function _depFocusPackage(pkg) {
+    // Double-click: temporarily show single-package op panel
+    // even if in batch mode. Does NOT clear checked state.
     _depSelectedPkg = pkg;
     _depSelectedScope = pkg.ecosystem + ':' + (pkg.path || '.');
     _depRenderTree(_depTree);
-    _depRenderOpPanel(_depSelectedScope);
+    _depRenderOpPanel(_depSelectedScope);  // Force single-package view
     _depRenderIntel(pkg);
+}
+
+function _depAddToSelection(pkgId) {
+    _depCheckedPkgs.add(pkgId);
+    _depRenderTree(_depTree);
+    _depUpdateOpForSelection();
+}
+
+function _depUpdateOpForSelection() {
+    // Priority: checked packages > focused scope > empty state
+    if (_depCheckedPkgs.size > 0) {
+        _depRenderOpPanelForCheckedPkgs();
+    } else if (_depSelectedScope) {
+        _depRenderOpPanel(_depSelectedScope);
+    }
+    // Note: _depRenderOpPanel reads _depSelectedPkg internally
+    // to show single-package vs ecosystem buttons
+}
+
+function _depSelectScope(id) {
+    // FOCUS only — does not change checked state
+    _depSelectedScope = id;
+    _depSelectedPkg = null;
+    _depRenderTree(_depTree);
+    _depUpdateOpForSelection();  // Op panel: checked > 0 → batch, else focused scope
+    _depRenderEcoOverview(id);   // Detail panel: ecosystem overview
+}
+
+function _depSelectPackage(pkg) {
+    // FOCUS only — does not change checked state
+    _depSelectedPkg = pkg;
+    _depSelectedScope = pkg.ecosystem + ':' + (pkg.path || '.');
+    _depRenderTree(_depTree);
+    _depUpdateOpForSelection();  // Op panel: checked > 0 → batch, else focused package
+    _depRenderIntel(pkg);        // Detail panel: package version intel
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -741,10 +1058,10 @@ function _depRenderOpPanel(scopeId) {
         return;
     }
 
-    const isBatch = scopeId === 'global' || _depChecked.size > 1;
+    const isBatch = scopeId === 'global';
     const eco = (_depTree?.children || []).find(e => e.id === scopeId);
     const label = isBatch
-        ? `Global (${_depChecked.size || (_depTree?.children || []).length} ecosystems)`
+        ? `Global (${(_depTree?.children || []).length} ecosystems)`
         : (eco ? eco.label : scopeId);
 
     // Count packages by group
@@ -765,20 +1082,39 @@ function _depRenderOpPanel(scopeId) {
     const targetInfo = (_depVenvInfo?.targets || []).find(t => t.path === target);
     const targetLabel = targetInfo ? `${target} (Python ${targetInfo.python}${targetInfo.free_threaded ? ' FT' : ''})` : target;
 
+    // Focused package info
+    const focusPkg = _depSelectedPkg;
+    const focusPkgName = focusPkg ? (focusPkg.label ? focusPkg.label.split(' ')[0] : '') : '';
+    const focusSt = focusPkg ? _depPkgState(focusPkg) : null;
+
+    // Scope title — shows what's focused
+    let scopeTitle = '';
+    let scopeDetail = '';
+    if (focusPkg) {
+        scopeTitle = `Package: ${focusPkgName}`;
+        scopeDetail = focusSt ? `<span style="color:${focusSt.color}">${focusSt.icon} ${focusSt.status.toUpperCase()}</span>` : '';
+        if (focusSt?.installed) scopeDetail += ` · installed: ${esc(focusSt.installed)}`;
+        if (focusSt?.latest) scopeDetail += ` · latest: ${esc(focusSt.latest)}`;
+    } else {
+        scopeTitle = label;
+        scopeDetail = `${pkgCount} packages${groupStr ? ' (' + groupStr + ')' : ''}`;
+    }
+
     panel.innerHTML = `
         <div class="dep-scope-info">
-            <div class="dep-scope-title">${esc(label)}</div>
+            <div class="dep-scope-title">${esc(scopeTitle)} ${scopeDetail ? '<span style="font-weight:400;font-size:0.72rem;margin-left:0.5rem">' + scopeDetail + '</span>' : ''}</div>
             <div class="dep-scope-meta">
-                ${eco ? 'Path: ' + esc(eco.path || '.') + (eco.path === '.' ? ' (project root)' : '') + ' · ' : ''}${pkgCount} packages${groupStr ? ' (' + esc(groupStr) + ')' : ''}
-                <span style="margin-left:0.5rem;color:var(--text-muted)">→ ${esc(targetLabel)}</span>
+                ${eco ? esc(eco.path || '.') + (eco.path === '.' ? ' (root)' : '') + ' · ' : ''}${esc(eco?.ecosystem || '')}
+                <span style="color:var(--text-muted)">→ ${esc(targetLabel)}</span>
             </div>
         </div>
         <div class="dep-actions" id="dep-action-buttons">
-            ${_depSelectedPkg ? `
-                <button class="btn btn-sm" onclick="_depDoAction('install')">Install</button>
-                <button class="btn btn-sm" onclick="_depDoAction('update')">Update</button>
+            ${focusPkg ? `
+                <button class="btn btn-sm" onclick="_depDoAction('install')">Install ${esc(focusPkgName)}</button>
+                <button class="btn btn-sm" onclick="_depDoAction('update')">Update ${esc(focusPkgName)}</button>
                 <button class="btn btn-sm" onclick="_depDoAction('reinstall')">Reinstall</button>
                 <button class="btn btn-sm" onclick="_depDoAction('clean')" style="color:var(--error)">Uninstall</button>
+                <button class="btn btn-sm" onclick="_depAddToSelection('${esc(focusPkg.id)}')" style="background:var(--success);color:#000;border:none">+ Add to selection</button>
             ` : `
                 <button class="btn btn-sm" onclick="_depDoAction('install')">Install</button>
                 <button class="btn btn-sm" onclick="_depDoAction('update')">Update All</button>
@@ -801,7 +1137,14 @@ function _depRenderOpPanel(scopeId) {
         <div class="dep-progress">
             <span class="dep-progress-left" id="dep-op-progress"></span>
             <span class="dep-progress-right" id="dep-op-status"></span>
-        </div>`;
+        </div>
+        <details style="margin-top:var(--space-xs)">
+            <summary style="font-size:0.64rem;color:var(--text-muted);cursor:pointer;user-select:none">Recent operations</summary>
+            <div id="dep-history" style="max-height:100px;overflow-y:auto;margin-top:var(--space-xs)"></div>
+        </details>`;
+
+    // Load history
+    _depLoadHistory();
 }
 
 function _depCmdPreview(scopeId) {
@@ -837,8 +1180,11 @@ async function _depDoAction(action) {
         break_system: !!(targetInfo && targetInfo.is_system && (targetInfo.pep668 || targetInfo.risky)),
     };
 
-    // If a single package is selected, scope the operation to that package
-    if (_depSelectedPkg) {
+    // If packages are checked, use those. Otherwise if single package selected, use that.
+    if (_depCheckedPkgs.size > 0) {
+        _depDoActionOnChecked(action);
+        return;
+    } else if (_depSelectedPkg) {
         const pkgName = _depSelectedPkg.label ? _depSelectedPkg.label.split(' ')[0] : '';
         if (pkgName) {
             opts.packages = [pkgName];
@@ -874,9 +1220,7 @@ async function _depDoAction(action) {
     // Batch: if Global scope, collect all checked or all ecosystem scopes
     if (scope === 'global') {
         const ecos = _depTree?.children || [];
-        const scopes = _depChecked.size > 0
-            ? Array.from(_depChecked)
-            : ecos.map(e => e.id);
+        const scopes = ecos.map(e => e.id);
         opts.scopes = scopes;
     }
 
@@ -1198,6 +1542,42 @@ function _depVerLt(a, b) {
         if (ai > bi) return false;
     }
     return false;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Operation history
+// ═══════════════════════════════════════════════════════════════
+
+async function _depLoadHistory() {
+    const container = document.getElementById('dep-history');
+    if (!container) return;
+
+    try {
+        const data = await api('/dependencies/history');
+        const events = data.events || [];
+        if (!events.length) {
+            container.innerHTML = '<div style="font-size:0.66rem;color:var(--text-muted);padding:var(--space-xs)">No recent operations</div>';
+            return;
+        }
+
+        let h = '';
+        for (const evt of events) {
+            const ts = new Date(evt.ts * 1000);
+            const time = ts.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+            const statusIcon = evt.status === 'ok' ? '✓' : evt.status === 'error' ? '✗' : '●';
+            const statusColor = evt.status === 'ok' ? 'var(--success)' : evt.status === 'error' ? 'var(--error)' : 'var(--text-muted)';
+            const dur = evt.duration_ms ? ` (${(evt.duration_ms / 1000).toFixed(1)}s)` : '';
+
+            h += `<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.64rem;padding:0.15rem 0;color:var(--text-secondary)">`;
+            h += `<span style="color:${statusColor};min-width:0.8rem">${statusIcon}</span>`;
+            h += `<span style="color:var(--text-muted);min-width:2.5rem">${time}</span>`;
+            h += `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(evt.summary)}${dur}</span>`;
+            h += `</div>`;
+        }
+        container.innerHTML = h;
+    } catch (e) {
+        container.innerHTML = '';
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
