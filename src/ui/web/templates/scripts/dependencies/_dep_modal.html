@@ -839,26 +839,35 @@ function _depRenderOpPanelForCheckedPkgs() {
     if (statusParts.length) statusLine = ' (' + statusParts.join(' · ') + ')';
 
     // Show focused package with "Add to selection" if it's not already checked
-    let focusLine = '';
+    let focusHtml = '';
     if (_depSelectedPkg) {
         const focusName = _depSelectedPkg.label ? _depSelectedPkg.label.split(' ')[0] : '';
+        const focusSt = _depPkgState(_depSelectedPkg);
         const focusAlreadyChecked = _depCheckedPkgs.has(_depSelectedPkg.id);
         if (focusAlreadyChecked) {
-            focusLine = `<div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px">Viewing: ${esc(focusName)} (included in selection)</div>`;
+            focusHtml = `<div style="display:flex;align-items:center;gap:var(--space-sm);padding:var(--space-xs) 0;font-size:0.75rem;color:var(--text-muted)">
+                <span style="color:${focusSt.color}">${focusSt.icon}</span>
+                <span>Viewing: <strong style="color:var(--text-secondary)">${esc(focusName)}</strong> — included in selection</span>
+            </div>`;
         } else {
-            focusLine = `<div style="font-size:0.66rem;margin-top:4px;display:flex;align-items:center;gap:var(--space-sm)">` +
-                `<span style="color:var(--text-secondary)">Viewing: <strong>${esc(focusName)}</strong></span>` +
-                `<button class="btn btn-sm" onclick="_depAddToSelection('${esc(_depSelectedPkg.id)}')" style="background:var(--success);color:#000;border:none;font-size:0.62rem;padding:0.1rem 0.4rem">+ Add to selection</button>` +
-                `</div>`;
+            focusHtml = `<div style="display:flex;align-items:center;gap:var(--space-sm);padding:var(--space-sm) 0;border-top:1px solid var(--border-subtle);margin-top:var(--space-xs);font-size:0.78rem;flex-wrap:wrap">
+                <span style="color:${focusSt.color};font-size:0.85rem">${focusSt.icon}</span>
+                <span style="color:var(--text-secondary)">Viewing: <strong style="color:var(--text-primary)">${esc(focusName)}</strong></span>
+                <button class="btn btn-sm" onclick="_depAddToSelection('${esc(_depSelectedPkg.id)}')" style="background:var(--success);color:#000;border:none">+ Add to selection</button>
+                <span style="font-size:0.68rem;color:var(--text-muted)">${esc(focusSt.detail)}</span>
+            </div>`;
         }
     }
 
     panel.innerHTML = `
         <div class="dep-scope-info">
             <div class="dep-scope-title">☑ ${names.length} packages checked${statusLine}</div>
-            <div class="dep-scope-meta">${esc(names.slice(0, 6).join(', '))}${names.length > 6 ? ', +' + (names.length - 6) + ' more' : ''} <span style="color:var(--text-muted)">→ ${esc(target)}</span></div>
-            ${focusLine}
+            <div class="dep-scope-meta">
+                <span style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.1rem 0.4rem;border-radius:4px;background:rgba(129,140,248,0.1);border:1px solid rgba(129,140,248,0.2);font-size:0.66rem;color:#818cf8;font-weight:500;margin-right:0.4rem">⬤ ${esc(target)}</span>
+                ${esc(names.slice(0, 6).join(', '))}${names.length > 6 ? ', +' + (names.length - 6) + ' more' : ''}
+            </div>
         </div>
+        ${focusHtml}
         <div class="dep-actions" id="dep-action-buttons">
             <button class="btn btn-sm" onclick="_depDoActionOnChecked('install')">Install ${names.length}</button>
             <button class="btn btn-sm" onclick="_depDoActionOnChecked('update')">Update ${names.length}</button>
@@ -867,7 +876,7 @@ function _depRenderOpPanelForCheckedPkgs() {
             <button class="btn btn-sm btn-ghost" onclick="_depCheckedPkgs.clear();_depStatusFilter='';_depRenderTree(_depTree);_depRenderOpPanel(_depSelectedScope)" style="font-size:0.66rem">✕ Clear</button>
             <button class="btn btn-sm" id="dep-cancel-btn" onclick="depAbortOperation()" style="background:var(--error);color:white;border:none;display:none">⛔ Abort</button>
         </div>
-        <div class="dep-cmd-preview" id="dep-cmd-preview"><span style="color:var(--text-muted)">Target:</span> ${esc(target)} <span style="color:var(--text-muted)">·</span> <span style="color:var(--text-muted)">Packages:</span> ${names.length} checked</div>
+        <div class="dep-cmd-preview" id="dep-cmd-preview"><span style="color:var(--text-muted)">Actions will apply to ${names.length} checked packages in ${esc(target)}</span></div>
         <div class="dep-terminal" id="dep-terminal">${_depLastTerminal || ''}</div>
         <div class="dep-progress">
             <span class="dep-progress-left" id="dep-op-progress"></span>
@@ -1104,8 +1113,8 @@ function _depRenderOpPanel(scopeId) {
         <div class="dep-scope-info">
             <div class="dep-scope-title">${esc(scopeTitle)} ${scopeDetail ? '<span style="font-weight:400;font-size:0.72rem;margin-left:0.5rem">' + scopeDetail + '</span>' : ''}</div>
             <div class="dep-scope-meta">
-                ${eco ? esc(eco.path || '.') + (eco.path === '.' ? ' (root)' : '') + ' · ' : ''}${esc(eco?.ecosystem || '')}
-                <span style="color:var(--text-muted)">→ ${esc(targetLabel)}</span>
+                <span style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.1rem 0.4rem;border-radius:4px;background:rgba(129,140,248,0.1);border:1px solid rgba(129,140,248,0.2);font-size:0.66rem;color:#818cf8;font-weight:500;margin-right:0.4rem">⬤ ${esc(targetLabel)}</span>
+                ${eco ? esc(eco.path || '.') + (eco.path === '.' ? ' (root)' : '') + ' · ' + esc(eco?.ecosystem || '') : ''}
             </div>
         </div>
         <div class="dep-actions" id="dep-action-buttons">
