@@ -163,19 +163,15 @@ def dep_history():
         m = get_mediator()
         if not m or not getattr(m, '_event_store', None):
             return jsonify({"events": []})
-        events = []
-        for evt in m._event_store.recent(100):
-            if evt.type.startswith('dependency.'):
-                events.append({
-                    "type": evt.type,
-                    "summary": evt.summary,
-                    "status": evt.status,
-                    "ts": evt.ts,
-                    "duration_ms": evt.duration_ms,
-                    "detail": evt.detail,
-                })
-                if len(events) >= 10:
-                    break
+        raw = m._event_store.query(types=["dependency."], limit=10)
+        events = [{
+            "type": evt.type,
+            "summary": evt.summary,
+            "status": evt.status,
+            "ts": evt.ts,
+            "duration_ms": evt.duration_ms,
+            "detail": evt.detail,
+        } for evt in raw]
         return jsonify({"events": events})
     except Exception:
         return jsonify({"events": []})
