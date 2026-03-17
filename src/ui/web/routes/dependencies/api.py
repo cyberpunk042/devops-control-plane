@@ -181,6 +181,108 @@ def dep_history():
         return jsonify({"events": []})
 
 
+@dep_bp.route("/dependencies/dep-graph")
+def dep_full_graph():
+    """Full dependency graph with sub-dependency relationships.
+
+    Returns all packages (declared + transitive) with their
+    requires/required_by links for graph visualization.
+
+    Query params:
+        venv: target venv. Default = active.
+        eco: ecosystem filter (pip/npm). Default = all.
+        path: module path for npm.
+    """
+    from src.core.services.dependency_mgr.subdeps import get_package_deps_batch
+
+    venv = request.args.get("venv", None)
+    eco = request.args.get("eco", None)
+
+    # Get the tree for declared packages
+    from src.core.services.mediator import get_mediator
+    m = get_mediator()
+    tree_result = m.get("dependency.tree")
+    if not tree_result or not tree_result.get("data"):
+        return jsonify({"nodes": [], "edges": []})
+
+    tree_data = tree_result["data"]
+
+    # Collect all declared package names per ecosystem
+    declared = {}  # name → {ecosystem, group, version, path}
+    for eco_node in tree_data.get("children", []):
+        if eco and eco_node.get("ecosystem") != eco:
+            continue
+        for pkg in eco_node.get("children", []):
+            name = pkg.get("label", "").split(" ")[0]
+            if name:
+                declared[name.lower()] = {
+                    "name": name,
+                    "ecosystem": eco_node.get("ecosystem", ""),
+                    "group": pkg.get("group", "main"),
+                    "version": pkg.get("version", ""),
+                    "path": eco_node.get("path", "."),
+                    "declared": True,
+                }
+
+    # Get sub-deps for all declared packages
+    pkg_names = [d["name"] for d in declared.values()]
+    eco_filter = eco or (list(set(d["ecosystem"] for d in declared.values())) or ["pip"])[0]
+
+    # For pip, use batch lookup
+    if eco_filter == "pip":
+        all_deps = get_package_deps_batch(_project_root(), pkg_names, venv_path=venv)
+    else:
+        # npm — individual lookups with module path
+        from src.core.services.dependency_mgr.subdeps import get_package_deps
+        mod_path = request.args.get("path", None) or (list(set(d["path"] for d in declared.values())) or [None])[0]
+        all_deps = {}
+        for name in pkg_names:
+            all_deps[name] = get_package_deps(_project_root(), name, ecosystem=eco_filter, module_path=mod_path)
+
+    # Build nodes and edges
+    nodes = {}  # name → node dict
+    edges = []  # {source, target}
+
+    # Add declared packages as nodes
+    for key, info in declared.items():
+        nodes[info["name"].lower()] = {
+            "id": info["name"],
+            "label": info["name"],
+            "declared": True,
+            "group": info["group"],
+            "version": info["version"],
+            "ecosystem": info["ecosystem"],
+        }
+
+    # Add sub-deps as nodes + edges
+    for pkg_name, deps in all_deps.items():
+        pkg_key = pkg_name.lower()
+        if pkg_key in nodes:
+            nodes[pkg_key]["requires_count"] = len(deps.get("requires", []))
+            nodes[pkg_key]["required_by_count"] = len(deps.get("required_by", []))
+
+        for sub in deps.get("requires_detail", []):
+            sub_key = sub["name"].lower()
+            if sub_key not in nodes:
+                nodes[sub_key] = {
+                    "id": sub["name"],
+                    "label": sub["name"],
+                    "declared": False,
+                    "group": "transitive",
+                    "version": sub.get("installed", ""),
+                    "ecosystem": eco_filter,
+                }
+            edges.append({"source": pkg_name, "target": sub["name"]})
+
+    return jsonify({
+        "nodes": list(nodes.values()),
+        "edges": edges,
+        "declared_count": len(declared),
+        "total_count": len(nodes),
+        "transitive_count": len(nodes) - len(declared),
+    })
+
+
 @dep_bp.route("/dependencies/subdeps/<package_name>")
 def dep_subdeps(package_name):
     """Sub-dependencies for a single package.
