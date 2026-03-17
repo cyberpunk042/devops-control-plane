@@ -249,14 +249,22 @@ function _depSwitchTab(tab) {
         // Restore tree view
         document.getElementById('dep-tree-panel').style.display = '';
         const rp = document.getElementById('dep-right-panel');
-        if (rp && _depRightPanelBackup) {
-            rp.innerHTML = _depRightPanelBackup;
-            _depRightPanelBackup = '';
+        if (rp) {
+            // Always clear graph content first, then restore or rebuild
+            if (_depRightPanelBackup) {
+                rp.innerHTML = _depRightPanelBackup;
+                _depRightPanelBackup = '';
+            } else {
+                rp.innerHTML = '';
+            }
         }
+        _depHidePeek();
         _depRenderTree(_depTree);
         if (_depSelectedScope) {
             _depRenderOpPanel(_depSelectedScope);
             _depRenderEcoOverview(_depSelectedScope);
+        } else if (typeof _depUpdateOpForSelection === 'function') {
+            _depUpdateOpForSelection();
         }
     }
 }
@@ -1545,6 +1553,12 @@ function _depRenderIntel(pkg) {
     h += `<span class="dep-intel-name">${esc(st.name)}</span>`;
     h += `<span style="font-size:0.9rem">${_depStatusHtml(st)}</span>`;
     h += `<span style="font-size:0.72rem;color:${st.color};font-weight:500">${esc(st.status.toUpperCase())}</span>`;
+    h += `<span class="dep-peek-btn" onclick="_depTreePeek('${esc(st.name)}','${esc(pkg.ecosystem || '')}',event)" title="Inspect package">i</span>`;
+    const _regUrl = (pkg.ecosystem === 'npm')
+        ? 'https://www.npmjs.com/package/' + encodeURIComponent(st.name)
+        : 'https://pypi.org/project/' + encodeURIComponent(st.name) + '/';
+    const _regLabel = (pkg.ecosystem === 'npm') ? 'npmjs' : 'PyPI';
+    h += `<a href="${_regUrl}" target="_blank" rel="noopener" class="dep-intel-registry" title="View on ${_regLabel}">${_regLabel} ↗</a>`;
     h += `</div>`;
 
     // ── 3-column layout: Info | Dependencies | Required by ──
@@ -1611,9 +1625,9 @@ function _depRenderIntel(pkg) {
         h += `<button class="btn btn-sm" onclick="_depDoActionForPkg('install','${esc(st.name)}')" style="background:var(--error);color:white;border:none">Install Now</button>`;
     } else if (st.status === 'outdated' && st.latest) {
         h += `<button class="btn btn-sm" onclick="_depUpdatePkg('${esc(pkg.ecosystem)}','${esc(st.name)}','${esc(st.latest)}')">Update to ${esc(st.latest)}</button>`;
-        if (st.installed) {
-            h += `<button class="btn btn-sm btn-ghost" onclick="_depUpdatePkg('${esc(pkg.ecosystem)}','${esc(st.name)}','${esc(st.installed)}')">Pin ${esc(st.installed)}</button>`;
-        }
+    }
+    if (st.installed && st.status !== 'missing') {
+        h += `<button class="btn btn-sm btn-ghost" onclick="_depUpdatePkg('${esc(pkg.ecosystem)}','${esc(st.name)}','${esc(st.installed)}')">Pin ${esc(st.installed)}</button>`;
     }
     h += `<button class="btn btn-sm btn-ghost" onclick="_depAddNote('${esc(pkg.ecosystem)}','${esc(st.name)}','${esc(st.installed || st.declared || '')}')">${st.note ? 'Edit Note' : 'Add Note'}</button>`;
     if (!st.latest && !st.installed) {
@@ -1727,6 +1741,50 @@ function _depUpdatePkg(eco, pkg, ver) {
     const scope = eco + ':' + (_depSelectedPkg?.path || '.');
     if (typeof depRunOperation === 'function') {
         depRunOperation(scope, 'update', { packages: [pkg] });
+    }
+}
+
+async function _depTreePeek(pkgName, ecosystem, event) {
+    event.stopPropagation();
+
+    // Build node from tree package state
+    const pkg = _depSelectedPkg || (_depTree?.children || []).flatMap(e => e.children || []).find(p => {
+        const n = (p.label || p.id || '').split(' ')[0];
+        return n.toLowerCase() === pkgName.toLowerCase();
+    });
+    const st = pkg ? _depPkgState(pkg) : { name: pkgName, status: '', installed: '', latest: '', declared: '' };
+    const node = {
+        id: pkgName,
+        label: pkgName,
+        status: st.status,
+        ecosystem: ecosystem || 'pip',
+        version: st.declared || '',
+        installedVersion: st.installed || '',
+        latestVersion: st.latest || '',
+        group: pkg?.group || '',
+        declared: true,
+        summary: '', homePage: '', author: '', license: '',
+        requires_count: 0, required_by_count: 0,
+    };
+
+    // Fetch metadata from subdeps endpoint (fast — cached)
+    try {
+        const venv = _depActiveTarget || '';
+        const venvParam = venv ? '?venv=' + encodeURIComponent(venv) : '';
+        const ecoParam = ecosystem ? '&eco=' + encodeURIComponent(ecosystem) : '';
+        const d = await api('/dependencies/subdeps/' + encodeURIComponent(pkgName) + venvParam + ecoParam);
+        if (d) {
+            node.summary = d.summary || '';
+            node.homePage = d.home_page || '';
+            node.author = d.author || '';
+            node.license = d.license || '';
+            node.requires_count = (d.requires || []).length;
+            node.required_by_count = (d.required_by || []).length;
+        }
+    } catch (_) {}
+
+    if (typeof _depShowPeek === 'function') {
+        _depShowPeek(node, event.clientX, event.clientY);
     }
 }
 

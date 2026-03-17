@@ -80,6 +80,10 @@ def _pip_deps(project_root: Path, package: str, venv_path: str | None) -> dict[s
     result["name"] = raw.get("name", package)
     result["version"] = raw.get("version", "")
     result["location"] = raw.get("location", "")
+    result["summary"] = raw.get("summary", "")
+    result["home_page"] = raw.get("home_page", "")
+    result["author"] = raw.get("author", "") or raw.get("author_email", "")
+    result["license"] = raw.get("license_expression", "") or raw.get("license", "")
 
     requires_str = raw.get("requires", "")
     if requires_str:
@@ -237,6 +241,10 @@ def get_package_deps_batch(
             "required_by": required_by,
             "requires_detail": requires_detail,
             "location": raw.get("location", ""),
+            "summary": raw.get("summary", ""),
+            "home_page": raw.get("home_page", ""),
+            "author": raw.get("author", "") or raw.get("author_email", ""),
+            "license": raw.get("license_expression", "") or raw.get("license", ""),
         }
 
     return results

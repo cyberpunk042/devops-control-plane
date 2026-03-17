@@ -166,8 +166,8 @@ function _depDrawSvgGraph(container, data) {
         const verText = n.installedVersion || n.version || '';
         const title = [n.label, n.status || '', verText, n.latestVersion ? 'latest: ' + n.latestVersion : ''].filter(Boolean).join(' · ');
 
-        svg += `<g class="gn">`;
-        svg += `<rect x="${p.x}" y="${p.y}" width="${nodeW}" height="${nodeH}" fill="${fill}" stroke="${stroke}" stroke-width="${n.declared ? 1.5 : 1}"><title>${_se(title)}</title></rect>`;
+        svg += `<g class="gn" data-node-id="${_se(n.id)}">`;
+        svg += `<rect x="${p.x}" y="${p.y}" width="${nodeW}" height="${nodeH}" fill="${fill}" stroke="${stroke}" stroke-width="${n.declared ? 1.5 : 1}" style="cursor:pointer"><title>${_se(title)}</title></rect>`;
         svg += `<text x="${p.x + 5}" y="${p.y + 12}" fill="${textColor}">${_se(label)}</text>`;
         if (verText) svg += `<text x="${p.x + 5}" y="${p.y + 22}" fill="var(--text-muted)" font-size="7">${_se(verText)}</text>`;
         if (gc) svg += `<rect x="${p.x + nodeW - 4}" y="${p.y}" width="4" height="${nodeH}" fill="${gc}" rx="0" ry="0" opacity="0.6"/>`;
@@ -210,6 +210,19 @@ function _depDrawSvgGraph(container, data) {
 
     // Init pan/zoom state
     _depGraphInitPanZoom();
+
+    // Click delegation for node peek
+    const vp = document.getElementById('dep-graph-viewport');
+    if (vp) {
+        vp.addEventListener('click', function(e) {
+            if (_dgDragging) return;
+            const gn = e.target.closest('.gn');
+            if (!gn) { _depHidePeek(); return; }
+            const nodeId = gn.dataset.nodeId;
+            const node = nodes.find(n => n.id === nodeId);
+            if (node) _depShowPeek(node, e.clientX, e.clientY);
+        });
+    }
 }
 
 function _depDrawTableGraph(container, fullData, sharedData) {
@@ -246,7 +259,7 @@ function _depDrawTableGraph(container, fullData, sharedData) {
             const reqCount = allEdges.filter(e => e.source.toLowerCase() === n.id.toLowerCase()).length;
             const reqByCount = allEdges.filter(e => e.target.toLowerCase() === n.id.toLowerCase()).length;
 
-            h += `<div style="display:flex;align-items:center;gap:0.3rem;padding:0.25rem 0.4rem;border:1px solid ${border};border-radius:4px;font-size:0.66rem;${bg ? 'background:' + bg : ''}">`;
+            h += `<div class="dep-graph-card" data-node-id="${_se(n.id)}" style="display:flex;align-items:center;gap:0.3rem;padding:0.25rem 0.4rem;border:1px solid ${border};border-radius:4px;font-size:0.66rem;cursor:pointer;${bg ? 'background:' + bg : ''}">`;
             const _sc = { current:'var(--success)', installed:'var(--success)', outdated:'var(--warning)', deprecated:'var(--error)', eol:'var(--error)', missing:'var(--error)', mismatch:'var(--warning)' };
             const _sColor = (n.status && _sc[n.status]) || 'var(--text-muted)';
             if (n.status) h += `<span style="color:${_sColor};font-size:0.58rem" title="${_se(n.status)}">●</span>`;
@@ -398,9 +411,107 @@ function _depDrawTableGraph(container, fullData, sharedData) {
 
     h += `</div>`;
     container.innerHTML = h;
+
+    // Click delegation for table cards → peek
+    container.addEventListener('click', function(e) {
+        const card = e.target.closest('.dep-graph-card');
+        if (!card) { _depHidePeek(); return; }
+        const nodeId = card.dataset.nodeId;
+        const node = allNodes.find(n => n.id === nodeId);
+        if (node) _depShowPeek(node, e.clientX, e.clientY);
+    });
 }
 
 function _se(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── Package Peek Tooltip ──────────────────────────────────────
+
+function _depShowPeek(node, x, y) {
+    _depHidePeek();
+
+    const statusColors = { current:'var(--success)', installed:'var(--success)', outdated:'var(--warning)', deprecated:'var(--error)', eol:'var(--error)', missing:'var(--error)', mismatch:'var(--warning)' };
+    const statusColor = (node.status && statusColors[node.status]) || 'var(--text-muted)';
+    const eco = node.ecosystem || 'pip';
+    const registryUrl = eco === 'npm'
+        ? 'https://www.npmjs.com/package/' + encodeURIComponent(node.id)
+        : 'https://pypi.org/project/' + encodeURIComponent(node.id) + '/';
+    const registryLabel = eco === 'npm' ? 'npmjs.com' : 'PyPI';
+
+    let h = '';
+
+    // Header: name + status
+    h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem">`;
+    h += `<span style="font-size:0.82rem;font-weight:700;color:var(--text-primary)">${_se(node.label)}</span>`;
+    if (node.status) h += `<span style="font-size:0.62rem;font-weight:600;color:${statusColor};text-transform:uppercase">${_se(node.status)}</span>`;
+    h += `</div>`;
+
+    // Summary
+    if (node.summary) {
+        h += `<div style="color:var(--text-secondary);line-height:1.4;margin-bottom:0.5rem">${_se(node.summary)}</div>`;
+    }
+
+    // Version grid
+    h += `<div style="display:grid;grid-template-columns:auto 1fr;gap:0.15rem 0.6rem;margin-bottom:0.5rem;color:var(--text-secondary)">`;
+    if (node.installedVersion) h += `<span style="color:var(--text-muted)">Installed</span><span><code>${_se(node.installedVersion)}</code></span>`;
+    if (node.version && node.version !== node.installedVersion) h += `<span style="color:var(--text-muted)">Declared</span><span><code>${_se(node.version)}</code></span>`;
+    if (node.latestVersion && node.latestVersion !== node.installedVersion) h += `<span style="color:var(--text-muted)">Latest</span><span><code style="color:var(--warning)">${_se(node.latestVersion)}</code></span>`;
+    if (node.license) h += `<span style="color:var(--text-muted)">License</span><span>${_se(node.license)}</span>`;
+    if (node.author) h += `<span style="color:var(--text-muted)">Author</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_se(node.author.split(',')[0].split('<')[0].trim())}</span>`;
+    if (node.group && node.group !== 'main' && node.group !== 'transitive') h += `<span style="color:var(--text-muted)">Group</span><span><span class="dep-node-group" data-group="${_se(node.group)}">${_se(node.group)}</span></span>`;
+    h += `</div>`;
+
+    // Dep counts
+    const rc = node.requires_count || 0;
+    const rbc = node.required_by_count || 0;
+    if (rc || rbc) {
+        h += `<div style="color:var(--text-muted);margin-bottom:0.5rem">`;
+        if (rc) h += `<span style="color:#818cf8">↓${rc}</span> dependencies`;
+        if (rc && rbc) h += ` · `;
+        if (rbc) h += `<span>↑${rbc}</span> dependents`;
+        h += `</div>`;
+    }
+
+    // External link
+    h += `<div style="border-top:1px solid var(--border-subtle);padding-top:0.4rem;margin-top:0.2rem">`;
+    h += `<a href="${_se(registryUrl)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-weight:500">View on ${_se(registryLabel)} ↗</a>`;
+    if (node.homePage) {
+        h += ` · <a href="${_se(node.homePage)}" target="_blank" rel="noopener" style="color:var(--text-muted);text-decoration:none">Homepage ↗</a>`;
+    }
+    h += `</div>`;
+
+    // Create element
+    const el = document.createElement('div');
+    el.className = 'dep-peek';
+    el.id = 'dep-peek-card';
+    el.innerHTML = h;
+    document.body.appendChild(el);
+
+    // Position near click — keep within viewport
+    const rect = el.getBoundingClientRect();
+    let left = x + 12;
+    let top = y - 20;
+    if (left + rect.width > window.innerWidth - 16) left = x - rect.width - 12;
+    if (top + rect.height > window.innerHeight - 16) top = window.innerHeight - rect.height - 16;
+    if (top < 8) top = 8;
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+
+    // Click outside to dismiss
+    setTimeout(() => {
+        document.addEventListener('mousedown', _depPeekOutside);
+    }, 0);
+}
+
+function _depHidePeek() {
+    const el = document.getElementById('dep-peek-card');
+    if (el) el.remove();
+    document.removeEventListener('mousedown', _depPeekOutside);
+}
+
+function _depPeekOutside(e) {
+    const peek = document.getElementById('dep-peek-card');
+    if (peek && !peek.contains(e.target)) _depHidePeek();
+}
 
 // ── Pan / Zoom ───────────────────────────────────────────────
 

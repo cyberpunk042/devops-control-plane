@@ -9535,6 +9535,12 @@ select option {
 .dep-node-group[data-group="build"] { color: var(--text-muted); background: var(--bg-inset); }
 .dep-node-group[data-group="test"]  { color: #a78bfa; background: rgba(167,139,250,0.1); }
 .dep-node-group[data-group="optional"] { color: var(--text-muted); background: var(--bg-inset); border: 1px dashed var(--border-subtle); }
+.dep-peek-btn             { font-size: 0.5rem; width: 16px; height: 16px;
+                            display: inline-flex; align-items: center; justify-content: center;
+                            border-radius: 50%; border: 1px solid var(--accent);
+                            color: var(--accent); cursor: pointer; flex-shrink: 0;
+                            font-weight: 700; font-style: italic; font-family: serif; }
+.dep-peek-btn:hover       { background: var(--accent); color: white; }
 .dep-node-hint            { font-size: 0.58rem; color: var(--text-muted); flex-shrink: 0;
                             max-width: 120px; overflow: hidden; text-overflow: ellipsis;
                             white-space: nowrap; }
@@ -9621,8 +9627,28 @@ select option {
 
 /* ── Version intelligence ────────────────────────────────────── */
 .dep-intel                { border-top: 1px solid var(--border-subtle); padding-top: var(--space-md); }
+/* ── Package peek tooltip (graph view) ──────────────────────── */
+.dep-peek                 { position: fixed; z-index: 1002;
+                            background: var(--bg-card); border: 1px solid var(--border);
+                            border-radius: var(--radius-lg);
+                            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+                            padding: var(--space-md); max-width: 320px;
+                            font-size: 0.72rem; line-height: 1.5;
+                            animation: dep-peek-in 0.12s ease-out; }
+@keyframes dep-peek-in    { from { opacity: 0; transform: translateY(4px); }
+                            to   { opacity: 1; transform: translateY(0); } }
+.dep-peek code            { font-size: 0.66rem; padding: 0.05rem 0.25rem;
+                            background: var(--bg-inset); border-radius: 3px; }
+.dep-peek a:hover         { text-decoration: underline; }
+
 .dep-intel-header         { display: flex; align-items: center; gap: var(--space-sm);
                             margin-bottom: var(--space-sm); }
+.dep-intel-registry       { font-size: 0.64rem; font-weight: 500;
+                            color: var(--accent); text-decoration: none;
+                            padding: 0.1rem 0.4rem; border: 1px solid var(--accent);
+                            border-radius: 4px; }
+.dep-intel-registry:hover { background: var(--accent); color: white;
+                            text-decoration: none; }
 .dep-intel-name           { font-weight: 600; font-size: 0.88rem; color: var(--text-primary); }
 
 /* ── Intel panel state-aware borders ─────────────────────────── */

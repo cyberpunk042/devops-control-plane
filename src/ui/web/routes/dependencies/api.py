@@ -330,6 +330,10 @@ def dep_full_graph():
         if pkg_key in nodes:
             nodes[pkg_key]["requires_count"] = len(deps.get("requires", []))
             nodes[pkg_key]["required_by_count"] = len(deps.get("required_by", []))
+            nodes[pkg_key]["summary"] = deps.get("summary", "")
+            nodes[pkg_key]["homePage"] = deps.get("home_page", "")
+            nodes[pkg_key]["author"] = deps.get("author", "")
+            nodes[pkg_key]["license"] = deps.get("license", "")
 
         for sub in deps.get("requires_detail", []):
             sub_key = sub["name"].lower()
