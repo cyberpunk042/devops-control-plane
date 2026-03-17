@@ -98,6 +98,13 @@ def _emit_timeline_event(
                 "errors": error_count,
             },
         )
+        # Invalidate dependency caches so everything picks up the change
+        from src.core.services.mediator import get_mediator
+        m = get_mediator()
+        if m:
+            m.invalidate("dependency.installed")
+            m.invalidate("dependency.tree")
+
     except Exception:
         logger.debug("Failed to emit timeline event", exc_info=True)
 
@@ -222,7 +229,11 @@ def run_operation(
 
     # ── 3. Build command ──────────────────────────────────────
     if action == "install":
-        cmd = adapter.install_cmd(directory, dev=dev, frozen=frozen)
+        if packages:
+            # Single or multiple specific packages
+            cmd = [sys.executable, "-m", "pip", "install"] + packages
+        else:
+            cmd = adapter.install_cmd(directory, dev=dev, frozen=frozen)
     elif action == "update":
         if packages and len(packages) == 1:
             cmd = adapter.update_single_cmd(directory, packages[0])
@@ -303,6 +314,8 @@ def run_operation(
                     pip_idx = cmd.index("pip") if "pip" in cmd else -1
                     if pip_idx >= 0:
                         pip_args = cmd[pip_idx + 1:]  # everything after "pip"
+                        # Strip flags that uv doesn't support
+                        pip_args = [a for a in pip_args if a not in ("-y", "--yes", "--break-system-packages")]
                         cmd = ["uv", "pip"] + pip_args
                         # Set VIRTUAL_ENV so uv targets the right env
                         import os
@@ -321,6 +334,7 @@ def run_operation(
                     pip_idx2 = cmd.index("pip") if "pip" in cmd else -1
                     if pip_idx2 >= 0:
                         pip_args2 = cmd[pip_idx2 + 1:]
+                        pip_args2 = [a for a in pip_args2 if a not in ("-y", "--yes", "--break-system-packages")]
                         cmd = ["uv", "pip"] + pip_args2
         except Exception:
             pass

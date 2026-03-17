@@ -47,6 +47,19 @@ _RE_SATISFIED = re.compile(
     r"^Requirement already satisfied:\s+([a-zA-Z0-9_.-]+)", re.IGNORECASE,
 )
 
+# uv output patterns:
+# " + flask==3.1.3" (installed)
+# " ~ devops-control-plane==0.1.0" (changed/reinstalled)
+# " - flask==3.1.3" (uninstalled)
+_RE_UV_INSTALLED = re.compile(r"^\s*[+~]\s+([a-zA-Z0-9_.-]+)==(\S+)")
+_RE_UV_UNINSTALLED = re.compile(r"^\s*-\s+([a-zA-Z0-9_.-]+)==(\S+)")
+# "Installed N packages in Xms"
+_RE_UV_SUMMARY = re.compile(r"^Installed\s+(\d+)\s+package", re.IGNORECASE)
+# "Uninstalled N packages in Xms"
+_RE_UV_UNSUMMARY = re.compile(r"^Uninstalled\s+(\d+)\s+package", re.IGNORECASE)
+# "Resolved N packages in Xms"
+_RE_UV_RESOLVED = re.compile(r"^Resolved\s+(\d+)\s+package", re.IGNORECASE)
+
 # "Collecting flask>=3.0 (from -r requirements.txt ...)"
 _RE_COLLECTING = re.compile(
     r"^Collecting\s+([a-zA-Z0-9_.\[\]-]+)", re.IGNORECASE,
@@ -103,6 +116,21 @@ class PipParser(BaseOutputParser):
         m = _RE_SATISFIED.match(stripped)
         if m:
             return [self._resolved_event(m.group(1), "", action="satisfied")]
+
+        # 2b. uv: " + flask==3.1.3" or " ~ devops-control-plane==0.1.0"
+        m = _RE_UV_INSTALLED.match(stripped)
+        if m:
+            return [self._resolved_event(m.group(1), m.group(2), action="installed")]
+
+        # 2c. uv: " - flask==3.1.3" (uninstalled)
+        m = _RE_UV_UNINSTALLED.match(stripped)
+        if m:
+            return [self._resolved_event(m.group(1), m.group(2), action="removed")]
+
+        # 2d. uv summary: "Resolved N packages"
+        m = _RE_UV_RESOLVED.match(stripped)
+        if m:
+            return [self._progress_event(stripped)]
 
         # 3. Collecting
         m = _RE_COLLECTING.match(stripped)

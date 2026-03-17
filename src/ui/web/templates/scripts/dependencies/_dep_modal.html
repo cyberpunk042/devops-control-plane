@@ -661,11 +661,24 @@ function _depPkgState(pkg) {
     } else if (!installed && declared && _depInstalledLoaded) {
         // Declared but NOT installed in the active target
         // Only flag as missing AFTER we've actually loaded installed data
-        status = 'missing';
-        icon = '❌';
-        color = 'var(--error)';
-        hint = 'not installed';
-        detail = 'Declared in manifest but not found in the active environment';
+        // Check if this is an optional group and dev is unchecked
+        const group = pkg.group || 'main';
+        const devChecked = document.getElementById('dep-opt-dev')?.checked || false;
+        const isOptionalGroup = group !== 'main' && group !== 'web';  // dev, test, ocr, etc.
+        if (isOptionalGroup && !devChecked) {
+            // Optional dep, dev unchecked — show as optional/not-required, not missing
+            status = 'optional';
+            icon = '○';
+            color = 'var(--text-muted)';
+            hint = 'not installed (optional)';
+            detail = `Optional [${group}] dependency — check "dev" to include`;
+        } else {
+            status = 'missing';
+            icon = '❌';
+            color = 'var(--error)';
+            hint = 'not installed';
+            detail = 'Declared in manifest but not found in the active environment';
+        }
     } else if (installed && latest && installed !== latest) {
         // Installed but not the latest
         status = 'outdated';
@@ -1189,7 +1202,7 @@ function _depRenderOpPanel(scopeId) {
                     <option value="latest">latest</option>
                     <option value="exact">exact</option>
                 </select>
-                <label class="dep-dev-check"><input type="checkbox" id="dep-opt-dev"> dev</label>
+                <label class="dep-dev-check"><input type="checkbox" id="dep-opt-dev" checked onchange="_depRenderTree(_depTree)"> dev</label>
             </div>
         </div>
         <div class="dep-cmd-preview" id="dep-cmd-preview">${_depCmdPreview(scopeId)}</div>
@@ -2335,8 +2348,9 @@ document.addEventListener('cache:done', function(e) {
                         _depTree = t;
                         _depCardTree = t;
                         _depRenderTree(t);
-                        if (_depSelectedScope) {
-                            _depRenderOpPanel(_depSelectedScope);
+                        // Only update detail panel — do NOT touch op panel if operation is running
+                        // (the terminal is inside the op panel and would get wiped)
+                        if (!_depRunning && _depSelectedScope) {
                             _depRenderEcoOverview(_depSelectedScope);
                         }
                     }).catch(function() {});

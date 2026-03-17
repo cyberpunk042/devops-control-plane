@@ -69,8 +69,9 @@ function depRunOperation(scope, action, opts) {
     }
 
     let resolved = 0, warns = 0, errs = 0;
-    const warnList = [];  // Collected warnings for remediation
-    const errList = [];   // Collected errors for remediation
+    const warnList = [];
+    const errList = [];
+    const resolvedPkgs = [];  // {name, version} of packages that were resolved
     function updateProgress() {
         if (!progress) return;
         const p = [resolved + ' resolved'];
@@ -83,11 +84,47 @@ function depRunOperation(scope, action, opts) {
         if (_depTimerId) { clearInterval(_depTimerId); _depTimerId = null; }
         _depSetRunning(false);
         if (progressBar) progressBar.setAttribute('data-status', opStatus || '');
-        // Refresh tree after operation
-        api('/dependencies/tree?bust=1').then(data => {
-            _depTree = data;
-            if (typeof _depRenderTree === 'function') _depRenderTree(data);
-        }).catch(() => {});
+
+        // Update local installed state from what we observed in the stream
+        if (opStatus === 'ok' && typeof _depTargetInstalled === 'object') {
+            if (action === 'clean') {
+                const pkgNames = opts.packages || [];
+                for (const name of pkgNames) {
+                    delete _depTargetInstalled[name.toLowerCase()];
+                }
+            } else {
+                for (const rp of resolvedPkgs) {
+                    if (rp.name && rp.version) {
+                        _depTargetInstalled[rp.name.toLowerCase()] = rp.version;
+                    }
+                }
+            }
+
+            // Save terminal output before re-rendering
+            const termEl = document.getElementById('dep-terminal');
+            const savedTerminal = termEl ? termEl.innerHTML : '';
+            const savedProgress = document.getElementById('dep-op-progress')?.innerHTML || '';
+            const savedStatus = document.getElementById('dep-op-status')?.innerHTML || '';
+
+            // Re-render tree + panels with fresh state
+            if (typeof _depRenderTree === 'function') _depRenderTree(_depTree);
+            if (typeof _depUpdateOpForSelection === 'function') _depUpdateOpForSelection();
+            if (_depSelectedPkg && typeof _depRenderIntel === 'function') _depRenderIntel(_depSelectedPkg);
+            else if (_depSelectedScope && typeof _depRenderEcoOverview === 'function') _depRenderEcoOverview(_depSelectedScope);
+
+            // Restore terminal output (it was wiped by _depRenderOpPanel)
+            const newTermEl = document.getElementById('dep-terminal');
+            if (newTermEl && savedTerminal) newTermEl.innerHTML = savedTerminal;
+            const newProgress = document.getElementById('dep-op-progress');
+            if (newProgress && savedProgress) newProgress.innerHTML = savedProgress;
+            const newStatus = document.getElementById('dep-op-status');
+            if (newStatus && savedStatus) newStatus.innerHTML = savedStatus;
+
+            // Update the dashboard card
+            if (typeof cardStore === 'function') cardStore('dep-card-data', null);
+            if (typeof _depLoadCard === 'function') _depLoadCard();
+        }
+
         // Show remediation if warnings/errors
         if ((warnList.length || errList.length) && typeof _depRenderRemediation === 'function') {
             _depRenderRemediation(warnList, errList);
@@ -109,6 +146,7 @@ function depRunOperation(scope, action, opts) {
             case 'package_resolved':
                 addLine('  ✓ ' + (evt.package || '') + ' ' + (evt.version || ''), 'dep-line-ok');
                 resolved += (evt.count || 1);
+                if (evt.package) resolvedPkgs.push({ name: evt.package, version: evt.version || '' });
                 updateProgress();
                 break;
             case 'warning':
