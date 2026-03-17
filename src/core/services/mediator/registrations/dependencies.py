@@ -169,7 +169,7 @@ def register_dependencies(mediator: QueryMediator) -> None:
         resolver=_resolve_tree,
         ttl=300,
         persist=True,
-        depends_on=["dependency.manifests", "dependency.versions", "dependency.installed"],
+        depends_on=["dependency.manifests", "dependency.installed"],
         size=2,
     ))
 

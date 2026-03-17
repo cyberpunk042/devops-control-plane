@@ -102,8 +102,7 @@ def _emit_timeline_event(
         from src.core.services.mediator import get_mediator
         m = get_mediator()
         if m:
-            m.invalidate("dependency.installed")
-            m.invalidate("dependency.tree")
+            m.put("dependency.installed", cascade=True)
 
     except Exception:
         logger.debug("Failed to emit timeline event", exc_info=True)

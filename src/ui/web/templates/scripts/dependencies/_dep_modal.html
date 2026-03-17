@@ -2330,7 +2330,7 @@ if (_origLoadPulse2) {
 // SSE listener: refresh card + modal when dependency data changes
 document.addEventListener('cache:done', function(e) {
     const key = (e.detail && e.detail.key) || '';
-    if (key.startsWith('dependency.')) {
+    if (key === 'dependency.installed' || key === 'dependency.tree') {
         // Clear card cache and refresh
         if (typeof cardStore === 'function') cardStore('dep-card-data', null);
         _depInstalledLoaded = false;
