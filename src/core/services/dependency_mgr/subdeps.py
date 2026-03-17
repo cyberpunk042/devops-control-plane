@@ -186,21 +186,32 @@ def get_package_deps_batch(
     project_root: Path,
     packages: list[str],
     venv_path: str | None = None,
+    installed: dict[str, str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Get sub-dependencies for multiple packages at once.
 
-    More efficient than calling ``get_package_deps`` in a loop
-    because it shares the installed packages lookup.
+    Uses a single ``pip show`` subprocess for all packages (batch mode).
+
+    Args:
+        project_root: Project root.
+        packages: List of package names.
+        venv_path: Target venv (e.g. ``".venv-ft"``). ``None`` = active.
+        installed: Pre-fetched installed packages dict. If ``None``,
+            calls ``get_installed_packages()`` internally.
 
     Returns:
         Dict mapping package name → deps info.
     """
-    from .venv_info import get_installed_packages
-    installed = get_installed_packages(project_root, venv_path)
+    if installed is None:
+        from .venv_info import get_installed_packages
+        installed = get_installed_packages(project_root, venv_path)
+
+    # Batch pip show — one subprocess for all packages
+    batch = _pip_show_batch(project_root, packages, venv_path)
 
     results = {}
     for pkg in packages:
-        raw = _pip_show(project_root, pkg, venv_path)
+        raw = batch.get(pkg.lower())
         if not raw:
             results[pkg] = {"name": pkg, "version": "", "requires": [],
                             "required_by": [], "requires_detail": [], "location": ""}
@@ -279,6 +290,85 @@ def _pip_show(project_root: Path, package: str, venv_path: str | None) -> dict[s
         pass
 
     return None
+
+
+def _pip_show_batch(
+    project_root: Path,
+    packages: list[str],
+    venv_path: str | None,
+) -> dict[str, dict[str, str]]:
+    """Run ``pip show`` for ALL packages in one subprocess call.
+
+    Returns dict mapping ``package_name_lower`` → parsed pip-show dict.
+    Much faster than calling ``_pip_show`` per package (1 subprocess vs N).
+    """
+    if not packages:
+        return {}
+
+    # Determine python binary (same logic as _pip_show)
+    if venv_path == "system":
+        from .venv_info import _find_system_python
+        python_bin = _find_system_python() or sys.executable
+    elif venv_path:
+        python_bin = str(project_root / venv_path / "bin" / "python")
+    else:
+        python_bin = sys.executable
+
+    # Try pip show with all packages at once
+    try:
+        r = subprocess.run(
+            [python_bin, "-m", "pip", "show"] + list(packages),
+            capture_output=True, text=True, timeout=30,
+            cwd=str(project_root),
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return _parse_pip_show_batch(r.stdout)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+
+    # Fallback: uv pip show with all packages
+    try:
+        import shutil
+        if not shutil.which("uv"):
+            return {}
+
+        env = os.environ.copy()
+        if venv_path and venv_path != "system":
+            env["VIRTUAL_ENV"] = str(project_root / venv_path)
+        elif not venv_path:
+            prefix = Path(sys.prefix)
+            if prefix != Path(sys.base_prefix):
+                env["VIRTUAL_ENV"] = str(prefix)
+
+        r = subprocess.run(
+            ["uv", "pip", "show"] + list(packages),
+            capture_output=True, text=True, timeout=30,
+            cwd=str(project_root), env=env,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return _parse_pip_show_batch(r.stdout)
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        pass
+
+    return {}
+
+
+def _parse_pip_show_batch(output: str) -> dict[str, dict[str, str]]:
+    """Parse multi-package ``pip show`` output (``---``-separated sections).
+
+    Returns dict mapping ``name.lower()`` → parsed key-value dict.
+    """
+    results: dict[str, dict[str, str]] = {}
+    sections = output.strip().split("---")
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+        parsed = _parse_pip_show(section)
+        name = parsed.get("name", "")
+        if name:
+            results[name.lower()] = parsed
+    return results
 
 
 def _parse_pip_show(output: str) -> dict[str, str]:

@@ -213,6 +213,44 @@ def register_dependencies(mediator: QueryMediator) -> None:
         size=1,
     ))
 
+    # ── Sub-dependencies (batch, cached) ────────────────────
+
+    def _resolve_subdeps():
+        from src.core.services.dependency_mgr.subdeps import get_package_deps_batch
+
+        tree_result = mediator.get("dependency.tree")
+        if not tree_result or not tree_result.get("data"):
+            return {}
+
+        inst_result = mediator.peek("dependency.installed")
+        installed = inst_result.get("data", {}) if inst_result else {}
+
+        # Collect declared pip package names from the tree
+        pkg_names = []
+        for eco_node in tree_result["data"].get("children", []):
+            if eco_node.get("ecosystem") != "pip":
+                continue
+            for pkg in eco_node.get("children", []):
+                name = pkg.get("label", "").split(" ")[0]
+                if name:
+                    pkg_names.append(name)
+
+        if not pkg_names:
+            return {}
+
+        return get_package_deps_batch(
+            mediator.project_root, pkg_names, installed=installed,
+        )
+
+    tree.register(TreeRegistration(
+        path="dependency.subdeps",
+        resolver=_resolve_subdeps,
+        ttl=900,             # 15 min — sub-deps change rarely
+        persist=True,
+        depends_on=["dependency.installed"],
+        size=2,
+    ))
+
 
 def _count_status(ecosystem_nodes: list, status: str) -> int:
     """Count packages with a given status across all ecosystem nodes."""

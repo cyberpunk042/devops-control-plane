@@ -283,9 +283,21 @@ def dep_full_graph():
     pkg_names = [d["name"] for d in declared.values()]
     eco_filter = eco or (list(set(d["ecosystem"] for d in declared.values())) or ["pip"])[0]
 
-    # For pip, use batch lookup
+    # For pip, use batch lookup — prefer mediator cache when no venv override
     if eco_filter == "pip":
-        all_deps = get_package_deps_batch(_project_root(), pkg_names, venv_path=venv)
+        subdeps_cached = None
+        if not venv:
+            subdeps_result = m.peek("dependency.subdeps")
+            if subdeps_result and subdeps_result.get("data"):
+                subdeps_cached = subdeps_result["data"]
+
+        if subdeps_cached:
+            all_deps = subdeps_cached
+        else:
+            all_deps = get_package_deps_batch(
+                _project_root(), pkg_names, venv_path=venv,
+                installed=target_installed or None,
+            )
     else:
         # npm — individual lookups with module path
         from src.core.services.dependency_mgr.subdeps import get_package_deps
