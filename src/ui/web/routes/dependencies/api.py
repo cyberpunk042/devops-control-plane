@@ -110,14 +110,38 @@ def dep_versions():
 
 @dep_bp.route("/dependencies/graph")
 def dep_graph():
-    """Dependency graph — edges, shared deps, modules."""
+    """Dependency graph — edges, shared deps, modules.
+
+    Query params:
+        venv: target venv for status resolution. Default = tree's baked state.
+    """
     from src.core.services.dependency_mgr.graph import build_graph
     from src.core.services.mediator import get_mediator
 
     force = request.args.get("bust", "") == "1"
+    venv = request.args.get("venv", None)
     m = get_mediator()
     tree_result = m.get("dependency.tree", force=force)
     tree_data = tree_result["data"] if tree_result else {}
+
+    # If a target venv was specified, patch tree data with that venv's installed state
+    if venv and tree_data:
+        from src.core.services.dependency_mgr.venv_info import get_installed_packages
+        target_installed = get_installed_packages(_project_root(), venv)
+        for eco_node in tree_data.get("children", []):
+            for pkg in eco_node.get("children", []):
+                name = pkg.get("label", "").split(" ")[0]
+                if not name:
+                    continue
+                inst_ver = target_installed.get(name.lower(), "")
+                latest = pkg.get("latestVersion", "")
+                if not inst_ver:
+                    pkg["status"] = "missing"
+                elif latest and inst_ver != latest:
+                    pkg["status"] = "outdated"
+                else:
+                    pkg["status"] = "current"
+                pkg["installedVersion"] = inst_ver
 
     graph = build_graph(tree_data)
     return jsonify(graph.to_dict())
@@ -216,6 +240,10 @@ def dep_full_graph():
 
     tree_data = tree_result["data"]
 
+    # Fetch installed packages for the requested target venv
+    from src.core.services.dependency_mgr.venv_info import get_installed_packages
+    target_installed = get_installed_packages(_project_root(), venv) if venv else {}
+
     # Collect all declared package names per ecosystem
     declared = {}  # name → {ecosystem, group, version, path}
     for eco_node in tree_data.get("children", []):
@@ -224,6 +252,21 @@ def dep_full_graph():
         for pkg in eco_node.get("children", []):
             name = pkg.get("label", "").split(" ")[0]
             if name:
+                # If a target venv was specified, compute status from that venv's installed data
+                if venv and target_installed:
+                    inst_ver = target_installed.get(name.lower(), "")
+                    latest = pkg.get("latestVersion", "")
+                    declared_ver = pkg.get("version", "")
+                    if not inst_ver:
+                        status = "missing"
+                    elif latest and inst_ver != latest:
+                        status = "outdated"
+                    else:
+                        status = "current"
+                else:
+                    inst_ver = pkg.get("installedVersion", "")
+                    status = pkg.get("status", "")
+
                 declared[name.lower()] = {
                     "name": name,
                     "ecosystem": eco_node.get("ecosystem", ""),
@@ -231,6 +274,9 @@ def dep_full_graph():
                     "version": pkg.get("version", ""),
                     "path": eco_node.get("path", "."),
                     "declared": True,
+                    "status": status,
+                    "installedVersion": inst_ver,
+                    "latestVersion": pkg.get("latestVersion", ""),
                 }
 
     # Get sub-deps for all declared packages
@@ -261,6 +307,9 @@ def dep_full_graph():
             "group": info["group"],
             "version": info["version"],
             "ecosystem": info["ecosystem"],
+            "status": info.get("status", ""),
+            "installedVersion": info.get("installedVersion", ""),
+            "latestVersion": info.get("latestVersion", ""),
         }
 
     # Add sub-deps as nodes + edges

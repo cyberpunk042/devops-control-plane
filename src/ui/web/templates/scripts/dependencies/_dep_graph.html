@@ -26,7 +26,7 @@ async function _depRenderGraphView() {
 
         const [fullGraph, sharedGraph] = await Promise.all([
             api('/dependencies/dep-graph' + venvParam),
-            api('/dependencies/graph'),
+            api('/dependencies/graph' + venvParam),
         ]);
         _depFullGraphData = fullGraph;
         _depGraphData = sharedGraph;
@@ -150,22 +150,29 @@ function _depDrawSvgGraph(container, data) {
         svg += `<text x="${padX}" y="${sepY - 5}" fill="var(--text-muted)" font-size="9" font-family="inherit">▼ transitive sub-dependencies</text>`;
     }
 
+    // Status → stroke color mapping
+    const _statusStroke = { current:'var(--success)', installed:'var(--success)', outdated:'var(--warning)', deprecated:'var(--error)', eol:'var(--error)', missing:'var(--error)', mismatch:'var(--warning)' };
+
     // Draw nodes
     for (const n of nodes) {
         const p = pos[n.id.toLowerCase()];
         if (!p) continue;
         const fill = n.declared ? 'var(--bg-card)' : 'var(--bg-inset)';
-        const stroke = n.declared ? 'var(--accent)' : 'var(--border-subtle)';
+        const stroke = (n.status && _statusStroke[n.status]) || (n.declared ? 'var(--accent)' : 'var(--border-subtle)');
         const textColor = n.declared ? 'var(--text-primary)' : 'var(--text-secondary)';
         const groupColors = { main:'', dev:'#a78bfa', web:'#60a5fa', ocr:'#fb923c', transitive:'var(--text-muted)' };
         const gc = groupColors[n.group] || '';
         const label = n.label.length > 16 ? n.label.slice(0, 15) + '…' : n.label;
+        const verText = n.installedVersion || n.version || '';
+        const title = [n.label, n.status || '', verText, n.latestVersion ? 'latest: ' + n.latestVersion : ''].filter(Boolean).join(' · ');
 
         svg += `<g class="gn">`;
-        svg += `<rect x="${p.x}" y="${p.y}" width="${nodeW}" height="${nodeH}" fill="${fill}" stroke="${stroke}" stroke-width="${n.declared ? 1.5 : 1}"/>`;
+        svg += `<rect x="${p.x}" y="${p.y}" width="${nodeW}" height="${nodeH}" fill="${fill}" stroke="${stroke}" stroke-width="${n.declared ? 1.5 : 1}"><title>${_se(title)}</title></rect>`;
         svg += `<text x="${p.x + 5}" y="${p.y + 12}" fill="${textColor}">${_se(label)}</text>`;
-        if (n.version) svg += `<text x="${p.x + 5}" y="${p.y + 22}" fill="var(--text-muted)" font-size="7">${_se(n.version)}</text>`;
+        if (verText) svg += `<text x="${p.x + 5}" y="${p.y + 22}" fill="var(--text-muted)" font-size="7">${_se(verText)}</text>`;
         if (gc) svg += `<rect x="${p.x + nodeW - 4}" y="${p.y}" width="4" height="${nodeH}" fill="${gc}" rx="0" ry="0" opacity="0.6"/>`;
+        // Status dot indicator
+        if (n.status && _statusStroke[n.status]) svg += `<circle cx="${p.x + nodeW - 8}" cy="${p.y + 6}" r="3" fill="${_statusStroke[n.status]}"><title>${_se(n.status)}</title></circle>`;
         svg += `</g>`;
     }
 
@@ -176,6 +183,9 @@ function _depDrawSvgGraph(container, data) {
     legend += `<span><span style="display:inline-block;width:10px;height:10px;border:1.5px solid var(--accent);border-radius:2px;vertical-align:middle"></span> declared</span>`;
     legend += `<span><span style="display:inline-block;width:10px;height:10px;border:1px solid var(--border-subtle);border-radius:2px;background:var(--bg-inset);vertical-align:middle"></span> transitive</span>`;
     legend += `<span style="color:#818cf8">── dependency link</span>`;
+    legend += `<span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--success);vertical-align:middle"></span> current</span>`;
+    legend += `<span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warning);vertical-align:middle"></span> outdated</span>`;
+    legend += `<span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--error);vertical-align:middle"></span> missing/deprecated</span>`;
     legend += `<span><span style="display:inline-block;width:4px;height:10px;background:#a78bfa;border-radius:1px;vertical-align:middle"></span> dev</span>`;
     legend += `<span><span style="display:inline-block;width:4px;height:10px;background:#60a5fa;border-radius:1px;vertical-align:middle"></span> web</span>`;
     legend += `<span><span style="display:inline-block;width:4px;height:10px;background:#fb923c;border-radius:1px;vertical-align:middle"></span> ocr</span>`;
@@ -237,8 +247,13 @@ function _depDrawTableGraph(container, fullData, sharedData) {
             const reqByCount = allEdges.filter(e => e.target.toLowerCase() === n.id.toLowerCase()).length;
 
             h += `<div style="display:flex;align-items:center;gap:0.3rem;padding:0.25rem 0.4rem;border:1px solid ${border};border-radius:4px;font-size:0.66rem;${bg ? 'background:' + bg : ''}">`;
+            const _sc = { current:'var(--success)', installed:'var(--success)', outdated:'var(--warning)', deprecated:'var(--error)', eol:'var(--error)', missing:'var(--error)', mismatch:'var(--warning)' };
+            const _sColor = (n.status && _sc[n.status]) || 'var(--text-muted)';
+            if (n.status) h += `<span style="color:${_sColor};font-size:0.58rem" title="${_se(n.status)}">●</span>`;
             h += `<span style="color:var(--text-primary);font-weight:${isDeclared ? '600' : '400'};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_se(n.label)}</span>`;
-            if (n.version) h += `<span style="font-family:var(--font-mono);font-size:0.58rem;color:var(--text-muted)">${_se(n.version)}</span>`;
+            const _verDisplay = n.installedVersion || n.version || '';
+            if (_verDisplay) h += `<span style="font-family:var(--font-mono);font-size:0.58rem;color:var(--text-muted)">${_se(_verDisplay)}</span>`;
+            if (n.latestVersion && n.latestVersion !== _verDisplay) h += `<span style="font-family:var(--font-mono);font-size:0.5rem;color:var(--warning)" title="latest available">→${_se(n.latestVersion)}</span>`;
             if (reqCount) h += `<span style="font-size:0.56rem;color:#818cf8" title="${reqCount} dependencies">↓${reqCount}</span>`;
             if (reqByCount) h += `<span style="font-size:0.56rem;color:var(--text-muted)" title="required by ${reqByCount}">↑${reqByCount}</span>`;
             if (n.group && n.group !== 'main' && n.group !== 'transitive') h += `<span class="dep-node-group" data-group="${_se(n.group)}" style="font-size:0.5rem">${_se(n.group)}</span>`;

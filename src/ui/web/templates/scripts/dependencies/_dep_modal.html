@@ -352,13 +352,18 @@ async function _depSwitchTarget(targetPath) {
 
     // Re-render EVERYTHING with new installed data — tree + right panels
     _depLoadTargets();              // Update target bar selection
-    _depRenderTree(_depTree);       // Re-render left tree with new health badges
-    if (_depSelectedScope) {
-        _depRenderOpPanel(_depSelectedScope);
-        _depRenderEcoOverview(_depSelectedScope);
-    }
-    if (_depSelectedPkg) {
-        _depRenderIntel(_depSelectedPkg);
+    if (_depActiveTab === 'graph') {
+        // Graph view — re-fetch with new target
+        if (typeof _depRenderGraphView === 'function') _depRenderGraphView();
+    } else {
+        _depRenderTree(_depTree);       // Re-render left tree with new health badges
+        if (_depSelectedScope) {
+            _depRenderOpPanel(_depSelectedScope);
+            _depRenderEcoOverview(_depSelectedScope);
+        }
+        if (_depSelectedPkg) {
+            _depRenderIntel(_depSelectedPkg);
+        }
     }
 }
 
