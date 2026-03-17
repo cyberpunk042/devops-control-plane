@@ -95,7 +95,7 @@ async function depOpenModal(initialScope, initialAction) {
                 <div class="dep-detail-panel" id="dep-detail-panel"></div>
             </div>
         </div>
-        <div class="dep-snapshot-bar" id="dep-snapshot-bar" onclick="_depToggleSnapshots()">
+        <div class="dep-snapshot-bar" id="dep-snapshot-bar">
             ▶ Snapshots: loading...
         </div>
     </div>`;
@@ -869,10 +869,10 @@ function _depRenderOpPanelForCheckedPkgs() {
         </div>
         ${focusHtml}
         <div class="dep-actions" id="dep-action-buttons">
-            <button class="btn btn-sm" onclick="_depDoActionOnChecked('install')">Install ${names.length}</button>
-            <button class="btn btn-sm" onclick="_depDoActionOnChecked('update')">Update ${names.length}</button>
-            <button class="btn btn-sm" onclick="_depDoActionOnChecked('reinstall')">Reinstall ${names.length}</button>
-            <button class="btn btn-sm" onclick="_depDoActionOnChecked('clean')" style="color:var(--error)">Uninstall ${names.length}</button>
+            ${statuses.missing ? `<button class="btn btn-sm" onclick="_depDoActionOnChecked('install')">Install ${statuses.missing} missing</button>` : `<button class="btn btn-sm btn-ghost" disabled style="opacity:0.35;cursor:default" title="None missing">Install</button>`}
+            ${statuses.outdated || statuses.deprecated ? `<button class="btn btn-sm" onclick="_depDoActionOnChecked('update')">Update ${(statuses.outdated||0) + (statuses.deprecated||0)} outdated</button>` : `<button class="btn btn-sm btn-ghost" disabled style="opacity:0.35;cursor:default" title="All up to date">Update</button>`}
+            <button class="btn btn-sm btn-ghost" onclick="_depDoActionOnChecked('reinstall')">Reinstall ${names.length}</button>
+            <button class="btn btn-sm btn-ghost" onclick="_depDoActionOnChecked('clean')" style="color:var(--error)">Uninstall ${names.length}</button>
             <button class="btn btn-sm btn-ghost" onclick="_depCheckedPkgs.clear();_depStatusFilter='';_depRenderTree(_depTree);_depRenderOpPanel(_depSelectedScope)" style="font-size:0.66rem">✕ Clear</button>
             <button class="btn btn-sm" id="dep-cancel-btn" onclick="depAbortOperation()" style="background:var(--error);color:white;border:none;display:none">⛔ Abort</button>
         </div>
@@ -1118,19 +1118,7 @@ function _depRenderOpPanel(scopeId) {
             </div>
         </div>
         <div class="dep-actions" id="dep-action-buttons">
-            ${focusPkg ? `
-                <button class="btn btn-sm" onclick="_depDoAction('install')">Install ${esc(focusPkgName)}</button>
-                <button class="btn btn-sm" onclick="_depDoAction('update')">Update ${esc(focusPkgName)}</button>
-                <button class="btn btn-sm" onclick="_depDoAction('reinstall')">Reinstall</button>
-                <button class="btn btn-sm" onclick="_depDoAction('clean')" style="color:var(--error)">Uninstall</button>
-                <button class="btn btn-sm" onclick="_depAddToSelection('${esc(focusPkg.id)}')" style="background:var(--success);color:#000;border:none">+ Add to selection</button>
-            ` : `
-                <button class="btn btn-sm" onclick="_depDoAction('install')">Install</button>
-                <button class="btn btn-sm" onclick="_depDoAction('update')">Update All</button>
-                <button class="btn btn-sm" onclick="_depDoAction('reinstall')">Reinstall</button>
-                <button class="btn btn-sm" onclick="_depDoAction('clean')" style="color:var(--error)">Clean</button>
-                <button class="btn btn-sm btn-ghost" onclick="_depDoAction('rollback')">Rollback</button>
-            `}
+            ${focusPkg ? _depPkgButtons(focusSt, focusPkgName, focusPkg.id) : _depEcoButtons(countEcos)}
             <button class="btn btn-sm" id="dep-cancel-btn" onclick="depAbortOperation()" style="background:var(--error);color:white;border:none;display:none">⛔ Abort</button>
             <div class="dep-actions-right">
                 <select class="dep-strategy" id="dep-strategy" title="Update strategy">
@@ -1154,6 +1142,67 @@ function _depRenderOpPanel(scopeId) {
 
     // Load history
     _depLoadHistory();
+}
+
+function _depPkgButtons(st, name, pkgId) {
+    if (!st) return '';
+    const s = st.status;
+
+    function btn(label, action, isPrimary, isDisabled, tip, extraStyle) {
+        if (isDisabled) {
+            return `<button class="btn btn-sm btn-ghost" disabled style="opacity:0.35;cursor:default" title="${esc(tip || '')}">${label}</button>`;
+        }
+        const cls = isPrimary ? 'btn btn-sm' : 'btn btn-sm btn-ghost';
+        const style = extraStyle ? ` style="${extraStyle}"` : '';
+        return `<button class="${cls}" onclick="_depDoAction('${action}')" title="${esc(tip || '')}"${style}>${label}</button>`;
+    }
+
+    const isMissing = s === 'missing';
+    const isOutdated = s === 'outdated' || s === 'mismatch' || s === 'deprecated' || s === 'eol';
+    const isCurrent = s === 'current' || s === 'installed';
+    const hasInstall = !isMissing;  // Already installed
+
+    let h = '';
+    h += btn(`Install ${esc(name)}`, 'install', isMissing, hasInstall && isCurrent, hasInstall ? 'Already installed' : '');
+    h += btn(`Update${isOutdated && st.latest ? ' → ' + esc(st.latest) : ''}`, 'update', isOutdated, isMissing || isCurrent, isMissing ? 'Not installed' : isCurrent ? (s === 'current' ? 'Already latest' : 'No update available') : '');
+    h += btn('Reinstall', 'reinstall', false, isMissing, isMissing ? 'Not installed' : '');
+    h += btn('Uninstall', 'clean', false, isMissing, isMissing ? 'Not installed' : '', isMissing ? '' : 'color:var(--error)');
+    h += `<button class="btn btn-sm" onclick="_depAddToSelection('${esc(pkgId)}')" style="background:var(--success);color:#000;border:none">+ Add to selection</button>`;
+    return h;
+}
+
+function _depEcoButtons(ecos) {
+    // Compute aggregate health across the ecosystems in scope
+    let missing = 0, outdated = 0, deprecated = 0, current = 0, installed = 0, total = 0;
+    for (const e of ecos) {
+        for (const p of (e.children || [])) {
+            total++;
+            const st = _depPkgState(p);
+            if (st.status === 'missing') missing++;
+            else if (st.status === 'outdated' || st.status === 'mismatch') outdated++;
+            else if (st.status === 'deprecated' || st.status === 'eol') deprecated++;
+            else if (st.status === 'current') current++;
+            else if (st.status === 'installed') installed++;
+        }
+    }
+
+    const allGood = (current + installed) === total && total > 0;
+    const needsInstall = missing > 0;
+    const needsUpdate = outdated > 0 || deprecated > 0;
+
+    let h = '';
+    h += needsInstall
+        ? `<button class="btn btn-sm" onclick="_depDoAction('install')">Install (${missing} missing)</button>`
+        : `<button class="btn btn-sm btn-ghost" onclick="_depDoAction('install')">Install</button>`;
+    h += needsUpdate
+        ? `<button class="btn btn-sm" onclick="_depDoAction('update')">Update (${outdated + deprecated} outdated)</button>`
+        : allGood
+            ? `<button class="btn btn-sm btn-ghost" disabled style="opacity:0.35;cursor:default" title="All packages up to date">Update All</button>`
+            : `<button class="btn btn-sm btn-ghost" onclick="_depDoAction('update')">Update All</button>`;
+    h += `<button class="btn btn-sm btn-ghost" onclick="_depDoAction('reinstall')">Reinstall</button>`;
+    h += `<button class="btn btn-sm btn-ghost" onclick="_depDoAction('clean')" style="color:var(--error)">Clean</button>`;
+    h += `<button class="btn btn-sm btn-ghost" onclick="_depDoAction('rollback')">Rollback</button>`;
+    return h;
 }
 
 function _depCmdPreview(scopeId) {
@@ -1497,6 +1546,14 @@ function _depCheckVersion(eco, pkg) {
     }).catch(e => console.error('Version check failed:', e));
 }
 
+function _depTimeAgo(epochSec) {
+    const diff = Math.floor(Date.now() / 1000 - epochSec);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+}
+
 function _depIsMajorBump(from, to) {
     const f = (from || '').replace(/^[^\d]*/, '').split('.');
     const t = (to || '').replace(/^[^\d]*/, '').split('.');
@@ -1669,27 +1726,60 @@ function _depRenderSnapshotBar(expanded) {
     const n = _depSnapshots.length;
     if (!n) { bar.innerHTML = '▶ No snapshots yet'; bar.style.cursor = 'default'; return; }
 
-    let h = `${expanded ? '▼' : '▶'} Snapshots: ${n} available`;
+    let h = `<div onclick="_depToggleSnapshots()" style="cursor:pointer">${expanded ? '▼' : '▶'} Snapshots: ${n} available`;
     if (_depSnapshots[0]) {
         const ts = new Date(_depSnapshots[0].ts * 1000);
         h += ` · Last: ${ts.toLocaleDateString()} ${ts.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
     }
+    h += `</div>`;
 
     if (expanded) {
+        const opIcons = { install: '📥', update: '📦', clean: '🧹', rollback: '⏪' };
         h += `<div class="dep-snapshot-list">`;
         for (const snap of _depSnapshots) {
             const ts = new Date(snap.ts * 1000);
             const d = ts.toLocaleDateString() + ' ' + ts.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
             const fc = (snap.files || []).length;
-            h += `<div class="dep-snapshot-row">`;
-            h += `<span style="min-width:10rem">${esc(d)}</span>`;
-            h += `<span style="min-width:4rem;color:var(--text-muted)">${esc(snap.operation || '?')}</span>`;
-            h += `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(snap.scope || '')}</span>`;
+            const op = snap.operation || 'snapshot';
+            const opIcon = opIcons[op] || '📋';
+
+            const fileList = (snap.files || []).map(f => typeof f === 'object' ? f.src : f);
+            const ecoNames = (snap.ecosystems || []).join(', ');
+            const age = _depTimeAgo(snap.ts);
+            const snapIdx = _depSnapshots.indexOf(snap);
+
+            h += `<div style="border:1px solid var(--border-subtle);border-radius:var(--radius-sm);margin-bottom:0.3rem;overflow:hidden">`;
+
+            // Header row
+            h += `<div class="dep-snapshot-row" style="padding:0.3rem 0.5rem">`;
+            h += `<span>${opIcon}</span>`;
+            h += `<span style="font-weight:500;color:var(--text-primary)">${esc(op)}</span>`;
+            h += `<span style="color:var(--text-secondary)">${esc(d)}</span>`;
+            h += `<span style="font-size:0.6rem;color:var(--text-muted)">${esc(age)}</span>`;
+            h += `<span style="color:var(--text-secondary)">${esc(snap.scope || '')}</span>`;
             h += `<span style="color:var(--text-muted)">${fc} file${fc !== 1 ? 's' : ''}</span>`;
-            h += `<button class="btn btn-sm btn-ghost" onclick="_depRestore('${esc(snap.id)}')">Restore</button>`;
+            h += `<span style="margin-left:auto;display:flex;gap:0.3rem">`;
+            h += `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();_depToggleSnapDetail(${snapIdx},'${esc(snap.id)}')" style="font-size:0.62rem">Details</button>`;
+            h += `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();_depRestore('${esc(snap.id)}')" style="font-size:0.62rem">⏪ Restore</button>`;
+            h += `</span>`;
+            h += `</div>`;
+
+            // Detail section (hidden by default, loads packages on first open)
+            h += `<div id="dep-snap-detail-${snapIdx}" style="display:none;padding:0.4rem 0.5rem;border-top:1px solid var(--border-subtle);background:var(--bg-inset);font-size:0.66rem">`;
+            h += `<div style="display:flex;gap:var(--space-md);margin-bottom:0.3rem">`;
+            h += `<div><span style="color:var(--text-muted)">ID:</span> <span style="font-family:var(--font-mono);color:var(--text-secondary)">${esc(snap.id)}</span></div>`;
+            if (ecoNames) h += `<div><span style="color:var(--text-muted)">Ecosystems:</span> <span style="color:var(--text-secondary)">${esc(ecoNames)}</span></div>`;
+            h += `</div>`;
+            h += `<div style="color:var(--text-muted);margin-bottom:0.2rem">Backed up files:</div>`;
+            for (const f of fileList) {
+                h += `<div style="padding-left:0.5rem;font-family:var(--font-mono);color:var(--text-secondary);font-size:0.62rem">${esc(f)}</div>`;
+            }
+            h += `<div id="dep-snap-pkgs-${snapIdx}" style="margin-top:0.4rem"></div>`;
+            h += `</div>`;
+
             h += `</div>`;
         }
-        h += `<div style="font-size:0.62rem;color:var(--text-muted);margin-top:var(--space-xs)">Restore copies files back and runs install to sync.</div>`;
+        h += `<div style="font-size:0.62rem;color:var(--text-muted);margin-top:var(--space-xs)">Restore copies manifest/lock files back and runs install to sync the environment.</div>`;
         h += `</div>`;
     }
 
@@ -1701,6 +1791,48 @@ function _depToggleSnapshots() {
     const bar = document.getElementById('dep-snapshot-bar');
     if (!bar || !_depSnapshots.length) return;
     _depRenderSnapshotBar(bar.dataset.expanded !== '1');
+}
+
+function _depToggleSnapDetail(idx, snapId) {
+    const el = document.getElementById('dep-snap-detail-' + idx);
+    if (!el) return;
+    const showing = el.style.display !== 'none';
+    el.style.display = showing ? 'none' : '';
+    // Auto-load packages on first open
+    if (!showing) {
+        const pkgContainer = document.getElementById('dep-snap-pkgs-' + idx);
+        if (pkgContainer && !pkgContainer.dataset.loaded) {
+            _depLoadSnapshotPkgs(snapId, idx);
+        }
+    }
+}
+
+async function _depLoadSnapshotPkgs(snapId, idx) {
+    const container = document.getElementById('dep-snap-pkgs-' + idx);
+    if (!container) return;
+    container.innerHTML = '<span style="color:var(--text-muted)">◌ Loading packages...</span>';
+    container.dataset.loaded = '1';
+    try {
+        const data = await api('/dependencies/snapshots/' + encodeURIComponent(snapId) + '/packages');
+        const pkgs = data.packages || [];
+        if (!pkgs.length) {
+            container.innerHTML = '<span style="color:var(--text-muted)">No packages found in snapshot</span>';
+            return;
+        }
+        let h = `<div style="color:var(--text-muted);margin-bottom:0.2rem">Packages at time of snapshot (${pkgs.length}):</div>`;
+        h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px 0.8rem">`;
+        for (const p of pkgs) {
+            h += `<div style="display:flex;align-items:center;gap:0.3rem;font-size:0.62rem;padding:0.1rem 0">`;
+            h += `<span style="color:var(--text-secondary)">${esc(p.name)}</span>`;
+            h += `<span style="font-family:var(--font-mono);color:var(--text-muted)">${esc(p.version || '')}</span>`;
+            if (p.group && p.group !== 'main') h += `<span class="dep-node-group" data-group="${esc(p.group)}" style="font-size:0.5rem">${esc(p.group)}</span>`;
+            h += `</div>`;
+        }
+        h += `</div>`;
+        container.innerHTML = h;
+    } catch (e) {
+        container.innerHTML = `<span style="color:var(--error)">Failed: ${esc(e.message)}</span>`;
+    }
 }
 
 function _depRestore(snapId) {

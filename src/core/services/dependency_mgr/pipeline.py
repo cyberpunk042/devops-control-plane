@@ -213,7 +213,7 @@ def run_operation(
         files_to_snap = adapter.snapshot_files(directory)
         if files_to_snap:
             try:
-                snap = create_snapshot(project_root, scope, [ecosystem_id], files_to_snap)
+                snap = create_snapshot(project_root, scope, [ecosystem_id], files_to_snap, operation=action)
                 yield OpEvent(type="snapshot_created", scope=scope,
                                message=f"Backed up {len(snap.files)} files")
             except Exception as exc:

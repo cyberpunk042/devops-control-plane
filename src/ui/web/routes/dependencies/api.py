@@ -181,6 +181,41 @@ def dep_history():
         return jsonify({"events": []})
 
 
+@dep_bp.route("/dependencies/snapshots/<snapshot_id>/packages")
+def dep_snapshot_packages(snapshot_id):
+    """Parse the backed up manifest in a snapshot to show what packages were at what versions."""
+    from pathlib import Path as _P
+    snap_dir = _project_root() / ".state" / "dependency_snapshots" / snapshot_id
+    if not snap_dir.is_dir():
+        return jsonify({"error": "Snapshot not found"}), 404
+
+    packages = []
+    # Find and parse any manifest file in the snapshot
+    for f in snap_dir.rglob("*"):
+        if not f.is_file() or f.name == "manifest.json":
+            continue
+        try:
+            if f.name == "pyproject.toml":
+                from src.core.services.dependency_mgr.adapters.pip_adapter import PipAdapter
+                pm = PipAdapter().parse_manifest(f, None)
+                for dep in list(pm.dependencies) + list(pm.dev_dependencies):
+                    packages.append({"name": dep.name, "version": dep.version_spec, "group": dep.group})
+            elif f.name == "requirements.txt":
+                from src.core.services.dependency_mgr.adapters.pip_adapter import PipAdapter
+                pm = PipAdapter().parse_manifest(f, None)
+                for dep in list(pm.dependencies) + list(pm.dev_dependencies):
+                    packages.append({"name": dep.name, "version": dep.version_spec, "group": dep.group})
+            elif f.name == "package.json":
+                from src.core.services.dependency_mgr.adapters.npm_adapter import NpmAdapter
+                pm = NpmAdapter().parse_manifest(f, None)
+                for dep in list(pm.dependencies) + list(pm.dev_dependencies):
+                    packages.append({"name": dep.name, "version": dep.version_spec, "group": dep.group})
+        except Exception:
+            pass
+
+    return jsonify({"packages": packages, "snapshot_id": snapshot_id})
+
+
 @dep_bp.route("/dependencies/snapshots")
 def dep_snapshots():
     """List rollback snapshots."""

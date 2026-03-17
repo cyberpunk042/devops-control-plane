@@ -85,6 +85,7 @@ def create_snapshot(
     scope: str,
     ecosystems: list[str],
     files_to_snap: list[Path],
+    operation: str = "",
 ) -> Snapshot:
     """Backup files before an operation.
 
@@ -125,7 +126,7 @@ def create_snapshot(
     snapshot = Snapshot(
         id=snap_id,
         ts=time.time(),
-        operation="",  # Caller sets this — we don't know install vs update here
+        operation=operation,
         scope=scope,
         ecosystems=tuple(ecosystems),
         files=tuple(file_pairs),
