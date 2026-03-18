@@ -281,10 +281,18 @@ def _run_pkg_cmd(
                 "output": "\n".join(tail),
             }
         else:
+            exit_code = result.get("exit_code", "unknown")
+            error_output = (stderr or stdout or "No output").strip()
+            # Show last 20 lines of output in the error
+            error_lines = error_output.split("\n")
+            if len(error_lines) > 20:
+                error_output = "...\n" + "\n".join(error_lines[-20:])
             return {
                 "ok": False,
-                "error": f"`{label}` failed (exit {result.get('exit_code', '?')})",
-                "detail": stderr or stdout or "No output",
+                "error": f"`{label}` failed with exit code {exit_code}",
+                "detail": error_output,
+                "output": error_output,
+                "exit_code": exit_code,
             }
 
     except Exception as exc:

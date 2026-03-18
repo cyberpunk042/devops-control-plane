@@ -299,3 +299,113 @@ SUBPROCESS_COMMANDS = {
     "run_composer_test": (["composer", "test", "--no-interaction"], "composer test"),
     "run_mix_test": (["mix", "test"], "mix test"),
 }
+
+
+def wizard_batch(
+    ctx: UpgradeContext,
+    step_ids: list[str],
+    step_labels: list[str],
+    project_root: Path,
+) -> Generator[dict, None, None]:
+    """Run multiple automation steps sequentially with SSE streaming.
+
+    Each step runs through the executor. Progress, logs, and errors
+    are streamed live. Stops on first failure.
+    """
+    total = len(step_ids)
+    yield {"type": "wizard_start", "title": f"Running {total} automation steps", "total_steps": total}
+
+    from . import get_handler_registry
+    from .executor import _get_plan_target, _mark_step_done
+
+    registry = get_handler_registry()
+    completed = 0
+    failed_step = None
+
+    for idx, (step_id, label) in enumerate(zip(step_ids, step_labels)):
+        automation_id = step_id.split(":")[0] if ":" in step_id else ""
+
+        yield {"type": "step_start", "step": idx, "label": label, "total": total}
+        yield {"type": "log", "step": idx, "line": f"Running: {label}"}
+        t0 = time.time()
+
+        handler = registry.get(automation_id)
+        if not handler:
+            yield {"type": "log", "step": idx, "line": f"No handler for '{automation_id}'"}
+            yield {"type": "step_failed", "step": idx, "error": f"No handler: {automation_id}"}
+            failed_step = idx
+            break
+
+        try:
+            result = handler(ctx, "execute")
+        except Exception as exc:
+            elapsed = int((time.time() - t0) * 1000)
+            yield {"type": "log", "step": idx, "line": f"❌ Error: {exc}"}
+            yield {"type": "step_failed", "step": idx, "error": str(exc), "elapsed_ms": elapsed}
+            failed_step = idx
+            break
+
+        elapsed = int((time.time() - t0) * 1000)
+        ok = result.get("ok", False)
+
+        # Log result details
+        if result.get("summary"):
+            yield {"type": "log", "step": idx, "line": result["summary"]}
+        if result.get("file"):
+            yield {"type": "log", "step": idx, "line": f"  File: {result['file']}"}
+        if result.get("old_value") and result.get("new_value"):
+            yield {"type": "log", "step": idx, "line": f"  Changed: {result['old_value']} → {result['new_value']}"}
+        if result.get("output"):
+            for line in result["output"].split("\n")[:10]:
+                yield {"type": "log", "step": idx, "line": f"  {line}"}
+
+        # For dep checkers: report findings
+        findings = result.get("findings", [])
+        if findings:
+            compat = sum(1 for f in findings if f.get("compatible"))
+            incompat = sum(1 for f in findings if not f.get("compatible") and not f.get("unknown"))
+            yield {"type": "log", "step": idx, "line": f"  {compat} compatible, {incompat} incompatible"}
+            for f in findings[:5]:
+                icon = "✅" if f.get("compatible") else ("❓" if f.get("unknown") else "❌")
+                yield {"type": "log", "step": idx, "line": f"  {icon} {f.get('package', '?')} {f.get('version', '')}"}
+            if len(findings) > 5:
+                yield {"type": "log", "step": idx, "line": f"  ...and {len(findings) - 5} more"}
+
+            # Dep check with incompatible results = NOT done
+            if incompat > 0:
+                yield {"type": "log", "step": idx, "line": f"⚠️ {incompat} incompatible — step not marked done"}
+                yield {"type": "step_failed", "step": idx,
+                       "error": f"{incompat} incompatible dependencies found",
+                       "elapsed_ms": elapsed}
+                failed_step = idx
+                break
+
+        if result.get("error"):
+            yield {"type": "log", "step": idx, "line": f"❌ {result['error']}"}
+            detail = result.get("detail", "")
+            if detail:
+                for detail_line in detail.split("\n"):
+                    if detail_line.strip():
+                        yield {"type": "log", "step": idx, "line": f"  {detail_line}"}
+
+        if ok:
+            _mark_step_done(ctx.module_name, step_id)
+            yield {"type": "step_done", "step": idx, "elapsed_ms": elapsed,
+                   "step_id": step_id}
+            completed += 1
+        else:
+            error_msg = result.get("error", "Step failed")
+            yield {"type": "step_failed", "step": idx, "error": error_msg,
+                   "elapsed_ms": elapsed}
+            failed_step = idx
+            break
+
+    # Final summary
+    if failed_step is not None:
+        yield {"type": "done", "ok": False,
+               "summary": f"Stopped at step {failed_step + 1}: {step_labels[failed_step]}",
+               "completed": completed, "total": total}
+    else:
+        yield {"type": "done", "ok": True,
+               "summary": f"All {completed} steps completed",
+               "completed": completed, "total": total}

@@ -50,6 +50,7 @@ modules:
     - label: Update CI pipeline Python version matrix
       description: Add or require Python 3.8 in CI configuration
       id: update_ci_matrix:fb4d55b6
+      done: false
     - label: Run test suite against Python 3.8
       description: Verify all tests pass on the target Python version
       id: run_pytest:1e40a633

@@ -1896,43 +1896,106 @@
     };
 
     window.modulePlanRunBatch = async function(moduleName, fromIdx, toIdx) {
-        const steps = document.querySelectorAll('#plan-checklist .plan-step');
-        const runAllBtn = document.querySelector('.plan-run-all');
-        if (runAllBtn) { runAllBtn.disabled = true; runAllBtn.textContent = '⏳ Running...'; }
+        // Collect step IDs and labels for the batch
+        const planSteps = document.querySelectorAll('#plan-checklist .plan-step');
+        const stepIds = [];
+        const stepLabels = [];
+        const stepIndices = [];
 
         for (let i = fromIdx; i <= toIdx; i++) {
-            const stepEl = steps[i];
+            const stepEl = planSteps[i];
             if (!stepEl || stepEl.classList.contains('done')) continue;
-
-            const stepId = stepEl.getAttribute('data-step-id') || '';
             const autoBtn = stepEl.querySelector('.plan-step-auto');
-
-            try {
-                const resp = await fetch('/api/posture/module-step-execute', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute' }),
-                });
-                const data = await resp.json();
-
-                if (data.ok) {
-                    stepEl.classList.add('done');
-                    const cb = stepEl.querySelector('.plan-step-check');
-                    if (cb) cb.checked = true;
-                    if (autoBtn) autoBtn.style.display = 'none';
-                    toast(`✅ ${data.summary || 'Step ' + (i+1) + ' done'}`, 'success');
-                } else {
-                    toast(`❌ Step ${i + 1} failed: ${data.error || 'Unknown error'}`, 'error');
-                    break;
-                }
-            } catch (e) {
-                toast(`❌ Step ${i + 1} error: ${e.message}`, 'error');
-                break;
-            }
+            if (!autoBtn || autoBtn.style.display === 'none') continue;
+            stepIds.push(stepEl.getAttribute('data-step-id') || '');
+            stepLabels.push(stepEl.querySelector('.plan-step-label')?.textContent?.trim() || 'Step ' + (i+1));
+            stepIndices.push(i);
         }
 
-        _updatePlanProgress();
-        if (runAllBtn) { runAllBtn.disabled = false; runAllBtn.textContent = '✅ Batch done'; }
+        if (!stepIds.length) return;
+
+        // Open wizard modal for the batch
+        let body = '';
+        body += '<div id="wizard-steps"></div>';
+        body += '<div id="wizard-log" class="wizard-log"></div>';
+        body += '<div id="wizard-result"></div>';
+
+        modalOpen({
+            title: '▶ Running ' + stepIds.length + ' automation steps',
+            replace: false,
+            body: body,
+            size: 'lg',
+            footerButtons: [
+                { label: 'Close', onclick: 'modalClose()' },
+            ],
+        });
+
+        const stepsEl = document.getElementById('wizard-steps');
+        const logEl = document.getElementById('wizard-log');
+        const resultEl = document.getElementById('wizard-result');
+
+        await streamSSE('/api/posture/module-wizard', {
+            module: moduleName,
+            wizard_type: 'batch',
+            step_ids: stepIds,
+            step_labels: stepLabels,
+        }, {
+            onLog: function(line) {
+                const el = document.createElement('div');
+                el.className = 'wizard-log-line';
+                el.textContent = line;
+                logEl.appendChild(el);
+                logEl.scrollTop = logEl.scrollHeight;
+            },
+            onStepStart: function(event) {
+                const el = document.createElement('div');
+                el.className = 'wizard-step running';
+                el.id = 'wizard-step-' + event.step;
+                el.innerHTML = `<span class="wizard-step-icon">⏳</span> <span class="wizard-step-label">${esc(event.label)}</span>`;
+                stepsEl.appendChild(el);
+            },
+            onStepDone: function(event) {
+                const el = document.getElementById('wizard-step-' + event.step);
+                if (el) {
+                    el.className = 'wizard-step done';
+                    const elapsed = event.elapsed_ms ? ` (${(event.elapsed_ms / 1000).toFixed(1)}s)` : '';
+                    el.querySelector('.wizard-step-icon').textContent = '✅';
+                    el.querySelector('.wizard-step-label').textContent += elapsed;
+                }
+                // Mark step done in plan modal
+                const planIdx = stepIndices[event.step];
+                if (planIdx !== undefined && planSteps[planIdx]) {
+                    planSteps[planIdx].classList.add('done');
+                    const cb = planSteps[planIdx].querySelector('.plan-step-check');
+                    if (cb) cb.checked = true;
+                    const btn = planSteps[planIdx].querySelector('.plan-step-auto');
+                    if (btn) btn.style.display = 'none';
+                }
+            },
+            onStepFailed: function(event) {
+                const el = document.getElementById('wizard-step-' + event.step);
+                if (el) {
+                    el.className = 'wizard-step failed';
+                    el.querySelector('.wizard-step-icon').textContent = '❌';
+                }
+                const errEl = document.createElement('div');
+                errEl.className = 'wizard-log-line wizard-log-error';
+                errEl.textContent = '❌ ' + (event.error || 'Failed');
+                logEl.appendChild(errEl);
+            },
+            onDone: function(event) {
+                if (!resultEl) return;
+                if (event.ok) {
+                    resultEl.innerHTML = _adm('success', 'Batch complete', esc(event.summary || 'All steps done'));
+                } else {
+                    resultEl.innerHTML = _adm('danger', 'Batch stopped', esc(event.summary || event.error || 'Failed'));
+                }
+                _refreshPlanState();
+            },
+            onError: function(msg) {
+                if (resultEl) resultEl.innerHTML = _adm('danger', 'Error', esc(msg));
+            },
+        });
     };
 
     // Central state refresh — called on EVERY state change (checkbox, apply, batch)
@@ -1951,16 +2014,17 @@
             const autoBtn = stepEl.querySelector('.plan-step-auto');
             if (autoBtn) {
                 if (isDone) {
-                    // Done steps: hide automate button
                     autoBtn.style.display = 'none';
-                } else if (hasUndonePredecessor) {
-                    // Undone step with unchecked steps above: warning color
-                    autoBtn.classList.add('plan-step-auto-warn');
-                    autoBtn.classList.remove('plan-step-auto-ready');
                 } else {
-                    // Undone step with all predecessors done: ready color
-                    autoBtn.classList.remove('plan-step-auto-warn');
-                    autoBtn.classList.add('plan-step-auto-ready');
+                    // Undone: show button (handles rewind case)
+                    autoBtn.style.display = '';
+                    if (hasUndonePredecessor) {
+                        autoBtn.classList.add('plan-step-auto-warn');
+                        autoBtn.classList.remove('plan-step-auto-ready');
+                    } else {
+                        autoBtn.classList.remove('plan-step-auto-warn');
+                        autoBtn.classList.add('plan-step-auto-ready');
+                    }
                 }
             }
 

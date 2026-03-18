@@ -86,8 +86,19 @@ def execute_step(
         return {"ok": False, "error": f"Automation failed: {exc}"}
 
     # ── Mark done on successful execute ──────────────────────────
+    # BUT: dep checkers with incompatible findings are NOT done
     if mode == "execute" and result.get("ok"):
-        _mark_step_done(module_name, step_id)
+        findings = result.get("findings", [])
+        has_incompatible = any(
+            not f.get("compatible") and not f.get("unknown")
+            for f in findings
+        ) if findings else False
+
+        if has_incompatible:
+            result["ok"] = True  # the check itself succeeded
+            result["step_not_done"] = True  # but the step needs attention
+        else:
+            _mark_step_done(module_name, step_id)
 
     # ── Enrich result ────────────────────────────────────────────
     result.setdefault("mode", mode)

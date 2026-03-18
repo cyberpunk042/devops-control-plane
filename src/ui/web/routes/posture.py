@@ -1311,6 +1311,19 @@ def posture_module_wizard():  # type: ignore[no-untyped-def]
                     for event in wizard_subprocess(ctx, cmd, label):
                         yield _sse(event)
 
+                elif wizard_type == "batch":
+                    from src.core.services.module_upgrade.automation.wizard import (
+                        wizard_batch,
+                    )
+                    step_ids = body.get("step_ids", [])
+                    step_labels = body.get("step_labels", [])
+                    if not step_ids:
+                        yield _sse({"type": "done", "ok": False,
+                                    "error": "No step_ids provided"})
+                        return
+                    for event in wizard_batch(ctx, step_ids, step_labels, project_root):
+                        yield _sse(event)
+
                 else:
                     yield _sse({"type": "done", "ok": False,
                                 "error": f"Unknown wizard_type: {wizard_type}"})
