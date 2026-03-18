@@ -29,21 +29,51 @@ class ExternalLinks(BaseModel):
     extra: dict[str, str] = Field(default_factory=dict)
 
 
+class ModuleDeferral(BaseModel):
+    """A deferred posture warning — team decision to address later."""
+
+    until: str = ""       # target date: "2026-09-01" or "Q3 2026"
+    reason: str = ""      # why it's deferred
+
+
+class ModuleVersionPlanStep(BaseModel):
+    """A single step in a version upgrade checklist."""
+
+    label: str
+    description: str = ""
+
+
+class ModuleVersionPlan(BaseModel):
+    """A version upgrade plan — team commitment to raise the floor."""
+
+    target: str = ""      # target floor version, e.g. "3.12"
+    date: str = ""        # target date, e.g. "Q3 2026"
+    checklist: list[ModuleVersionPlanStep] = Field(default_factory=list)
+
+
 class ModuleRef(BaseModel):
     """A module reference declared in project.yml.
 
     This is a declaration of intent: "this module exists at this path
     and uses this stack." The actual module state is discovered later
     by the detection service.
+
+    Decision fields (version_strategy, version_note, deferral, version_plan)
+    are team decisions — version-controlled, shared, visible to everyone.
     """
 
+    # Identity
     name: str
     path: str
     domain: str = "service"
     stack: str = ""
     description: str = ""
+
+    # Decisions
     version_strategy: Literal["latest", "compatibility", ""] = ""
     version_note: str = ""
+    deferral: ModuleDeferral | None = None
+    version_plan: ModuleVersionPlan | None = None
 
 
 class WebSettings(BaseModel):

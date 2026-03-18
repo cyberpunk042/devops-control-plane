@@ -364,6 +364,41 @@ def _enrich_posture_actions(posture_dict: dict) -> None:
                 ref, floor, floor_source, _project_root, all_stacks,
             ) if ref and _project_root else {}
 
+            # Decisions from project.yml — with computed flags
+            deferral = getattr(ref, "deferral", None) if ref else None
+            plan = getattr(ref, "version_plan", None) if ref else None
+
+            if deferral and deferral.until:
+                from src.core.services.system_posture.bridges.module_intel import (
+                    is_deferral_expired,
+                )
+                item["deferral"] = {
+                    "until": deferral.until,
+                    "reason": deferral.reason,
+                    "expired": is_deferral_expired(deferral.until),
+                }
+            else:
+                item["deferral"] = None
+
+            if plan and plan.target:
+                from src.core.services.system_posture.bridges.module_intel import (
+                    is_plan_met,
+                    is_plan_overdue,
+                )
+                eff_raw = (effective or floor or "").replace("≥", "")
+                item["version_plan"] = {
+                    "target": plan.target,
+                    "date": plan.date,
+                    "overdue": is_plan_overdue(plan.date) if plan.date else False,
+                    "met": is_plan_met(plan.target, eff_raw),
+                    "checklist": [
+                        {"label": s.label, "description": s.description}
+                        for s in (plan.checklist or [])
+                    ],
+                }
+            else:
+                item["version_plan"] = None
+
     # ── Platform — guide flags ─────────────────────────────────
     platform = pillars.get("platform", {})
     for item in platform.get("items", []):
@@ -746,7 +781,7 @@ def posture_module_defer():  # type: ignore[no-untyped-def]
     """Defer a module posture warning until a date.
 
     Body: {module, until, reason}
-    Saves to .state/module_decisions.json.
+    Writes deferral object to the module in project.yml.
     """
     body = request.get_json(silent=True) or {}
     module_name = body.get("module", "")
@@ -757,25 +792,29 @@ def posture_module_defer():  # type: ignore[no-untyped-def]
         return jsonify({"error": "module and until required"}), 400
 
     try:
-        from datetime import UTC, datetime
-        from pathlib import Path as _Path
+        import yaml
+        from src.core.config.loader import find_project_file
 
-        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
-        decisions_path = project_root / ".state" / "module_decisions.json"
+        config_path = find_project_file()
+        if not config_path:
+            return jsonify({"error": "project.yml not found"}), 404
 
-        import json
-        decisions = {}
-        if decisions_path.is_file():
-            decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+        raw = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw)
+        project_data = data.get("project", data) if "project" in data else data
 
-        decisions.setdefault(module_name, {})
-        decisions[module_name]["deferred_until"] = until
-        decisions[module_name]["deferred_reason"] = reason
-        decisions[module_name]["deferred_at"] = datetime.now(UTC).isoformat()
+        found = False
+        for mod in project_data.get("modules", []):
+            if mod.get("name") == module_name:
+                mod["deferral"] = {"until": until, "reason": reason}
+                found = True
+                break
 
-        decisions_path.parent.mkdir(parents=True, exist_ok=True)
-        decisions_path.write_text(
-            json.dumps(decisions, indent=2, ensure_ascii=False) + "\n",
+        if not found:
+            return jsonify({"error": f"module '{module_name}' not found"}), 404
+
+        config_path.write_text(
+            yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
         )
 
@@ -788,55 +827,325 @@ def posture_module_defer():  # type: ignore[no-untyped-def]
         return jsonify({"error": str(exc)}), 500
 
 
+@posture_bp.route("/posture/module-clear-defer", methods=["POST"])
+@tracked("posture.module.deferral_cleared")
+def posture_module_clear_defer():  # type: ignore[no-untyped-def]
+    """Clear a module's deferral from project.yml.
+
+    Body: {module}
+    Removes the deferral object from the module.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+
+    if not module_name:
+        return jsonify({"error": "module required"}), 400
+
+    try:
+        import yaml
+        from src.core.config.loader import find_project_file
+
+        config_path = find_project_file()
+        if not config_path:
+            return jsonify({"error": "project.yml not found"}), 404
+
+        raw = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw)
+        project_data = data.get("project", data) if "project" in data else data
+
+        found = False
+        for mod in project_data.get("modules", []):
+            if mod.get("name") == module_name:
+                mod.pop("deferral", None)
+                found = True
+                break
+
+        if not found:
+            return jsonify({"error": f"module '{module_name}' not found"}), 404
+
+        config_path.write_text(
+            yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
+
+        return jsonify({"ok": True, "module": module_name})
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @posture_bp.route("/posture/module-plan", methods=["POST"])
 @tracked("posture.module.plan_created")
 def posture_module_plan():  # type: ignore[no-untyped-def]
     """Create or update a version upgrade plan for a module.
 
     Body: {module, target_floor, target_date}
-    Saves to .state/module_decisions.json with auto-generated checklist.
+    Writes version_plan object to the module in project.yml.
     """
     body = request.get_json(silent=True) or {}
     module_name = body.get("module", "")
     target_floor = body.get("target_floor", "")
     target_date = body.get("target_date", "")
 
-    if not module_name or not target_floor:
-        return jsonify({"error": "module and target_floor required"}), 400
+    if not module_name:
+        return jsonify({"error": "module required"}), 400
 
     try:
+        import yaml
+        from src.core.config.loader import find_project_file
+
+        config_path = find_project_file()
+        if not config_path:
+            return jsonify({"error": "project.yml not found"}), 404
+
+        raw = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw)
+        project_data = data.get("project", data) if "project" in data else data
+
+        found = False
+        for mod in project_data.get("modules", []):
+            if mod.get("name") == module_name:
+                if not target_floor:
+                    # Clear plan
+                    mod.pop("version_plan", None)
+                else:
+                    mod["version_plan"] = {
+                        "target": target_floor,
+                        "date": target_date,
+                        "checklist": [
+                            {"label": f"Verify all dependencies support Python ≥{target_floor}"},
+                            {"label": f"Update requires-python to ≥{target_floor}"},
+                            {"label": "Update CI test matrix"},
+                            {"label": f"Run full test suite on Python {target_floor}"},
+                            {"label": "Remove compatibility shims if any"},
+                        ],
+                    }
+                found = True
+                break
+
+        if not found:
+            return jsonify({"error": f"module '{module_name}' not found"}), 404
+
+        config_path.write_text(
+            yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
+
+        return jsonify({"ok": True, "module": module_name, "target_floor": target_floor})
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@posture_bp.route("/posture/module-plan-detail")
+def posture_module_plan_detail():  # type: ignore[no-untyped-def]
+    """Get plan + progress merged for a module.
+
+    Query: ?module=core
+    Returns plan from project.yml + progress from .state/version-plans/.
+    """
+    module_name = request.args.get("module", "")
+    if not module_name:
+        return jsonify({"error": "module required"}), 400
+
+    try:
+        import json
+        from pathlib import Path as _Path
+
+        from src.core.config.loader import load_project
+
+        project = load_project()
+        ref = project.get_module(module_name)
+        if not ref or not ref.version_plan:
+            return jsonify({"error": "no plan found"}), 404
+
+        plan = ref.version_plan
+        result = {
+            "target": plan.target,
+            "date": plan.date,
+            "checklist": [{"label": s.label, "description": s.description} for s in plan.checklist],
+        }
+
+        # Load progress from .state/
+        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
+        progress_path = project_root / ".state" / "version-plans" / f"{module_name}.json"
+        progress = {}
+        if progress_path.is_file():
+            progress = json.loads(progress_path.read_text(encoding="utf-8")).get("progress", {})
+
+        result["progress"] = progress
+        return jsonify(result)
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@posture_bp.route("/posture/module-plan-progress", methods=["PATCH"])
+def posture_module_plan_progress():  # type: ignore[no-untyped-def]
+    """Toggle a plan step's done status.
+
+    Body: {module, step_index, done}
+    Writes to .state/version-plans/{module}.json.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    step_index = body.get("step_index")
+    done = body.get("done", False)
+
+    if not module_name or step_index is None:
+        return jsonify({"error": "module and step_index required"}), 400
+
+    try:
+        import json
         from datetime import UTC, datetime
         from pathlib import Path as _Path
 
         project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
-        decisions_path = project_root / ".state" / "module_decisions.json"
+        progress_dir = project_root / ".state" / "version-plans"
+        progress_dir.mkdir(parents=True, exist_ok=True)
+        progress_path = progress_dir / f"{module_name}.json"
 
-        import json
-        decisions = {}
-        if decisions_path.is_file():
-            decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+        data = {}
+        if progress_path.is_file():
+            data = json.loads(progress_path.read_text(encoding="utf-8"))
 
-        decisions.setdefault(module_name, {})
-        decisions[module_name]["version_plan"] = {
-            "target_floor": target_floor,
-            "target_date": target_date,
-            "created_at": datetime.now(UTC).isoformat(),
-            "checklist": [
-                {"label": f"Verify all deps support Python ≥{target_floor}", "done": False},
-                {"label": f"Update requires-python to ≥{target_floor}", "done": False},
-                {"label": "Update CI test matrix", "done": False},
-                {"label": f"Run full test suite on Python {target_floor}", "done": False},
-                {"label": "Remove compatibility shims if any", "done": False},
-            ],
-        }
+        data.setdefault("module", module_name)
+        data.setdefault("progress", {})
 
-        decisions_path.parent.mkdir(parents=True, exist_ok=True)
-        decisions_path.write_text(
-            json.dumps(decisions, indent=2, ensure_ascii=False) + "\n",
+        key = str(step_index)
+        if done:
+            data["progress"][key] = {
+                "done": True,
+                "completed_at": datetime.now(UTC).isoformat(),
+            }
+        else:
+            data["progress"][key] = {"done": False}
+
+        progress_path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
 
-        return jsonify({"ok": True, "module": module_name, "target_floor": target_floor})
+        return jsonify({"ok": True, "step_index": step_index, "done": done})
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@posture_bp.route("/posture/module-plan-step", methods=["POST"])
+@tracked("posture.module.plan_step_added")
+def posture_module_plan_add_step():  # type: ignore[no-untyped-def]
+    """Add a custom step to a module's version plan checklist.
+
+    Body: {module, label}
+    Adds to project.yml version_plan.checklist.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    label = body.get("label", "")
+
+    if not module_name or not label:
+        return jsonify({"error": "module and label required"}), 400
+
+    try:
+        import yaml
+        from src.core.config.loader import find_project_file
+
+        config_path = find_project_file()
+        if not config_path:
+            return jsonify({"error": "project.yml not found"}), 404
+
+        raw = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw)
+        project_data = data.get("project", data) if "project" in data else data
+
+        found = False
+        for mod in project_data.get("modules", []):
+            if mod.get("name") == module_name:
+                plan = mod.get("version_plan")
+                if not plan:
+                    return jsonify({"error": "no plan exists for this module"}), 404
+                plan.setdefault("checklist", [])
+                plan["checklist"].append({"label": label})
+                found = True
+                break
+
+        if not found:
+            return jsonify({"error": f"module '{module_name}' not found"}), 404
+
+        config_path.write_text(
+            yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
+
+        return jsonify({"ok": True, "module": module_name, "label": label})
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@posture_bp.route("/posture/module-plan-step", methods=["DELETE"])
+@tracked("posture.module.plan_step_removed")
+def posture_module_plan_remove_step():  # type: ignore[no-untyped-def]
+    """Remove a step from a module's version plan checklist.
+
+    Body: {module, step_index}
+    Removes from project.yml version_plan.checklist.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    step_index = body.get("step_index")
+
+    if not module_name or step_index is None:
+        return jsonify({"error": "module and step_index required"}), 400
+
+    try:
+        import yaml
+        from src.core.config.loader import find_project_file
+
+        config_path = find_project_file()
+        if not config_path:
+            return jsonify({"error": "project.yml not found"}), 404
+
+        raw = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw)
+        project_data = data.get("project", data) if "project" in data else data
+
+        found = False
+        for mod in project_data.get("modules", []):
+            if mod.get("name") == module_name:
+                plan = mod.get("version_plan")
+                if not plan or "checklist" not in plan:
+                    return jsonify({"error": "no checklist found"}), 404
+                idx = int(step_index)
+                if 0 <= idx < len(plan["checklist"]):
+                    plan["checklist"].pop(idx)
+                    found = True
+                else:
+                    return jsonify({"error": "step_index out of range"}), 400
+                break
+
+        if not found:
+            return jsonify({"error": f"module '{module_name}' not found"}), 404
+
+        config_path.write_text(
+            yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
+
+        return jsonify({"ok": True, "module": module_name})
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

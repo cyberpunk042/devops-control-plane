@@ -92,6 +92,9 @@ def bridge_modules(project_root: Path | None = None) -> PillarResult:
         compute_dependency_floor,
         compute_effective_floor,
         compute_verdict,
+        is_deferral_expired,
+        is_plan_met,
+        is_plan_overdue,
     )
 
     for mod in modules_data:
@@ -185,23 +188,52 @@ def bridge_modules(project_root: Path | None = None) -> PillarResult:
         mod["_compat_count"] = compat_count
         mod["_code_features"] = code_features[:3] if code_features else []
 
-        # Floor advisories — based on effective floor
-        if floor_rank == RankLevel.DANGEROUS:
-            warnings.append(
-                f"{name}: {language} {eval_floor} has known CVEs — "
-                f"deployments on {eval_floor} are exposed"
-            )
-        elif floor_rank in (RankLevel.OUTDATED, RankLevel.DEPRECATED):
-            warnings.append(
-                f"{name}: {language} {eval_floor} no longer receives "
-                f"security patches ({floor_detail})"
-            )
+        # ── Check decisions: deferral + plan ─────────────────
+        deferral = mod.get("deferral")
+        plan = mod.get("version_plan")
+        is_deferred_active = False
 
-        # Verdict warnings
-        if verdict == "gap":
-            warnings.append(f"{name}: ⚠️ {verdict_detail}")
+        if deferral:
+            expired = is_deferral_expired(deferral.get("until", ""))
+            deferral["expired"] = expired
+            if not expired:
+                is_deferred_active = True
+            else:
+                warnings.append(
+                    f"{name}: ⏰ deferral expired (was deferred until "
+                    f"{deferral.get('until', '?')} because: {deferral.get('reason', '?')})"
+                )
 
-        if note and floor_rank.severity >= RankLevel.OUTDATED.severity:
+        if plan:
+            plan_target = plan.get("target", "")
+            plan_date = plan.get("date", "")
+            plan["overdue"] = is_plan_overdue(plan_date) if plan_date else False
+            plan["met"] = is_plan_met(plan_target, effective or floor) if plan_target else False
+            if plan["overdue"] and not plan["met"]:
+                warnings.append(
+                    f"{name}: ⏰ version plan overdue — target ≥{plan_target} "
+                    f"by {plan_date}, currently at {effective or floor}"
+                )
+
+        # Floor advisories — suppress for actively deferred modules
+        if not is_deferred_active:
+            if floor_rank == RankLevel.DANGEROUS:
+                warnings.append(
+                    f"{name}: {language} {eval_floor} has known CVEs — "
+                    f"deployments on {eval_floor} are exposed"
+                )
+            elif floor_rank in (RankLevel.OUTDATED, RankLevel.DEPRECATED):
+                warnings.append(
+                    f"{name}: {language} {eval_floor} no longer receives "
+                    f"security patches ({floor_detail})"
+                )
+
+            # Verdict warnings
+            if verdict == "gap":
+                warnings.append(f"{name}: ⚠️ {verdict_detail}")
+
+        # Notes always visible when set
+        if note:
             recommendations.append(f"{name}: 📝 {note}")
         elif deduced:
             recommendations.append(
@@ -415,6 +447,9 @@ def _load_module_data(project_root: Path) -> list[dict]:
 
         for name, mod_state in state.modules.items():
             ref = module_refs.get(name)
+            deferral = getattr(ref, "deferral", None) if ref else None
+            plan = getattr(ref, "version_plan", None) if ref else None
+
             entry = {
                 "name": name,
                 "stack": mod_state.stack or "",
@@ -425,6 +460,14 @@ def _load_module_data(project_root: Path) -> list[dict]:
                 "runtime_floor_source": None,
                 "version_strategy": getattr(ref, "version_strategy", "") if ref else "",
                 "version_note": getattr(ref, "version_note", "") if ref else "",
+                "deferral": {
+                    "until": deferral.until,
+                    "reason": deferral.reason,
+                } if deferral and deferral.until else None,
+                "version_plan": {
+                    "target": plan.target,
+                    "date": plan.date,
+                } if plan and plan.target else None,
             }
 
             if mod_state.detected and mod_state.stack:

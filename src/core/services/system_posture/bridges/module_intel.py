@@ -567,3 +567,85 @@ def _ver_tuple(v: str) -> list[int] | None:
         return [int(x) for x in v.split(".")]
     except (ValueError, AttributeError):
         return None
+
+
+# ══════════════════════════════════════════════════════════════════
+# DATE UTILITIES — for deferrals and version plans
+# ══════════════════════════════════════════════════════════════════
+
+
+def _parse_decision_date(date_str: str) -> "date | None":
+    """Parse a decision date string into a date object.
+
+    Handles:
+      "2026-09-01"  → date(2026, 9, 1)
+      "2026-09"     → date(2026, 9, 30)  (end of month)
+      "Q1 2026"     → date(2026, 3, 31)  (end of Q1)
+      "Q2 2026"     → date(2026, 6, 30)
+      "Q3 2026"     → date(2026, 9, 30)
+      "Q4 2026"     → date(2026, 12, 31)
+    """
+    from datetime import date as _date
+
+    if not date_str:
+        return None
+
+    s = date_str.strip()
+
+    # Quarter format: "Q3 2026"
+    quarter_match = re.match(r"Q(\d)\s+(\d{4})", s, re.IGNORECASE)
+    if quarter_match:
+        q = int(quarter_match.group(1))
+        year = int(quarter_match.group(2))
+        quarter_ends = {1: (3, 31), 2: (6, 30), 3: (9, 30), 4: (12, 31)}
+        if q in quarter_ends:
+            month, day = quarter_ends[q]
+            return _date(year, month, day)
+        return None
+
+    # ISO date: "2026-09-01"
+    try:
+        parts = s.split("-")
+        if len(parts) == 3:
+            return _date(int(parts[0]), int(parts[1]), int(parts[2]))
+        if len(parts) == 2:
+            # "2026-09" → end of month
+            year, month = int(parts[0]), int(parts[1])
+            if month == 12:
+                return _date(year, 12, 31)
+            return _date(year, month + 1, 1) - __import__("datetime").timedelta(days=1)
+    except (ValueError, IndexError):
+        pass
+
+    return None
+
+
+def is_deferral_expired(until_str: str) -> bool:
+    """Check if a deferral date has passed."""
+    from datetime import date as _date
+
+    target = _parse_decision_date(until_str)
+    if target is None:
+        return False  # can't parse → treat as not expired
+    return _date.today() > target
+
+
+def is_plan_overdue(date_str: str) -> bool:
+    """Check if a plan target date has passed."""
+    from datetime import date as _date
+
+    target = _parse_decision_date(date_str)
+    if target is None:
+        return False
+    return _date.today() > target
+
+
+def is_plan_met(target_floor: str, effective_floor: str) -> bool:
+    """Check if the effective floor meets or exceeds the plan target."""
+    if not target_floor or not effective_floor:
+        return False
+    target = _ver_tuple(target_floor)
+    effective = _ver_tuple(effective_floor)
+    if not target or not effective:
+        return False
+    return effective >= target

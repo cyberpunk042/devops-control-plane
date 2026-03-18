@@ -1190,7 +1190,7 @@
         deferContent += _adm('warning', 'When the deferral expires',
             `The warning re-surfaces with: <em>"Deferral expired — was deferred because: [your reason]"</em>. You'll need to address it or defer again. The underlying issue hasn't changed.`);
         deferContent += _adm('note', 'Where this is stored',
-            `Deferrals are saved to <code>.state/module_decisions.json</code>. This file is NOT version-controlled — it's local state. Other team members won't see the deferral unless they share the <code>.state/</code> directory.`);
+            `Deferrals are saved to <code>project.yml</code> on the module's <code>deferral</code> field. This is version-controlled — your team sees it.`);
         deferContent += `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem" onclick="_remConfirmDefer('${esc(n)}')">📅 Defer</button>`;
         h += _remOption('defer', '📅 Defer until a date', deferContent);
 
@@ -1309,9 +1309,24 @@
 
         let h = '';
 
+        // Show existing plan if present
+        if (item.version_plan) {
+            const plan = item.version_plan;
+            const status = plan.met ? '✅ Complete' : plan.overdue ? '⏰ Overdue' : '🎯 In progress';
+            h += _adm(plan.overdue ? 'warning' : plan.met ? 'success' : 'info',
+                '📋 Existing plan: ' + status,
+                `Target: Python ≥<strong>${esc(plan.target)}</strong><br>
+                 Date: <strong>${esc(plan.date)}</strong>
+                 ${plan.checklist ? '<br>' + plan.checklist.length + ' checklist step(s)' : ''}`);
+            h += `<div style="display:flex;gap:0.5rem;margin:0.5rem 0">
+                <button class="btn btn-sm btn-primary" onclick="moduleOpenPlan('${esc(n)}')">📋 Open plan</button>
+                <button class="btn btn-sm btn-danger" onclick="_remConfirmClearPlan('${esc(n)}')">❌ Clear plan</button>
+            </div>`;
+        }
+
         let planContent = '';
         planContent += _adm('info', 'What this creates',
-            `A tracked plan with a target floor, target date, and checklist. The plan is saved to <code>.state/module_decisions.json</code> and visible on the module's posture card.`);
+            `A tracked plan with a target floor and target date, saved to <code>project.yml</code> on the module's <code>version_plan</code> field. Version-controlled and visible to your team.`);
 
         planContent += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">';
         planContent += typeof modalFormField === 'function'
@@ -1355,7 +1370,7 @@
         body += _adm('info', 'Creating version plan',
             `Target: Python <strong>≥${esc(target)}</strong>${date ? ' by <strong>' + esc(date) + '</strong>' : ''}. The platform will track a 5-item checklist toward this goal.`);
         body += _adm('note', 'Where this is stored',
-            `Plans are saved to <code>.state/module_decisions.json</code>. This is local state, not version-controlled. Share the <code>.state/</code> directory to share plans with your team.`);
+            `Plans are saved to <code>project.yml</code> on the module's <code>version_plan</code> field. This is version-controlled — your team sees it in git.`);
         body += _adm('success', 'After creating',
             `The plan appears on the module's posture card. You can check off items as you complete them. The target date surfaces a reminder if overdue.`);
 
@@ -1365,6 +1380,70 @@
             confirmLabel: 'Create plan',
             onConfirmExpr: "moduleCreatePlan('" + n + "')",
         });
+    };
+
+    // ── Clear decision handlers ─────────────────────────────
+
+    window._remConfirmClearDefer = function(n) {
+        let body = '';
+        body += _adm('warning', 'This will remove the deferral',
+            'The warning will re-appear immediately in the posture table. The deferral entry will be removed from <code>project.yml</code>.');
+        _remConfirm({
+            title: '❌ Clear deferral for ' + n,
+            body: body,
+            confirmLabel: 'Clear deferral',
+            confirmCls: 'btn-danger',
+            onConfirmExpr: "moduleClearDefer('" + n + "')",
+        });
+    };
+
+    window.moduleClearDefer = async function(moduleName) {
+        try {
+            const resp = await fetch('/api/posture/module-clear-defer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName }),
+            });
+            if (resp.ok) {
+                toast('❌ Deferral cleared for ' + moduleName, 'success');
+                modalClose();
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                const data = await resp.json();
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    window._remConfirmClearPlan = function(n) {
+        let body = '';
+        body += _adm('warning', 'This will remove the version plan',
+            'The plan and its checklist will be removed from <code>project.yml</code>. Progress data in <code>.state/</code> will remain but become orphaned.');
+        _remConfirm({
+            title: '❌ Clear plan for ' + n,
+            body: body,
+            confirmLabel: 'Clear plan',
+            confirmCls: 'btn-danger',
+            onConfirmExpr: "moduleClearPlan('" + n + "')",
+        });
+    };
+
+    window.moduleClearPlan = async function(moduleName) {
+        try {
+            const resp = await fetch('/api/posture/module-plan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, target_floor: '', target_date: '' }),
+            });
+            if (resp.ok) {
+                toast('❌ Plan cleared for ' + moduleName, 'success');
+                modalClose();
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                const data = await resp.json();
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
     };
 
     // ── Remediation action handlers ──────────────────────────
@@ -1493,11 +1572,143 @@
             });
             if (resp.ok) {
                 toast('📋 Version plan created for ' + moduleName, 'success');
-                modalClose();
+                modalClose(); // close confirmation
+                modalClose(); // close remediation
                 if (typeof postureRescan === 'function') postureRescan();
+                // Reload item data then open the plan modal
+                setTimeout(() => moduleOpenPlan(moduleName), 1500);
             } else {
                 const data = await resp.json();
                 toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    // ── Plan modal ────────────────────────────────────────────
+    window.moduleOpenPlan = async function(moduleName) {
+        const item = _modulePeekItems.find(i => i._moduleName === moduleName);
+        if (!item || !item.version_plan || typeof modalOpen !== 'function') return;
+
+        const plan = item.version_plan;
+        const checklist = plan.checklist || [];
+        const target = plan.target || '?';
+        const planDate = plan.date || '?';
+        const met = plan.met;
+        const overdue = plan.overdue;
+
+        // Load progress from API
+        let progress = {};
+        try {
+            const resp = await fetch('/api/posture/module-plan-detail?module=' + encodeURIComponent(moduleName));
+            if (resp.ok) {
+                const data = await resp.json();
+                progress = data.progress || {};
+            }
+        } catch (e) { /* no progress data available */ }
+
+        const doneCount = Object.values(progress).filter(p => p && p.done).length;
+        const totalCount = checklist.length || 1;
+        const pct = Math.round((doneCount / totalCount) * 100);
+
+        let body = '';
+        body += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">`;
+        body += `<div><strong>Target:</strong> Python ≥${esc(target)}</div>`;
+        body += `<div><strong>Deadline:</strong> ${esc(planDate)}</div>`;
+        body += `</div>`;
+
+        // Progress bar
+        body += `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem">`;
+        body += `<div class="plan-progress-bar" style="flex:1"><div class="plan-progress-fill" style="width:${pct}%"></div></div>`;
+        body += `<span style="font-size:0.82rem;color:var(--text-muted)">${doneCount}/${totalCount} (${pct}%)</span>`;
+        body += `</div>`;
+
+        if (met) {
+            body += _adm('success', 'Plan complete!', 'The effective floor meets or exceeds the target. This plan has been achieved.');
+        } else if (overdue) {
+            body += _adm('warning', 'Plan overdue', `The target date (${esc(planDate)}) has passed but the floor hasn't reached ≥${esc(target)} yet.`);
+        }
+
+        // Checklist
+        body += '<div id="plan-checklist">';
+        for (let i = 0; i < checklist.length; i++) {
+            const step = checklist[i];
+            const done = progress[String(i)] && progress[String(i)].done;
+            const completedAt = done && progress[String(i)].completed_at ? progress[String(i)].completed_at.split('T')[0] : '';
+            body += `<div class="plan-step ${done ? 'done' : ''}">
+                <input type="checkbox" class="plan-step-check" ${done ? 'checked' : ''}
+                    onchange="modulePlanToggleStep('${esc(moduleName)}',${i},this.checked)">
+                <div class="plan-step-label">${esc(step.label)}</div>
+                ${completedAt ? `<div class="plan-step-date">${esc(completedAt)}</div>` : ''}
+                <div class="plan-step-remove" onclick="modulePlanRemoveStep('${esc(moduleName)}',${i})" title="Remove step">✕</div>
+            </div>`;
+        }
+        body += '</div>';
+
+        // Add step
+        body += `<div style="margin-top:0.75rem;display:flex;gap:0.5rem">
+            <input id="plan-new-step" type="text" placeholder="Add a custom step..." style="flex:1;padding:0.4rem 0.6rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.82rem">
+            <button class="btn btn-sm btn-ghost" onclick="modulePlanAddStep('${esc(moduleName)}')">➕ Add</button>
+        </div>`;
+
+        body += _adm('info', 'How this works',
+            'Check off items as you complete them. Progress is tracked locally in <code>.state/</code>. The checklist structure is shared with your team via <code>project.yml</code>.');
+
+        modalOpen({
+            title: '📋 Version Plan: ' + moduleName,
+            replace: false,
+            body: body,
+            size: 'md',
+            footerButtons: [
+                { label: 'Close', onclick: 'modalClose()' },
+            ],
+        });
+    };
+
+    window.modulePlanToggleStep = async function(moduleName, stepIndex, done) {
+        try {
+            await fetch('/api/posture/module-plan-progress', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, step_index: stepIndex, done: done }),
+            });
+            // Update UI inline
+            const steps = document.querySelectorAll('#plan-checklist .plan-step');
+            if (steps[stepIndex]) {
+                steps[stepIndex].classList.toggle('done', done);
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    window.modulePlanAddStep = async function(moduleName) {
+        const input = document.getElementById('plan-new-step');
+        const label = input ? input.value.trim() : '';
+        if (!label) return;
+        try {
+            const resp = await fetch('/api/posture/module-plan-step', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, label: label }),
+            });
+            if (resp.ok) {
+                toast('➕ Step added', 'success');
+                modalClose();
+                moduleOpenPlan(moduleName);  // re-open with updated data
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    window.modulePlanRemoveStep = async function(moduleName, stepIndex) {
+        if (!confirm('Remove this step?')) return;
+        try {
+            const resp = await fetch('/api/posture/module-plan-step', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, step_index: stepIndex }),
+            });
+            if (resp.ok) {
+                toast('✕ Step removed', 'success');
+                modalClose();
+                moduleOpenPlan(moduleName);
             }
         } catch (e) { toast('❌ ' + e.message, 'error'); }
     };
@@ -1580,15 +1791,26 @@
                         '</span> ' + compatCount + 'v';
                 }
 
-                // Floor health — just the emoji
+                // Floor health — emoji + decision indicators
                 let floorDisplay = iEmoji;
                 if (note) floorDisplay += ' 📝';
+                const hasDeferral = item.deferral && item.deferral.until;
+                const deferralExpired = hasDeferral && item.deferral.expired;
+                const hasPlan = item.version_plan && item.version_plan.target;
+                const planMet = hasPlan && item.version_plan.met;
+                if (hasDeferral && !deferralExpired) floorDisplay += ' 📅';
+                if (deferralExpired) floorDisplay += ' ⏰';
+                if (hasPlan && !planMet) floorDisplay += ' 📋';
+                if (planMet) floorDisplay += ' ✅';
 
                 // Verdict icon
                 let verdictDisplay = '—';
                 if (verdict === 'consistent') verdictDisplay = '✅';
                 else if (verdict === 'gap') verdictDisplay = '⚠️';
                 else if (verdict === 'could_lower') verdictDisplay = 'ℹ️';
+
+                // Deferred row styling
+                const isDeferred = hasDeferral && !deferralExpired;
 
                 // Floor source tag
                 const floorSource = item.floor_source || '';
@@ -1611,7 +1833,7 @@
                     `;
                 } else {
                     html += `
-                        <tr class="posture-row posture-module-row ${iCss}">
+                        <tr class="posture-row posture-module-row ${iCss} ${isDeferred ? 'posture-module-deferred' : ''}">
                             <td class="posture-module-cell-name" ${pk('module')}>${esc(moduleName)}</td>
                             <td class="posture-module-cell-stack" ${pk('stack')}>${esc(stack)}</td>
                             <td class="posture-module-cell-declared" ${pk('declared')}><code>${esc(declared)}</code>${sourceTag}</td>
@@ -1626,6 +1848,17 @@
 
                     if (note) {
                         html += `<tr class="posture-module-note-row"><td colspan="9" class="posture-module-note-cell">📝 ${esc(note)}</td></tr>`;
+                    }
+                    if (hasDeferral) {
+                        const dExp = deferralExpired;
+                        html += `<tr class="posture-module-decision-row"><td colspan="9">${dExp ? '⏰ Deferral expired' : '📅 Deferred'} until ${esc(item.deferral.until)}: <em>${esc(item.deferral.reason)}</em></td></tr>`;
+                    }
+                    if (hasPlan && !planMet) {
+                        const pOv = item.version_plan.overdue;
+                        html += `<tr class="posture-module-decision-row"><td colspan="9" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+                            <span>${pOv ? '⏰ Plan overdue' : '📋 Plan'}: upgrade to ≥${esc(item.version_plan.target)} by ${esc(item.version_plan.date)}</span>
+                            <button class="posture-btn posture-btn-update" style="flex-shrink:0" onclick="moduleOpenPlan('${esc(moduleName)}')">📋 View plan</button>
+                        </td></tr>`;
                     }
                 }
             }
@@ -1726,6 +1959,50 @@
         }
 
         // ── Floor advisories ─────────────────────────────────
+        // ── Expired deferrals (urgent) ────────────────────────
+        const expiredDeferrals = stratItems.filter(i => i.deferral && i.deferral.expired);
+        if (expiredDeferrals.length > 0) {
+            html += '<div class="posture-section-warnings">';
+            html += '<div class="posture-recs-title">⏰ Deferrals expired</div>';
+            for (const item of expiredDeferrals) {
+                const n = (item.name || '').split(' (')[0];
+                html += `<div class="posture-warn-line" style="display:flex;align-items:start;justify-content:space-between;gap:0.5rem">
+                    <span>⏰ <strong>${esc(n)}</strong>: deferral expired — was deferred because: <em>${esc(item.deferral.reason)}</em></span>
+                    <button class="posture-btn posture-btn-update" style="flex-shrink:0;font-size:0.72rem" onclick="moduleRemediate('${esc(n)}')">Address</button>
+                </div>`;
+            }
+            html += '</div>';
+        }
+
+        // ── Active deferrals ─────────────────────────────────
+        const activeDeferrals = stratItems.filter(i => i.deferral && !i.deferral.expired);
+        if (activeDeferrals.length > 0) {
+            html += '<div class="posture-module-status-section">';
+            html += '<div class="posture-recs-title">📅 Deferred</div>';
+            for (const item of activeDeferrals) {
+                const n = (item.name || '').split(' (')[0];
+                html += `<div class="posture-module-status-line info">📅 <strong>${esc(n)}</strong>: deferred until ${esc(item.deferral.until)} — <em>${esc(item.deferral.reason)}</em></div>`;
+            }
+            html += '</div>';
+        }
+
+        // ── Planned upgrades ─────────────────────────────────
+        const activePlans = stratItems.filter(i => i.version_plan && !i.version_plan.met);
+        if (activePlans.length > 0) {
+            html += '<div class="posture-module-status-section">';
+            html += '<div class="posture-recs-title">📋 Planned upgrades</div>';
+            for (const item of activePlans) {
+                const n = (item.name || '').split(' (')[0];
+                const overdue = item.version_plan.overdue;
+                html += `<div class="posture-module-status-line ${overdue ? 'gap' : 'info'}" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+                    <span>${overdue ? '⏰ overdue' : '🎯 in progress'} — <strong>${esc(n)}</strong>: upgrade to ≥${esc(item.version_plan.target)} by ${esc(item.version_plan.date)}</span>
+                    <button class="posture-btn posture-btn-update" style="flex-shrink:0" onclick="moduleOpenPlan('${esc(n)}')">📋 View plan</button>
+                </div>`;
+            }
+            html += '</div>';
+        }
+
+        // ── Floor health ─────────────────────────────────────
         const floorWarnings = warnings.filter(w => !w.includes('⚠️'));
         if (floorWarnings.length > 0) {
             html += '<div class="posture-section-warnings">';
