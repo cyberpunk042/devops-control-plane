@@ -386,11 +386,13 @@ def _enrich_posture_actions(posture_dict: dict) -> None:
                     is_plan_overdue,
                 )
                 eff_raw = (effective or floor or "").replace("≥", "")
+                version_met = is_plan_met(plan.target, eff_raw)
+                all_steps_done = all(s.done for s in plan.checklist) if plan.checklist else False
                 item["version_plan"] = {
                     "target": plan.target,
                     "date": plan.date,
                     "overdue": is_plan_overdue(plan.date) if plan.date else False,
-                    "met": is_plan_met(plan.target, eff_raw),
+                    "met": version_met and all_steps_done,
                     "checklist": [
                         {"label": s.label, "description": s.description, "done": s.done}
                         for s in (plan.checklist or [])
