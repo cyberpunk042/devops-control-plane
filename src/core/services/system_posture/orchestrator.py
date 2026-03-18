@@ -8,7 +8,6 @@ caching, and exposes the public API.
 Public API:
     scan_posture(force=False)   → SystemPosture  (full scan)
     get_summary(force=False)    → dict            (lightweight for nav badge)
-    invalidate_cache(key=None)  → list[str]       (cache busting)
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .cache import get_or_compute, get_stats, invalidate
+from .cache import get_or_compute, get_stats
 from .models import PillarResult, RankLevel, SystemPosture
 
 logger = logging.getLogger(__name__)
@@ -81,24 +80,6 @@ def get_summary(*, force: bool = False) -> dict[str, Any]:
 
     return get_or_compute("summary", _compute, force=force)
 
-
-def invalidate_cache(key: str | None = None) -> list[str]:
-    """Invalidate posture cache.
-
-    Args:
-        key: Specific key to invalidate (e.g. ``"toolchain"``),
-             or ``None`` to clear everything.
-
-    Returns:
-        List of invalidated keys.
-    """
-    busted = invalidate(key)
-    if busted:
-        # Also invalidate downstream caches
-        if key in ("platform", "toolchain", "project", "runtime", "modules"):
-            invalidate("full")
-            invalidate("summary")
-    return busted
 
 
 def cache_stats() -> dict[str, Any]:

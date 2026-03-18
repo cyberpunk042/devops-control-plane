@@ -456,29 +456,20 @@ def posture_rescan():  # type: ignore[no-untyped-def]
     via = request.args.get("via", "")
 
     try:
-        if via == "standalone":
-            from src.core.services.system_posture import (
-                invalidate_cache,
-                scan_posture,
-            )
+        from src.core.services.mediator import get_mediator
 
-            root = current_app.config.get("PROJECT_ROOT")
-            invalidated = invalidate_cache()
-            posture = scan_posture(force=True, project_root=root)
-            result = posture.to_dict()
-            _enrich_posture_actions(result)
-            result["cache_invalidated"] = invalidated
-        else:
-            # Default: use mediator (persisted, cascade invalidation)
-            from src.core.services.mediator import get_mediator
-
-            m = get_mediator()
-            inv = m.put("posture.full", cascade=True)
-            r = m.get("posture.full", force=True)
-            posture = r["data"]
-            result = posture.to_dict()
-            _enrich_posture_actions(result)
-            result["cache_invalidated"] = inv["invalidated"]
+        m = get_mediator()
+        # Invalidate all pillar nodes + full + summary
+        invalidated = []
+        for path in ["posture.platform", "posture.toolchain", "posture.project",
+                      "posture.runtime", "posture.modules"]:
+            inv = m.put(path, cascade=True)
+            invalidated.extend(inv.get("invalidated", []))
+        r = m.get("posture.full", force=True)
+        posture = r["data"]
+        result = posture.to_dict()
+        _enrich_posture_actions(result)
+        result["cache_invalidated"] = invalidated
 
         return jsonify(result)
     except Exception as exc:
@@ -505,24 +496,12 @@ def posture_rescan_tool():  # type: ignore[no-untyped-def]
     via = request.args.get("via", "")
 
     try:
-        if via == "standalone":
-            from src.core.services.system_posture import (
-                get_summary,
-                invalidate_cache,
-            )
+        from src.core.services.mediator import get_mediator
 
-            # Invalidate toolchain pillar + downstream (full, summary)
-            invalidate_cache("toolchain")
-            summary = get_summary(force=True)
-            return jsonify(summary)
-        else:
-            # Default: use mediator (cascade invalidation → SSE push)
-            from src.core.services.mediator import get_mediator
-
-            m = get_mediator()
-            m.put("posture.toolchain", cascade=True)
-            r = m.get("posture.summary", force=True)
-            return jsonify(r["data"])
+        m = get_mediator()
+        m.put("posture.toolchain", cascade=True)
+        r = m.get("posture.summary", force=True)
+        return jsonify(r["data"])
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -597,6 +576,272 @@ def _module_lang_to_lifecycle(lang: str) -> str:
     }.get(lang, lang)
 
 
+@posture_bp.route("/posture/module-fix-floor", methods=["POST"])
+@tracked("posture.module.floor_fixed")
+def posture_module_fix_floor():  # type: ignore[no-untyped-def]
+    """Create or update a module's pyproject.toml with requires-python.
+
+    Body: {module, target_floor, preview (bool)}
+    If preview=true: returns the file content without writing.
+    If preview=false: writes the file and invalidates posture.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    target_floor = body.get("target_floor", "")
+    preview_only = body.get("preview", True)
+
+    if not module_name or not target_floor:
+        return jsonify({"error": "module and target_floor required"}), 400
+
+    try:
+        from pathlib import Path as _Path
+
+        from src.core.config.loader import load_project
+
+        project = load_project()
+        ref = project.get_module(module_name)
+        if not ref:
+            return jsonify({"error": f"module '{module_name}' not found"}), 404
+
+        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
+        target_path = project_root / ref.path / "pyproject.toml"
+        rel_path = str(target_path.relative_to(project_root))
+
+        if target_path.is_file():
+            # Modify existing
+            content = target_path.read_text(encoding="utf-8")
+            import re as _re
+            if _re.search(r'requires-python\s*=', content):
+                new_content = _re.sub(
+                    r'requires-python\s*=\s*"[^"]*"',
+                    f'requires-python = ">={target_floor}"',
+                    content,
+                )
+            else:
+                # Add under [project] section
+                new_content = content.rstrip() + f'\nrequires-python = ">={target_floor}"\n'
+            is_new = False
+        else:
+            # Create minimal pyproject.toml
+            new_content = (
+                f'[project]\n'
+                f'name = "{module_name}"\n'
+                f'requires-python = ">={target_floor}"\n'
+            )
+            is_new = True
+
+        result = {"path": rel_path, "content": new_content, "is_new": is_new}
+
+        if preview_only:
+            return jsonify({"preview": result})
+
+        # Apply
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(new_content, encoding="utf-8")
+
+        # Invalidate posture
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
+
+        return jsonify({"applied": True, "path": rel_path})
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@posture_bp.route("/posture/module-dep-alternatives", methods=["POST"])
+@tracked("posture.module.dep_alternatives")
+def posture_module_dep_alternatives():  # type: ignore[no-untyped-def]
+    """Find older versions of a dep that support a target Python floor.
+
+    Body: {package, target_python}
+    Queries PyPI JSON API for all versions and filters by requires_python.
+    """
+    body = request.get_json(silent=True) or {}
+    package = body.get("package", "")
+    target_python = body.get("target_python", "")
+
+    if not package or not target_python:
+        return jsonify({"error": "package and target_python required"}), 400
+
+    try:
+        import re as _re
+        import urllib.request
+
+        url = f"https://pypi.org/pypi/{package}/json"
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            import json
+            data = json.loads(resp.read().decode())
+
+        current_version = data.get("info", {}).get("version", "")
+        releases = data.get("releases", {})
+        target_parts = [int(x) for x in target_python.split(".")]
+
+        alternatives = []
+        for ver, files in releases.items():
+            if not files:
+                continue
+            # Skip pre-releases
+            if any(c in ver for c in ("a", "b", "rc", "dev", "post")):
+                continue
+
+            # Find requires_python from the first file with metadata
+            requires_python = None
+            for f in files:
+                rp = f.get("requires_python")
+                if rp:
+                    requires_python = rp
+                    break
+
+            if not requires_python:
+                continue
+
+            # Check if target_python satisfies requires_python
+            match = _re.search(r">=\s*(\d+(?:\.\d+)*)", requires_python)
+            if not match:
+                continue
+            req_parts = [int(x) for x in match.group(1).split(".")]
+
+            if target_parts >= req_parts:
+                # This version supports our target python
+                try:
+                    ver_parts = [int(x) for x in ver.split(".")]
+                    cur_parts = [int(x) for x in current_version.split(".")]
+                    behind = 0
+                    if len(cur_parts) >= 2 and len(ver_parts) >= 2:
+                        if cur_parts[0] == ver_parts[0]:
+                            behind = cur_parts[1] - ver_parts[1]
+                        else:
+                            behind = abs(cur_parts[0] - ver_parts[0]) * 10
+                except (ValueError, IndexError):
+                    behind = 0
+
+                alternatives.append({
+                    "version": ver,
+                    "requires_python": requires_python,
+                    "versions_behind": behind,
+                    "breaking": ver.split(".")[0] != current_version.split(".")[0],
+                })
+
+        # Sort by version descending (latest compatible first)
+        alternatives.sort(
+            key=lambda a: [int(x) for x in a["version"].split(".")[:3] if x.isdigit()],
+            reverse=True,
+        )
+
+        return jsonify({
+            "package": package,
+            "current_version": current_version,
+            "target_python": target_python,
+            "alternatives": alternatives[:10],
+        })
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@posture_bp.route("/posture/module-defer", methods=["POST"])
+@tracked("posture.module.deferred")
+def posture_module_defer():  # type: ignore[no-untyped-def]
+    """Defer a module posture warning until a date.
+
+    Body: {module, until, reason}
+    Saves to .state/module_decisions.json.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    until = body.get("until", "")
+    reason = body.get("reason", "")
+
+    if not module_name or not until:
+        return jsonify({"error": "module and until required"}), 400
+
+    try:
+        from datetime import UTC, datetime
+        from pathlib import Path as _Path
+
+        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
+        decisions_path = project_root / ".state" / "module_decisions.json"
+
+        import json
+        decisions = {}
+        if decisions_path.is_file():
+            decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+
+        decisions.setdefault(module_name, {})
+        decisions[module_name]["deferred_until"] = until
+        decisions[module_name]["deferred_reason"] = reason
+        decisions[module_name]["deferred_at"] = datetime.now(UTC).isoformat()
+
+        decisions_path.parent.mkdir(parents=True, exist_ok=True)
+        decisions_path.write_text(
+            json.dumps(decisions, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
+
+        return jsonify({"ok": True, "module": module_name, "deferred_until": until})
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@posture_bp.route("/posture/module-plan", methods=["POST"])
+@tracked("posture.module.plan_created")
+def posture_module_plan():  # type: ignore[no-untyped-def]
+    """Create or update a version upgrade plan for a module.
+
+    Body: {module, target_floor, target_date}
+    Saves to .state/module_decisions.json with auto-generated checklist.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    target_floor = body.get("target_floor", "")
+    target_date = body.get("target_date", "")
+
+    if not module_name or not target_floor:
+        return jsonify({"error": "module and target_floor required"}), 400
+
+    try:
+        from datetime import UTC, datetime
+        from pathlib import Path as _Path
+
+        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
+        decisions_path = project_root / ".state" / "module_decisions.json"
+
+        import json
+        decisions = {}
+        if decisions_path.is_file():
+            decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+
+        decisions.setdefault(module_name, {})
+        decisions[module_name]["version_plan"] = {
+            "target_floor": target_floor,
+            "target_date": target_date,
+            "created_at": datetime.now(UTC).isoformat(),
+            "checklist": [
+                {"label": f"Verify all deps support Python ≥{target_floor}", "done": False},
+                {"label": f"Update requires-python to ≥{target_floor}", "done": False},
+                {"label": "Update CI test matrix", "done": False},
+                {"label": f"Run full test suite on Python {target_floor}", "done": False},
+                {"label": "Remove compatibility shims if any", "done": False},
+            ],
+        }
+
+        decisions_path.parent.mkdir(parents=True, exist_ok=True)
+        decisions_path.write_text(
+            json.dumps(decisions, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        return jsonify({"ok": True, "module": module_name, "target_floor": target_floor})
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @posture_bp.route("/posture/module-note", methods=["POST"])
 @tracked("posture.module.noted")
 def posture_module_note():  # type: ignore[no-untyped-def]
@@ -662,8 +907,8 @@ def posture_module_note():  # type: ignore[no-untyped-def]
         )
 
         # Invalidate posture caches
-        from src.core.services.system_posture import invalidate_cache
-        invalidate_cache("modules")
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
 
         return jsonify({
             "ok": True,

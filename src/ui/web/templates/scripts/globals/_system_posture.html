@@ -315,6 +315,35 @@
         if (peek && !peek.contains(e.target)) _moduleHidePeek();
     }
 
+    // ── Admonition helper ────────────────────────────────────
+    function _adm(type, title, body) {
+        const icons = { info:'💡', tip:'🟢', warning:'⚠️', danger:'🔴', note:'📝', success:'✅' };
+        return `<div class="adm adm-${type}">
+            <div class="adm-icon">${icons[type] || '💡'}</div>
+            <div class="adm-content">
+                ${title ? `<div class="adm-title">${title}</div>` : ''}
+                <div class="adm-body">${body}</div>
+            </div>
+        </div>`;
+    }
+
+    // ── Confirmation modal helper ────────────────────────────
+    function _remConfirm(opts) {
+        modalOpen({
+            title: opts.title,
+            replace: false,
+            body: opts.body,
+            size: 'md',
+            footerButtons: [
+                { label: 'Cancel', cls: 'btn-ghost', onclick: 'modalClose()' },
+                { label: opts.confirmLabel || 'Confirm',
+                  cls: opts.confirmCls || 'btn-primary',
+                  onclick: opts.onConfirmExpr },
+            ],
+        });
+    }
+    window._remConfirm = _remConfirm;
+
     // Click handler — dispatches to per-column content builder
     window.modulePeek = function(col, idx, evt) {
         const item = _modulePeekItems[idx];
@@ -641,7 +670,7 @@
             }
 
             h += '<div class="mp-actions">';
-            h += `<button class="posture-btn" onclick="_moduleHidePeek();moduleAcknowledge('${esc(name)}')">📝 Add note</button>`;
+            h += `<button class="posture-btn posture-btn-update" onclick="_moduleHidePeek();moduleRemediate('${esc(name)}')">🔧 What can I do?</button>`;
             h += `<button class="posture-btn" onclick="_moduleHidePeek();moduleViewReport('${esc(name)}')">📋 Full report</button>`;
             h += '</div>';
         } else if (verdict === 'could_lower') {
@@ -650,7 +679,7 @@
             h += '<div class="mp-muted">This module could support a wider range of Python versions if you lower the declared floor. This is informational — no action is required.</div>';
 
             h += '<div class="mp-actions">';
-            h += `<button class="posture-btn" onclick="_moduleHidePeek();moduleAcknowledge('${esc(name)}')">📝 Add note</button>`;
+            h += `<button class="posture-btn posture-btn-update" onclick="_moduleHidePeek();moduleRemediate('${esc(name)}')">🔧 Options</button>`;
             h += '</div>';
         } else {
             h += '<div class="mp-title">— No analysis available</div>';
@@ -691,6 +720,7 @@
             if (resp.ok) {
                 toast('📝 Note saved for ' + moduleName, 'success');
                 modalClose();
+                if (typeof postureRescan === 'function') postureRescan();
             } else {
                 const data = await resp.json();
                 toast('⚠️ ' + (data.error || 'Failed to save'), 'error');
@@ -733,6 +763,743 @@
                 { label: 'Close', onclick: 'modalClose()' },
             ],
         });
+    };
+
+    // ═══════════════════════════════════════════════════════════
+    // ── Remediation Modal System ─────────────────────────────
+    // ═══════════════════════════════════════════════════════════
+
+    window.moduleRemediate = function(moduleName) {
+        const item = _modulePeekItems.find(i => i._moduleName === moduleName);
+        if (!item || typeof modalOpen !== 'function') return;
+        _moduleHidePeek();
+
+        const verdict = item.verdict || '';
+        const rank = item.rank || '';
+
+        // Determine primary situation
+        let situation = 'ok';
+        if (verdict === 'gap') situation = 'gap';
+        else if (rank === 'dangerous') situation = 'cve';
+        else if (rank === 'outdated' || rank === 'deprecated') situation = 'eol';
+        else if (verdict === 'could_lower') situation = 'could_lower';
+
+        const titles = {
+            gap: '⚠️ ' + moduleName + ' — Compatibility Gap',
+            cve: '🔴 ' + moduleName + ' — Vulnerability Exposure',
+            eol: '🟡 ' + moduleName + ' — End-of-Life Floor',
+            could_lower: 'ℹ️ ' + moduleName + ' — Wider Compatibility Possible',
+            ok: '✅ ' + moduleName + ' — All Good',
+        };
+
+        modalOpen({
+            title: titles[situation] || moduleName,
+            replace: false,
+            body: _remBuildBody(item, situation),
+            size: 'wide',
+            footerButtons: [
+                { label: 'Close', onclick: 'modalClose()' },
+            ],
+        });
+    };
+
+    function _remBuildBody(item, situation) {
+        let html = '';
+        html += _remSummary(item, situation);
+        html += _remSection('understand', '🔍 Understand — why is this happening?',
+            _remUnderstand(item, situation), true);
+        html += _remSection('fix', '🔧 Fix — what can I do about it?',
+            _remFix(item, situation));
+        html += _remSection('decide', '📝 Decide — record a decision',
+            _remDecide(item, situation));
+        html += _remSection('track', '📋 Track — plan for the future',
+            _remTrack(item, situation));
+        return html;
+    }
+
+    function _remSection(id, title, content, expanded) {
+        if (!content) return '';
+        return `
+            <div class="rem-section ${expanded ? 'expanded' : ''}" id="rem-${id}">
+                <div class="rem-section-header" onclick="this.parentElement.classList.toggle('expanded')">
+                    <span class="rem-section-chevron">▸</span>
+                    <span>${title}</span>
+                </div>
+                <div class="rem-section-body">${content}</div>
+            </div>
+        `;
+    }
+
+    function _remOption(id, title, content, opts) {
+        const badge = opts && opts.badge ? `<span class="rem-option-badge ${opts.badge}">${opts.badgeLabel || opts.badge}</span>` : '';
+        return `
+            <div class="rem-option ${opts && opts.recommended ? 'recommended' : ''}" id="rem-opt-${id}">
+                <div class="rem-option-header" onclick="this.parentElement.classList.toggle('expanded')">
+                    <span>${title}</span>
+                    ${badge}
+                </div>
+                <div class="rem-option-body">${content}</div>
+            </div>
+        `;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ── Content Functions (with admonitions) ─────────────────
+    // ═══════════════════════════════════════════════════════════
+
+    // Helper: sort deps by floor descending
+    function _sortDeps(deps) {
+        return [...deps].sort((a,b) => {
+            const av = (a.floor||'').split('.').map(Number);
+            const bv = (b.floor||'').split('.').map(Number);
+            for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+                if ((bv[i]||0) !== (av[i]||0)) return (bv[i]||0) - (av[i]||0);
+            }
+            return 0;
+        });
+    }
+
+    // ── Summary ──────────────────────────────────────────────
+
+    function _remSummary(item, situation) {
+        const n = item._moduleName;
+        const declared = (item.value || '').replace('≥', '');
+        const effClean = (item.effective_floor || '').replace('≥', '');
+        const source = item.floor_source || '';
+        const eol = item.eol_date || '';
+        const cves = item.cves || [];
+        const deps = item.deps_details || [];
+        const features = item.code_features || [];
+        const meta = item.module_meta || {};
+
+        const cls = { gap: '', cve: 'danger', eol: '', could_lower: 'info', ok: 'ok' }[situation] || '';
+
+        let h = `<div class="rem-summary ${cls}">`;
+
+        if (situation === 'gap') {
+            h += `<strong>${esc(n)}</strong> declares support for Python ${esc(declared)}+, but actually needs <strong>${esc(effClean)}+</strong> to run.`;
+            h += '</div>';
+            const sorted = _sortDeps(deps);
+            if (sorted.length) {
+                h += _adm('warning', 'Deployment risk',
+                    `If someone runs this module on Python ${esc(declared)}, it will crash at import time. <code>${esc(sorted[0].package)}</code> requires Python ≥${esc(sorted[0].floor)}.`);
+            }
+            h += _adm('info', 'Why this happens',
+                `The declared floor (<code>${esc(declared)}</code>) comes from the ${source === 'stack' ? '<strong>' + esc(item.stack) + '</strong> stack baseline' : esc(source) + ' config'}. Your module's actual dependencies and code need more than what's declared.`);
+        } else if (situation === 'cve') {
+            h += `<strong>${esc(n)}</strong>'s effective floor (Python ${esc(effClean)}) has <strong>${cves.length} known vulnerability(ies)</strong>.`;
+            h += '</div>';
+            h += _adm('danger', 'Security exposure',
+                `<code>${cves.map(c => esc(c)).join('</code>, <code>')}</code> affect Python ${esc(effClean)}. Deployments on this version are running unpatched software with known vulnerabilities.`);
+            h += _adm('info', 'What this means',
+                `The vulnerability exists in the Python interpreter itself. The only fix is ensuring your module runs on a patched version above ${esc(effClean)}.`);
+        } else if (situation === 'eol') {
+            h += `<strong>${esc(n)}</strong>'s effective floor (Python ${esc(effClean)}) reaches end-of-life in <strong>${esc(eol)}</strong>.`;
+            h += '</div>';
+            h += _adm('warning', 'Upcoming deadline',
+                `Python ${esc(effClean)} stops receiving security patches in <strong>${esc(eol)}</strong>. After that date, new vulnerabilities discovered won't be fixed for this version.`);
+            h += _adm('tip', 'Your module will keep working',
+                `Nothing breaks at the EOL date. The risk increases gradually as unpatched vulnerabilities accumulate. The ecosystem will naturally move forward — package maintainers will drop support over time.`);
+        } else if (situation === 'could_lower') {
+            h += `<strong>${esc(n)}</strong> declares Python ${esc(declared)}+, but only needs <strong>${esc(effClean)}+</strong>.`;
+            h += '</div>';
+            h += _adm('tip', 'Opportunity for wider compatibility',
+                meta.domain === 'library'
+                    ? `As a <strong>library</strong>, wider compatibility means more users can use your module. You could lower the floor to support more Python versions.`
+                    : `As an <strong>application module</strong>, this is informational. You control the deployment environment, so wider compatibility is less critical.`);
+        } else {
+            h += `<strong>${esc(n)}</strong> is in good shape. All compatibility layers are aligned and the floor is healthy.`;
+            h += '</div>';
+            h += _adm('success', 'All clear',
+                `The declared floor matches what your code and dependencies actually need, and the floor version is still receiving security patches.`);
+        }
+
+        return h;
+    }
+
+    // ── Understand section ───────────────────────────────────
+
+    function _remUnderstand(item, situation) {
+        const n = item._moduleName;
+        const declared = (item.value || '').replace('≥', '');
+        const effClean = (item.effective_floor || '').replace('≥', '');
+        const source = item.floor_source || '';
+        const deps = item.deps_details || [];
+        const features = item.code_features || [];
+        const eol = item.eol_date || '';
+        const cves = item.cves || [];
+        const meta = item.module_meta || {};
+        const tiers = item.floor_tiers || {};
+
+        let h = '';
+
+        if (situation === 'gap') {
+            if (source === 'stack') {
+                h += `<p style="margin:0 0 0.75rem">The declared floor <code>${esc(declared)}</code> comes from the <strong>${esc(item.stack)}</strong> stack definition — it's the general baseline for this technology. But your specific module needs more because of what it imports and what code patterns it uses.</p>`;
+            } else {
+                h += `<p style="margin:0 0 0.75rem">Your ${esc(source)} config declares <code>≥${esc(declared)}</code>, but the module's actual dependencies and code require <code>≥${esc(effClean)}</code>.</p>`;
+            }
+
+            if (deps.length) {
+                const sorted = _sortDeps(deps);
+                h += '<div class="rem-preview" style="margin:0.5rem 0">';
+                for (const d of sorted) { h += `${esc(d.package)}  requires Python ${esc(d.requires_python)}\n`; }
+                h += '</div>';
+            }
+            if (features.length) {
+                h += '<div class="rem-preview" style="margin:0.5rem 0">';
+                for (const f of features) {
+                    const short = (f.file || '').split('/').slice(-2).join('/');
+                    h += `Python ${esc(f.version)}+  ${esc(f.feature)}  in ${esc(short)}:${f.line}\n`;
+                }
+                h += '</div>';
+            }
+
+            h += _adm('tip', 'If you only deploy on Python 3.12+',
+                `The gap is cosmetic. Nothing breaks in your actual deployment. You can acknowledge it with a note and move on.`);
+            h += _adm('warning', 'If this is a published library',
+                `Users on Python ${esc(declared)} will install it and get import errors. The declared floor is misleading and should be fixed.`);
+
+        } else if (situation === 'cve') {
+            for (const c of cves) {
+                h += _adm('danger', esc(c),
+                    `Affects Python ${esc(effClean)} and below. This vulnerability exists in the Python interpreter itself.`);
+            }
+            if (declared !== effClean) {
+                h += _adm('warning', 'Real deployment risk',
+                    `Your effective floor IS <code>${esc(effClean)}</code>, which has the vulnerability. If you deploy on this version, you're exposed.`);
+            } else {
+                h += _adm('danger', 'Direct exposure',
+                    `Your effective floor is the vulnerable version. Deployments on Python ${esc(effClean)} are running unpatched software.`);
+            }
+
+        } else if (situation === 'eol') {
+            h += `<p style="margin:0 0 0.5rem">Python ${esc(effClean)} stops receiving security patches in <strong>${esc(eol)}</strong>. After that date, any new vulnerabilities discovered won't be fixed.</p>`;
+            h += _adm('info', 'What usually happens after EOL',
+                `Package maintainers start dropping support for EOL versions. Over time, you won't be able to get the latest versions of your dependencies on Python ${esc(effClean)}. The ecosystem moves forward naturally.`);
+            h += _adm('tip', 'You may not need to act',
+                `As dependencies release new versions requiring newer Python, your effective floor will naturally rise. If you're not deploying on ${esc(effClean)}, the ecosystem handles this for you.`);
+
+        } else if (situation === 'could_lower') {
+            h += `<p style="margin:0 0 0.5rem">Your module only uses Python ${esc(effClean)}+ features, but declares ${esc(declared)}+.</p>`;
+            h += _adm(meta.domain === 'library' ? 'tip' : 'info',
+                meta.domain === 'library' ? 'Library benefit' : 'Informational',
+                meta.domain === 'library'
+                    ? `As a library, wider compatibility means more potential users. Lowering the floor would allow users on Python ${esc(effClean)} through ${esc(declared)} to use this module.`
+                    : `As an application module, wider compatibility is less critical since you control the deployment environment. This is informational — no action is typically needed.`);
+
+        } else {
+            h += _adm('success', 'All layers aligned',
+                `The declared floor matches what your code and dependencies actually need, and the floor version is still receiving security patches.`);
+        }
+
+        // Detection transparency — always show how we analyzed this
+        if (situation !== 'ok') {
+            h += _adm('info', 'How this was analyzed',
+                `<strong>Declared floor:</strong> from ${
+                    tiers.used === 'stack' ? esc(item.stack) + ' stack definition'
+                    : tiers.used === 'module' ? 'module config'
+                    : tiers.used === 'project' ? 'project root config'
+                    : 'unknown source'
+                }<br>
+                <strong>Dependency floor:</strong> scanned imports in <code>${esc(meta.path || '?')}</code> → ${deps.length} package(s) with Python constraints<br>
+                <strong>Code floor:</strong> scanned .py files for version-specific syntax → ${features.length} feature(s) detected<br>
+                <strong>Effective floor:</strong> highest of all three = <code>${esc(effClean)}</code>`);
+        }
+
+        return h;
+    }
+
+    // ── Fix section ──────────────────────────────────────────
+
+    function _remFix(item, situation) {
+        const n = item._moduleName;
+        const declared = (item.value || '').replace('≥', '');
+        const effClean = (item.effective_floor || '').replace('≥', '');
+        const meta = item.module_meta || {};
+        const deps = item.deps_details || [];
+        const features = item.code_features || [];
+
+        if (situation === 'ok') return '';
+
+        let h = '';
+
+        // ── Option: Raise the floor (gap, cve, eol) ─────────
+        if (situation === 'gap' || situation === 'cve' || situation === 'eol') {
+            const targetFloor = effClean || declared;
+            let optA = '';
+            optA += _adm('tip', 'What this does',
+                `Creates a <code>pyproject.toml</code> in <code>${esc(meta.path || n)}/</code> that declares <code>requires-python = ">=${esc(targetFloor)}"</code>. This makes the module honest about what it actually needs.`);
+            optA += '<div class="rem-preview">';
+            optA += '<span class="context"># ' + esc(meta.path || n) + '/pyproject.toml</span>\n';
+            optA += '[project]\nname = "' + esc(n) + '"\n';
+            optA += '<span class="added">requires-python = ">=' + esc(targetFloor) + '"</span>\n';
+            optA += '</div>';
+            optA += _adm('warning', 'Consequence',
+                `Anyone trying to install this module on Python below ${esc(targetFloor)} will get an error from pip: <em>"requires Python >=${esc(targetFloor)} but Python ${esc(declared)} is installed."</em> If nobody deploys on ${esc(declared)}, this has no practical impact.`);
+            optA += _adm('info', 'What happens after',
+                `• Declared floor: <code>${esc(declared)}</code> (${esc(item.floor_source || 'stack')}) → <code>${esc(targetFloor)}</code> (module config)<br>• Status: ⚠️ → ✅ consistent<br>• Floor source: ${esc(item.floor_source || 'stack')} → module config<br>• The posture table updates immediately after applying.`);
+            optA += _adm('tip', 'This is reversible',
+                `You can delete the created <code>pyproject.toml</code> to revert to the stack baseline. The platform will re-detect on next scan.`);
+            optA += `<div style="display:flex;gap:0.5rem;margin-top:0.5rem">`;
+            optA += `<button class="btn btn-sm btn-primary" onclick="_remConfirmRaiseFloor('${esc(n)}','${esc(targetFloor)}')">Apply this fix</button>`;
+            optA += `<button class="btn btn-sm btn-ghost" onclick="modulePreviewFloorFix('${esc(n)}','${esc(targetFloor)}')">Preview only</button>`;
+            optA += `</div>`;
+            h += _remOption('raise', '🔧 Raise the declared floor to ≥' + esc(targetFloor), optA,
+                { recommended: true, badge: 'recommended', badgeLabel: 'Recommended' });
+        }
+
+        // ── Option: Lower the effective (gap only, advanced) ─
+        if (situation === 'gap') {
+            let optB = '';
+            optB += _adm('danger', 'This is complex and risky',
+                `Lowering the effective floor means downgrading dependencies or rewriting code. Older package versions may have unpatched security vulnerabilities and missing features. Only do this if you have a strong reason to support Python ${esc(declared)}.`);
+            if (deps.length) {
+                optB += '<div class="rem-preview" style="margin:0.5rem 0">';
+                for (const d of deps) { optB += esc(d.package) + ' — currently needs ≥' + esc(d.floor) + '\n'; }
+                optB += '</div>';
+                optB += _adm('warning', 'Downgrade risks',
+                    `Older versions may have:<br>• Known security vulnerabilities (unpatched CVEs)<br>• Missing features your code depends on<br>• Incompatibilities with other packages in your project`);
+                for (const d of deps) {
+                    optB += `<button class="btn btn-sm btn-ghost" style="margin:0.2rem" onclick="moduleFindAlternatives('${esc(d.package)}','${esc(declared)}',this)">Find alternatives for ${esc(d.package)}</button>`;
+                }
+            }
+            if (features.length) {
+                optB += '<div class="rem-preview" style="margin:0.5rem 0">';
+                for (const f of features) {
+                    const short = (f.file || '').split('/').slice(-2).join('/');
+                    optB += esc(f.feature) + ' → needs rewrite in ' + esc(short) + ':' + f.line + '\n';
+                }
+                optB += '</div>';
+            }
+            h += _remOption('lower', '⬇️ Lower the effective floor to ≥' + esc(declared) + ' (advanced)', optB,
+                { badge: 'advanced', badgeLabel: 'Advanced' });
+        }
+
+        // ── Option: Wait for ecosystem (eol only) ────────────
+        if (situation === 'eol') {
+            let optW = '';
+            optW += _adm('info', 'How this works',
+                `Your dependencies will naturally raise their floors as Python ${esc(effClean)} approaches EOL. Package maintainers typically drop support within a few months of the EOL date.`);
+            optW += _adm('tip', 'When this is appropriate',
+                `If you're not deploying on Python ${esc(effClean)} and have time before ${esc(item.eol_date || 'the EOL date')}, the ecosystem will handle the transition for you. Your effective floor will rise naturally as deps update.`);
+            h += _remOption('wait', '⏳ Wait for the ecosystem to move forward', optW);
+        }
+
+        // ── Option: Lower declared (could_lower only) ────────
+        if (situation === 'could_lower') {
+            let optL = '';
+            optL += _adm('info', 'What this means',
+                `You could lower the declared floor to <code>≥${esc(effClean)}</code> to match what the module actually needs. This would allow deployments on Python ${esc(effClean)}+.`);
+            optL += _adm('warning', 'Consider the tradeoff',
+                `Python versions below ${esc(declared)} may be past EOL. Lowering the floor signals that you support those versions, which means users might deploy on unsupported Python. Make sure you test on the target version.`);
+            h += _remOption('lower-declared', '⬇️ Lower floor to ≥' + esc(effClean), optL);
+
+            let optK = '';
+            optK += _adm('tip', 'This is fine',
+                `The current floor of <code>${esc(declared)}</code> is reasonable. This finding is informational — no action is required. The module is compatible with the declared floor and everything works.`);
+            h += _remOption('accept-current', '✅ Keep the current floor (no action needed)', optK);
+        }
+
+        // ── Option: Do nothing (all situations except ok/could_lower) ──
+        if (situation === 'gap' || situation === 'cve' || situation === 'eol') {
+            let optN = '';
+            if (situation === 'gap') {
+                optN += _adm('info', 'What happens if you don\'t act',
+                    `The gap continues to show in the posture table. Your module works fine on recent Python — the gap only matters if someone tries to deploy on ${esc(declared)}.`);
+                optN += _adm('tip', 'When doing nothing is fine',
+                    `If you control the deployment environment and always use Python 3.12+, the gap is cosmetic. Consider adding a note in the Decide section to record this decision.`);
+            } else if (situation === 'cve') {
+                optN += _adm('danger', 'What happens if you don\'t act',
+                    `The CVE warning persists. If your effective floor IS the vulnerable version, deployments are exposed to unpatched security issues. If the effective floor is higher (because deps raised it), the practical risk is lower but the declared compatibility is misleading.`);
+            } else if (situation === 'eol') {
+                optN += _adm('warning', 'What happens if you don\'t act',
+                    `After ${esc(item.eol_date || 'EOL')}, Python ${esc(effClean)} stops receiving patches. Your module keeps working, but new vulnerabilities won't be fixed. Package maintainers will eventually drop support.`);
+                optN += _adm('tip', 'The ecosystem usually handles this',
+                    `As dependencies release new versions requiring newer Python, your effective floor will naturally rise. You may not need to act — the ecosystem moves you forward.`);
+            }
+            h += _remOption('do-nothing', '🤷 Do nothing — keep current state', optN);
+        }
+
+        return h;
+    }
+
+    // ── Confirmation wrapper for raise floor ─────────────────
+    window._remConfirmRaiseFloor = function(n, floor) {
+        const item = _modulePeekItems.find(i => i._moduleName === n);
+        const meta = item ? item.module_meta || {} : {};
+        const declared = item ? (item.value || '').replace('≥', '') : '';
+
+        let body = '';
+        body += _adm('warning', 'This will create a new file',
+            `<code>${esc(meta.path || n)}/pyproject.toml</code> will be created with <code>requires-python = ">=${esc(floor)}"</code>.`);
+        body += '<div class="rem-preview">[project]\nname = "' + esc(n) + '"\nrequires-python = ">=' + esc(floor) + '"\n</div>';
+        body += _adm('info', 'What changes after this',
+            `• Declared floor: <code>${esc(declared)}</code> → <code>${esc(floor)}</code><br>• Status: ⚠️ → ✅ consistent<br>• Anyone on Python below ${esc(floor)} cannot install this module`);
+        body += _adm('tip', 'This is reversible',
+            `Delete the created <code>pyproject.toml</code> to revert to the stack baseline.`);
+        body += _adm('success', 'After applying',
+            `The platform will rescan module posture, update the table, recalculate all floors and verdicts, and update the nav badge.`);
+
+        _remConfirm({
+            title: '🔧 Create pyproject.toml for ' + n,
+            body: body,
+            confirmLabel: 'Create file & apply',
+            onConfirmExpr: "moduleApplyFloorFix('" + n + "','" + floor + "')",
+        });
+    };
+
+    // ── Decide section ───────────────────────────────────────
+
+    function _remDecide(item, situation) {
+        const n = item._moduleName;
+
+        if (situation === 'ok') return '';
+
+        let h = '';
+
+        // ── Accept with note ─────────────────────────────────
+        let noteContent = '';
+        noteContent += _adm('info', 'What this does',
+            `Your note is saved to <code>project.yml</code> in the module's <code>version_note</code> field. It's version-controlled — it will appear in your next <code>git diff</code>.`);
+        noteContent += typeof modalFormField === 'function'
+            ? modalFormField({ name: 'rem_note', label: 'Your note', type: 'textarea',
+                placeholder: 'e.g. "We only deploy on 3.12+, this gap doesn\'t affect us"',
+                hint: 'Saved to project.yml — visible to your team', fullWidth: true })
+            : '<textarea id="mf-rem_note" style="width:100%;min-height:60px" placeholder="Your note..."></textarea>';
+        noteContent += _adm('note', 'After saving',
+            `The posture card shows 📝 next to the module. The warning is NOT suppressed — the data stays visible, but marked as acknowledged. Anyone reading the posture will see your explanation alongside the finding.`);
+        noteContent += `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem" onclick="_remConfirmNote('${esc(n)}')">💾 Save note</button>`;
+        h += _remOption('note', '📝 Accept with a note', noteContent);
+
+        // ── Defer until date ─────────────────────────────────
+        let deferContent = '';
+        deferContent += _adm('info', 'What this does',
+            `The warning is hidden from the posture table until your chosen date. After that date, it re-surfaces automatically with a note saying the deferral expired.`);
+        deferContent += '<div style="display:flex;gap:0.75rem;align-items:end;flex-wrap:wrap">';
+        deferContent += typeof modalFormField === 'function'
+            ? modalFormField({ name: 'rem_defer_date', label: 'Review date', type: 'text',
+                placeholder: 'YYYY-MM-DD or "Q3 2026"' })
+            : '<input id="mf-rem_defer_date" placeholder="YYYY-MM-DD" style="padding:0.4rem">';
+        deferContent += '</div>';
+        deferContent += typeof modalFormField === 'function'
+            ? modalFormField({ name: 'rem_defer_reason', label: 'Reason', type: 'textarea',
+                placeholder: 'Why are you deferring? e.g. "Waiting for vendor SDK 3.10 support"',
+                fullWidth: true })
+            : '<textarea id="mf-rem_defer_reason" style="width:100%;min-height:40px;margin-top:0.5rem" placeholder="Reason..."></textarea>';
+        deferContent += _adm('warning', 'When the deferral expires',
+            `The warning re-surfaces with: <em>"Deferral expired — was deferred because: [your reason]"</em>. You'll need to address it or defer again. The underlying issue hasn't changed.`);
+        deferContent += _adm('note', 'Where this is stored',
+            `Deferrals are saved to <code>.state/module_decisions.json</code>. This file is NOT version-controlled — it's local state. Other team members won't see the deferral unless they share the <code>.state/</code> directory.`);
+        deferContent += `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem" onclick="_remConfirmDefer('${esc(n)}')">📅 Defer</button>`;
+        h += _remOption('defer', '📅 Defer until a date', deferContent);
+
+        // ── Set strategy ─────────────────────────────────────
+        let stratContent = '';
+        stratContent += '<p style="margin:0 0 0.75rem">Choose how the platform evaluates this module\'s version health. This is saved to <code>project.yml</code> and affects how warnings and recommendations are generated.</p>';
+
+        // Latest option
+        stratContent += _remOption('strat-latest', '🎯 Latest — track current Python',
+            _adm('tip', 'Best for application modules',
+                `Your module tracks the current Python version. The platform will warn you when your floor falls behind, recommend updates when new versions release, and treat narrow compatibility as normal.`)
+            + _adm('info', 'After setting this',
+                `• Strategy badge: → <strong>latest</strong> (no more ✱ deduced marker)<br>• Warnings focus on "how far behind current" instead of floor health<br>• Compatibility range shown as "how up-to-date you are"`)
+            + `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem" onclick="_remConfirmStrategy('${esc(n)}','latest')">Set to Latest</button>`
+        );
+
+        // Compatibility option
+        stratContent += _remOption('strat-compat', '🌐 Compatibility — wide range is intentional',
+            _adm('tip', 'Best for libraries and shared packages',
+                `Your module deliberately supports a wide range. The platform will treat breadth as a strength, won't warn about being behind, and only alert you about EOL versions and CVEs at the floor.`)
+            + _adm('info', 'After setting this',
+                `• Strategy badge: → <strong>compat.</strong> (no more ✱ deduced marker)<br>• Warnings focus on floor health (EOL, CVEs) not version gap<br>• Compatibility bar shown as a strength indicator`)
+            + `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem" onclick="_remConfirmStrategy('${esc(n)}','compatibility')">Set to Compatibility</button>`
+        );
+
+        // Auto option
+        stratContent += _remOption('strat-auto', '🔄 Auto-detect — let the platform decide',
+            _adm('info', 'How auto-detection works',
+                `The platform infers your strategy from the constraint gap:<br>• Gap ≤ 2 versions → treated as "latest"<br>• Gap ≥ 4 versions → treated as "compatibility"<br>• Gap = 3 → ambiguous, shown with ✱ marker<br>This is the default. Set explicitly to remove the ✱.`)
+            + `<button class="btn btn-sm btn-ghost" style="margin-top:0.5rem" onclick="_remConfirmStrategy('${esc(n)}','')">Reset to Auto</button>`
+        );
+
+        h += _remOption('strategy', '🎯 Set version strategy', stratContent);
+
+        return h;
+    }
+
+    // ── Confirmation wrappers for Decide actions ─────────────
+
+    window._remConfirmNote = function(n) {
+        const note = typeof mfVal === 'function' ? mfVal('rem_note') : (document.getElementById('mf-rem_note') || {}).value || '';
+        if (!note) { toast('⚠️ Please enter a note', 'warning'); return; }
+
+        let body = '';
+        body += _adm('info', 'This will modify project.yml',
+            `A <code>version_note</code> will be added to the <strong>${esc(n)}</strong> module. This is version-controlled — it will appear in your next <code>git diff</code>.`);
+        body += '<div class="rem-preview">modules:\n  - name: ' + esc(n) + '\n    ...\n<span class="added">    version_note: "' + esc(note) + '"</span>\n</div>';
+        body += _adm('note', 'What this does',
+            `The note appears on the module's posture card (📝 icon). The warning is NOT suppressed — the data stays visible, but marked as acknowledged.`);
+        body += _adm('success', 'After saving',
+            `The note appears immediately. Other team members see it when they read <code>project.yml</code> or open the posture panel.`);
+
+        _remConfirm({
+            title: '📝 Save note for ' + n,
+            body: body,
+            confirmLabel: 'Save to project.yml',
+            onConfirmExpr: "moduleSaveNote('" + n + "')",
+        });
+    };
+
+    window._remConfirmDefer = function(n) {
+        const date = typeof mfVal === 'function' ? mfVal('rem_defer_date') : (document.getElementById('mf-rem_defer_date') || {}).value || '';
+        const reason = typeof mfVal === 'function' ? mfVal('rem_defer_reason') : (document.getElementById('mf-rem_defer_reason') || {}).value || '';
+        if (!date) { toast('⚠️ Please enter a review date', 'warning'); return; }
+
+        let body = '';
+        body += _adm('info', 'Deferring until ' + esc(date),
+            `This warning will be hidden from the posture table until <strong>${esc(date)}</strong>. The underlying issue remains unchanged.`);
+        body += _adm('warning', 'When the deferral expires',
+            `After <strong>${esc(date)}</strong>, the warning re-surfaces with a note: <em>"Deferral expired — was deferred because: ${esc(reason || '(no reason given)')}"</em>. You'll need to address it or defer again.`);
+        body += _adm('success', 'After deferring',
+            `The warning disappears immediately. The module shows a "deferred" indicator. It re-surfaces after <strong>${esc(date)}</strong>.`);
+
+        _remConfirm({
+            title: '📅 Defer warning for ' + n,
+            body: body,
+            confirmLabel: 'Defer',
+            onConfirmExpr: "moduleSaveDefer('" + n + "')",
+        });
+    };
+
+    window._remConfirmStrategy = function(n, strategy) {
+        const labels = { latest: 'Latest', compatibility: 'Compatibility', '': 'Auto-detect' };
+        const label = labels[strategy] || strategy;
+
+        let body = '';
+        if (strategy === 'latest') {
+            body += _adm('info', 'Setting strategy to Latest',
+                `The platform will evaluate this module as tracking current Python. Warnings shift from floor health to version currency. Narrow compatibility is treated as normal.`);
+        } else if (strategy === 'compatibility') {
+            body += _adm('info', 'Setting strategy to Compatibility',
+                `The platform will treat wide range as a strength. Gaps won't be flagged — only EOL versions and CVEs at the floor trigger warnings.`);
+        } else {
+            body += _adm('info', 'Resetting to Auto-detect',
+                `The platform will deduce the strategy from the constraint gap. The ✱ marker will return, indicating the strategy is inferred, not explicit.`);
+        }
+        body += '<div class="rem-preview">modules:\n  - name: ' + esc(n) + '\n    ...\n<span class="added">    version_strategy: ' + (strategy ? '"' + esc(strategy) + '"' : '(removed)') + '</span>\n</div>';
+        body += _adm('success', 'After setting',
+            `The posture table re-evaluates this module immediately. The strategy badge updates. Warnings may change based on the new evaluation lens.`);
+
+        _remConfirm({
+            title: '🎯 Set strategy: ' + label + ' for ' + n,
+            body: body,
+            confirmLabel: 'Set strategy',
+            onConfirmExpr: "moduleSaveStrategy('" + n + "','" + strategy + "')",
+        });
+    };
+
+    // ── Track section ────────────────────────────────────────
+
+    function _remTrack(item, situation) {
+        const n = item._moduleName;
+        const effClean = (item.effective_floor || '').replace('≥', '');
+
+        if (situation === 'ok') return '';
+
+        let h = '';
+
+        let planContent = '';
+        planContent += _adm('info', 'What this creates',
+            `A tracked plan with a target floor, target date, and checklist. The plan is saved to <code>.state/module_decisions.json</code> and visible on the module's posture card.`);
+
+        planContent += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">';
+        planContent += typeof modalFormField === 'function'
+            ? modalFormField({ name: 'rem_plan_target', label: 'Target floor', type: 'text',
+                placeholder: '3.12', value: '' })
+            : '<input id="mf-rem_plan_target" placeholder="3.12" style="padding:0.4rem;width:80px">';
+        planContent += typeof modalFormField === 'function'
+            ? modalFormField({ name: 'rem_plan_date', label: 'Target date', type: 'text',
+                placeholder: 'Q3 2026' })
+            : '<input id="mf-rem_plan_date" placeholder="Q3 2026" style="padding:0.4rem;width:120px">';
+        planContent += '</div>';
+
+        planContent += '<div style="font-size:0.82rem;line-height:1.8;padding:0.5rem 0.75rem;background:var(--bg-inset);border-radius:var(--radius-md);margin:0.5rem 0">';
+        planContent += '<strong style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.03em;color:var(--text-muted)">Auto-generated checklist</strong><br>';
+        planContent += '☐ Verify all dependencies support target floor<br>';
+        planContent += '☐ Update requires-python in module config<br>';
+        planContent += '☐ Update CI test matrix<br>';
+        planContent += '☐ Run full test suite on target version<br>';
+        planContent += '☐ Remove compatibility shims if any<br>';
+        planContent += '</div>';
+
+        planContent += _adm('tip', 'You can customize this later',
+            `After creating the plan, you can add or remove checklist items, update the target date, and mark items as done as you progress.`);
+        planContent += _adm('note', 'Plans are guidance, not enforcement',
+            `The platform tracks your plan but doesn't enforce it. Missing the target date doesn't break anything — it surfaces a reminder that the plan is overdue.`);
+
+        planContent += `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem" onclick="_remConfirmPlan('${esc(n)}')">📋 Create plan</button>`;
+        h += _remOption('plan', '📋 Create a version upgrade plan', planContent);
+
+        return h;
+    }
+
+    // ── Confirmation wrapper for plan creation ───────────────
+
+    window._remConfirmPlan = function(n) {
+        const target = typeof mfVal === 'function' ? mfVal('rem_plan_target') : (document.getElementById('mf-rem_plan_target') || {}).value || '';
+        const date = typeof mfVal === 'function' ? mfVal('rem_plan_date') : (document.getElementById('mf-rem_plan_date') || {}).value || '';
+        if (!target) { toast('⚠️ Please enter a target floor', 'warning'); return; }
+
+        let body = '';
+        body += _adm('info', 'Creating version plan',
+            `Target: Python <strong>≥${esc(target)}</strong>${date ? ' by <strong>' + esc(date) + '</strong>' : ''}. The platform will track a 5-item checklist toward this goal.`);
+        body += _adm('note', 'Where this is stored',
+            `Plans are saved to <code>.state/module_decisions.json</code>. This is local state, not version-controlled. Share the <code>.state/</code> directory to share plans with your team.`);
+        body += _adm('success', 'After creating',
+            `The plan appears on the module's posture card. You can check off items as you complete them. The target date surfaces a reminder if overdue.`);
+
+        _remConfirm({
+            title: '📋 Create plan for ' + n,
+            body: body,
+            confirmLabel: 'Create plan',
+            onConfirmExpr: "moduleCreatePlan('" + n + "')",
+        });
+    };
+
+    // ── Remediation action handlers ──────────────────────────
+
+    window.moduleApplyFloorFix = async function(moduleName, targetFloor) {
+        try {
+            const resp = await fetch('/api/posture/module-fix-floor', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, target_floor: targetFloor, preview: false }),
+            });
+            const data = await resp.json();
+            if (data.applied) {
+                toast('✅ Floor updated for ' + moduleName + ' — rescanning posture...', 'success');
+                modalClose();
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                toast('⚠️ ' + (data.error || 'Failed to apply'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    window.modulePreviewFloorFix = async function(moduleName, targetFloor) {
+        try {
+            const resp = await fetch('/api/posture/module-fix-floor', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, target_floor: targetFloor, preview: true }),
+            });
+            const data = await resp.json();
+            if (data.preview) {
+                const p = data.preview;
+                const previewHtml = `
+                    <div style="margin-bottom:0.75rem">
+                        <strong>${p.is_new ? '📄 New file:' : '📝 Modified:'}</strong> <code>${esc(p.path)}</code>
+                    </div>
+                    <div class="rem-preview">${esc(p.content)}</div>
+                    <div style="margin-top:0.75rem;display:flex;gap:0.5rem">
+                        <button class="btn btn-sm btn-primary" onclick="moduleApplyFloorFix('${esc(moduleName)}','${esc(targetFloor)}')">Apply</button>
+                        <button class="btn btn-sm btn-ghost" onclick="modalClose()">Cancel</button>
+                    </div>
+                `;
+                modalOpen({ title: 'Preview: ' + moduleName, replace: false, body: previewHtml, size: 'md',
+                    footerButtons: [{ label: 'Close', onclick: 'modalClose()' }] });
+            } else {
+                toast('⚠️ ' + (data.error || 'Preview failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    window.moduleFindAlternatives = async function(pkg, targetPython, btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Searching...';
+        try {
+            const resp = await fetch('/api/posture/module-dep-alternatives', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ package: pkg, target_python: targetPython }),
+            });
+            const data = await resp.json();
+            if (data.alternatives && data.alternatives.length) {
+                let html = `<div style="margin-top:0.5rem"><strong>Versions of ${esc(pkg)} supporting Python ≥${esc(targetPython)}:</strong></div>`;
+                html += '<div class="rem-preview" style="margin-top:0.3rem">';
+                for (const alt of data.alternatives.slice(0, 5)) {
+                    html += `${esc(alt.version)}  requires Python ${esc(alt.requires_python)}  (${esc(alt.versions_behind || '?')} behind current)\n`;
+                }
+                html += '</div>';
+                btn.outerHTML = html;
+            } else {
+                btn.outerHTML = `<span style="font-size:0.78rem;color:var(--text-muted)">No compatible versions found for ${esc(pkg)} on Python ${esc(targetPython)}.</span>`;
+            }
+        } catch (e) {
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+            toast('❌ ' + e.message, 'error');
+        }
+    };
+
+    window.moduleSaveStrategy = async function(moduleName, strategy) {
+        try {
+            const resp = await fetch('/api/posture/module-note', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, version_strategy: strategy }),
+            });
+            if (resp.ok) {
+                toast('🎯 Strategy set for ' + moduleName, 'success');
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                const data = await resp.json();
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    window.moduleSaveDefer = async function(moduleName) {
+        const date = typeof mfVal === 'function' ? mfVal('rem_defer_date') : (document.getElementById('mf-rem_defer_date') || {}).value || '';
+        const reason = typeof mfVal === 'function' ? mfVal('rem_defer_reason') : (document.getElementById('mf-rem_defer_reason') || {}).value || '';
+        if (!date) { toast('⚠️ Please enter a review date', 'warning'); return; }
+        try {
+            const resp = await fetch('/api/posture/module-defer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, until: date, reason: reason }),
+            });
+            if (resp.ok) {
+                toast('📅 Warning deferred for ' + moduleName, 'success');
+                modalClose();
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                const data = await resp.json();
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    window.moduleCreatePlan = async function(moduleName) {
+        const target = typeof mfVal === 'function' ? mfVal('rem_plan_target') : (document.getElementById('mf-rem_plan_target') || {}).value || '';
+        const date = typeof mfVal === 'function' ? mfVal('rem_plan_date') : (document.getElementById('mf-rem_plan_date') || {}).value || '';
+        if (!target) { toast('⚠️ Please enter a target floor', 'warning'); return; }
+        try {
+            const resp = await fetch('/api/posture/module-plan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, target_floor: target, target_date: date }),
+            });
+            if (resp.ok) {
+                toast('📋 Version plan created for ' + moduleName, 'success');
+                modalClose();
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                const data = await resp.json();
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
     };
 
     // ── Render: module pillar (matrix table — 9 columns) ───────
@@ -898,7 +1665,10 @@
                     explanation += ` The code uses <code>${esc(features[0].feature)}</code> (${esc(features[0].version)}+).`;
                 }
 
-                html += `<div class="posture-warn-line" style="line-height:1.6">⚠️ ${explanation}</div>`;
+                html += `<div class="posture-warn-line" style="line-height:1.6;display:flex;align-items:start;justify-content:space-between;gap:0.5rem">
+                    <span>⚠️ ${explanation}</span>
+                    <button class="posture-btn posture-btn-update" style="flex-shrink:0;font-size:0.72rem" onclick="moduleRemediate('${esc(n)}')">🔧 Fix</button>
+                </div>`;
             }
             html += '</div>';
         }

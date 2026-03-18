@@ -9337,6 +9337,98 @@ select option {
 .posture-module-row td[data-peek] { cursor: pointer; }
 .posture-module-row td[data-peek]:hover { background: var(--surface-2); }
 
+/* ── Admonitions ─────────────────────────────────────────────── */
+
+.adm                        { display: flex; gap: 0.6rem; padding: 0.6rem 0.75rem;
+                              border-radius: var(--radius-md); margin: 0.5rem 0;
+                              font-size: 0.82rem; line-height: 1.55;
+                              border-left: 3px solid var(--border); }
+.adm-icon                   { flex-shrink: 0; font-size: 1rem; padding-top: 0.1rem; }
+.adm-content                { flex: 1; min-width: 0; }
+.adm-title                  { font-weight: 600; margin-bottom: 0.2rem;
+                              color: var(--text-primary); font-size: 0.82rem; }
+.adm-body                   { color: var(--text-secondary); }
+.adm-body code              { font-size: 0.76rem; padding: 0.05rem 0.25rem;
+                              background: var(--bg-inset); border-radius: 3px; }
+.adm-body strong            { color: var(--text-primary); }
+
+.adm-info                   { background: hsla(210,100%,62%,0.06);
+                              border-left-color: var(--accent); }
+.adm-info .adm-title        { color: var(--accent); }
+
+.adm-tip                    { background: hsla(145,65%,50%,0.06);
+                              border-left-color: var(--success); }
+.adm-tip .adm-title         { color: var(--success); }
+
+.adm-warning                { background: hsla(38,92%,55%,0.06);
+                              border-left-color: var(--warning); }
+.adm-warning .adm-title     { color: var(--warning); }
+
+.adm-danger                 { background: hsla(0,72%,58%,0.06);
+                              border-left-color: var(--error); }
+.adm-danger .adm-title      { color: var(--error); }
+
+.adm-note                   { background: hsla(270,60%,55%,0.06);
+                              border-left-color: hsl(270,60%,55%); }
+.adm-note .adm-title        { color: hsl(270,60%,55%); }
+
+.adm-success                { background: hsla(145,65%,50%,0.06);
+                              border-left-color: var(--success); }
+.adm-success .adm-title     { color: var(--success); }
+
+/* ── Remediation modal ────────────────────────────────────────── */
+
+.rem-section                    { border: 1px solid var(--border); border-radius: var(--radius-md);
+                                  margin-bottom: 0.5rem; overflow: hidden; }
+.rem-section-header             { display: flex; align-items: center; gap: 0.5rem;
+                                  padding: 0.6rem 0.75rem; cursor: pointer;
+                                  background: var(--surface); font-weight: 600;
+                                  font-size: 0.85rem; transition: background 0.15s; }
+.rem-section-header:hover       { background: var(--surface-2); }
+.rem-section-body               { max-height: 0; overflow: hidden; padding: 0 0.75rem;
+                                  transition: max-height 0.25s ease, padding 0.25s ease; }
+.rem-section.expanded .rem-section-body
+                                { max-height: 3000px; padding: 0.75rem; overflow: visible; }
+.rem-section-chevron            { transition: transform 0.2s; font-size: 0.7rem; }
+.rem-section.expanded .rem-section-chevron
+                                { transform: rotate(90deg); }
+
+.rem-summary                    { padding: 0.75rem; margin-bottom: 0.75rem;
+                                  background: var(--surface); border-radius: var(--radius-md);
+                                  border-left: 3px solid var(--warning); line-height: 1.6;
+                                  font-size: 0.85rem; color: var(--text); }
+.rem-summary.ok                 { border-left-color: var(--success); }
+.rem-summary.info               { border-left-color: var(--accent); }
+.rem-summary.danger             { border-left-color: var(--error); }
+
+.rem-option                     { border: 1px solid var(--border); border-radius: var(--radius-md);
+                                  margin-bottom: 0.5rem; overflow: hidden; }
+.rem-option-header              { display: flex; align-items: center; justify-content: space-between;
+                                  padding: 0.55rem 0.75rem; cursor: pointer;
+                                  font-size: 0.85rem; font-weight: 500;
+                                  transition: background 0.15s; }
+.rem-option-header:hover        { background: var(--surface-2); }
+.rem-option.recommended         { border-color: var(--accent);
+                                  box-shadow: 0 0 0 1px hsla(210,80%,55%,0.15) inset; }
+.rem-option-body                { max-height: 0; overflow: hidden; padding: 0 0.75rem;
+                                  transition: max-height 0.25s ease, padding 0.25s ease; }
+.rem-option.expanded .rem-option-body
+                                { max-height: 2000px; padding: 0.75rem; overflow: visible; }
+
+.rem-option-badge               { font-size: 0.62rem; padding: 2px 6px; border-radius: 4px;
+                                  font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.rem-option-badge.recommended   { background: hsla(210,80%,55%,0.15); color: var(--accent); }
+.rem-option-badge.advanced      { background: hsla(38,70%,50%,0.12); color: hsl(38,70%,65%); }
+
+.rem-preview                    { background: var(--bg-inset); border: 1px solid var(--border);
+                                  border-radius: var(--radius-md); padding: 0.6rem;
+                                  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.72rem;
+                                  line-height: 1.6; margin: 0.5rem 0; overflow-x: auto;
+                                  white-space: pre-wrap; }
+.rem-preview .added             { color: var(--success); font-weight: 600; }
+.rem-preview .removed           { color: var(--error); }
+.rem-preview .context           { color: var(--text-muted); }
+
 /* Module row severity coloring */
 .posture-module-row.degraded .posture-module-cell-name {
     color: var(--warning);

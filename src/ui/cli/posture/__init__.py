@@ -124,9 +124,12 @@ def posture_cache(ctx: click.Context) -> None:
 @click.pass_context
 def posture_invalidate(ctx: click.Context, key: str | None) -> None:
     """Invalidate posture cache (all or specific key)."""
-    from src.core.services.system_posture import invalidate_cache
+    from src.core.services.mediator import get_mediator
 
-    busted = invalidate_cache(key)
+    m = get_mediator()
+    path = f"posture.{key}" if key else "posture.full"
+    inv = m.put(path, cascade=True)
+    busted = inv.get("invalidated", [])
     if busted:
         click.secho(f"  Invalidated: {', '.join(busted)}", fg="green")
     else:

@@ -14,21 +14,17 @@ Public API::
     posture = scan_posture()           # Full scan (cached per-pillar TTL)
     summary = get_summary()            # Lightweight dict for nav badge
     scan_posture(force=True)           # Bypass cache
-    invalidate_cache("toolchain")      # Clear one pillar
-    invalidate_cache()                 # Clear all
     cache_stats()                      # Diagnostics
 """
 
 from .orchestrator import (
     cache_stats,
     get_summary,
-    invalidate_cache,
     scan_posture,
 )
 
 __all__ = [
     "scan_posture",
     "get_summary",
-    "invalidate_cache",
     "cache_stats",
 ]
