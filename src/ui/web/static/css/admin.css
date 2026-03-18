@@ -9515,6 +9515,37 @@ select option {
 /* Preview: action buttons */
 .plan-preview-actions                  { margin-top: 0.5rem; display: flex; gap: 0.4rem; }
 
+/* ── Wizard modal ─────────────────────────────────────────────── */
+.wizard-step                           { display: flex; align-items: center; gap: 0.5rem;
+                                         padding: 0.4rem 0; font-size: 0.85rem;
+                                         color: var(--text-secondary); }
+.wizard-step.done                      { color: var(--text-primary); }
+.wizard-step.failed                    { color: var(--error); }
+.wizard-step.running                   { color: var(--accent); }
+.wizard-step-icon                      { font-size: 1rem; flex-shrink: 0; width: 1.5rem;
+                                         text-align: center; }
+.wizard-step-label                     { flex: 1; }
+
+.wizard-log                            { max-height: 200px; overflow-y: auto; margin: 0.75rem 0;
+                                         padding: 0.5rem 0.75rem; background: var(--bg-inset);
+                                         border-radius: var(--radius-sm); border: 1px solid var(--border);
+                                         font-family: var(--font-mono, monospace); font-size: 0.75rem;
+                                         line-height: 1.6; color: var(--text-muted); }
+.wizard-log-line                       { white-space: pre-wrap; word-break: break-all; }
+.wizard-log-error                      { color: var(--error); font-weight: 600; }
+
+/* Wizard: alternatives display */
+.wizard-alternatives                   { margin: 0.5rem 0; }
+.wizard-alt-item                       { padding: 0.5rem; margin-bottom: 0.4rem;
+                                         border: 1px solid var(--border); border-radius: var(--radius-sm);
+                                         background: var(--bg-primary); }
+.wizard-alt-header                     { font-size: 0.85rem; margin-bottom: 0.3rem; }
+.wizard-alt-options                    { padding-left: 1.5rem; font-size: 0.8rem;
+                                         color: var(--text-secondary); }
+.wizard-alt-option                     { padding: 0.15rem 0; }
+.wizard-alt-none                       { font-size: 0.8rem; color: var(--text-muted);
+                                         font-style: italic; padding-left: 1.5rem; }
+
 /* Module row severity coloring */
 .posture-module-row.degraded .posture-module-cell-name {
     color: var(--warning);

@@ -1,145 +1,182 @@
 # Module Upgrade Service
 
-Generates intelligent, context-aware checklists for module version upgrades and downgrades.
+Intelligent checklist generation + automation engine for module version upgrades and downgrades.
+
+**Coverage:** 37 automation handlers, 74/113 steps automatable (65%), 9 languages.
 
 ## Architecture
 
 ```
 module_upgrade/
-├── __init__.py          ← public API: generate_checklist()
-├── context.py           ← UpgradeContext builder (collects module intelligence)
-├── evaluator.py         ← JSON condition evaluator
-├── generator.py         ← recipe loader + step materializer
+├── __init__.py              ← public API: generate_checklist()
+├── context.py               ← UpgradeContext builder
+├── evaluator.py             ← JSON condition evaluator
+├── generator.py             ← recipe loader + step materializer
 ├── data/
 │   └── recipes/
-│       ├── python.json  ← Python upgrade/downgrade steps
-│       ├── _common.json ← shared tail steps (test, verify)
-│       └── (future: node.json, go.json, rust.json, ...)
-├── automation/          ← Chunk 2 (step executors, not yet implemented)
-│   └── __init__.py
+│       ├── python.json      ← 13 upgrade + 9 downgrade steps
+│       ├── node.json        ← 7 + 5
+│       ├── go.json          ← 7 + 5
+│       ├── rust.json        ← 7 + 5
+│       ├── ruby.json        ← 6 + 5
+│       ├── java.json        ← 6 + 5
+│       ├── dotnet.json      ← 6 + 5
+│       ├── php.json         ← 6 + 5
+│       ├── elixir.json      ← 6 + 5
+│       └── _common.json     ← shared tail steps
+├── automation/
+│   ├── __init__.py          ← handler registry (37 handlers)
+│   ├── executor.py          ← step dispatcher + rescan handler
+│   ├── config_editor.py     ← version config file editors (all 9 languages)
+│   ├── dep_checker.py       ← dependency compatibility checkers (6 registries)
+│   ├── dep_scanner.py       ← per-language dependency file parsers
+│   ├── registry_clients.py  ← package registry API clients (5 registries + cache)
+│   ├── code_scanner.py      ← code feature analysis + __future__ handling
+│   ├── subprocess_ops.py    ← package manager command runners (7 commands)
+│   └── wizard.py            ← wizard flow orchestrator (SSE streaming)
 └── README.md
 ```
 
 ## How It Works
 
-1. **Context building** (`context.py`): Gathers all module intelligence into an `UpgradeContext` dataclass — floors, verdict, strategy, file presence, direction.
+### Checklist Generation (Chunk 1)
 
-2. **Recipe loading** (`generator.py`): Loads the JSON recipe for the module's language from `data/recipes/`.
+1. **Context building** (`context.py`): Gathers module intelligence — floors, verdict, strategy, file presence, direction.
+2. **Recipe loading** (`generator.py`): Loads JSON recipe for the module's language.
+3. **Condition evaluation** (`evaluator.py`): Filters steps by structured conditions.
+4. **Step materialization**: Interpolates labels (`{target}`, `{current}`, `{language}`), generates IDs.
+5. **Common tail**: Test + verify steps appended if not already present.
 
-3. **Condition evaluation** (`evaluator.py`): Each recipe step has a `condition` dict. The evaluator checks each condition against the context. All conditions in a dict are AND'd.
+### Automation Engine (Chunk 2)
 
-4. **Step materialization** (`generator.py`): Passing steps get their labels interpolated (`{target}`, `{current}`, `{language}`) and receive unique IDs.
+Each step with an `automation_id` can be automated:
 
-5. **Common tail** (`_common.json`): Test and verify steps are appended if not already present in the language recipe (deduplicated by `automation_id`).
+- **Inline preview**: Config edits, code scans, rescan — preview in plan modal, apply on confirm.
+- **Wizard modal**: Dep checks, subprocess ops — opens a streaming modal with live progress.
 
-## Public API
+### Three UI Paths
 
-```python
-from src.core.services.module_upgrade import generate_checklist
+| Handler prefix | UI | Experience |
+|----------------|-----|-----------|
+| `edit_*`, `scan_*`, `remove_*`, `add_*`, `modernize_*`, `rescan_*`, `update_ci_*` | Inline preview | Show diff/findings in plan modal → Apply button |
+| `check_dep_compat_*`, `update_deps_*` | Wizard (dep scan) | Stream: scan deps → query registry → show compatible/incompatible → alternatives |
+| `run_*` | Wizard (subprocess) | Stream: show command → confirm → live output → success/failure |
 
-steps = generate_checklist(
-    module_name="api-gateway",
-    target="3.12",
-    project_root=Path("/path/to/project"),
-)
-# Returns: [{"id": "edit_pyproject_requires_python:a1b2", "label": "...", "description": "..."}, ...]
-```
+## Automation Handlers (37 total)
+
+### Config Editors (11 handlers)
+| Handler | Language | Edits |
+|---------|----------|-------|
+| `edit_pyproject_requires_python` | Python | pyproject.toml requires-python |
+| `edit_setup_py_python_requires` | Python | setup.py python_requires |
+| `edit_setup_cfg_python_requires` | Python | setup.cfg python_requires |
+| `edit_package_json_engines` | Node.js | package.json engines.node |
+| `edit_go_mod_directive` | Go | go.mod go directive |
+| `edit_cargo_toml_rust_version` | Rust | Cargo.toml rust-version |
+| `edit_gemfile_ruby_version` | Ruby | Gemfile + .ruby-version |
+| `edit_pom_java_version` | Java | pom.xml / build.gradle |
+| `edit_csproj_target` | C# | .csproj TargetFramework |
+| `edit_composer_php_version` | PHP | composer.json require.php |
+| `edit_mix_elixir_version` | Elixir | mix.exs elixir version |
+
+### Dep Checkers (12 handlers)
+| Handler | Registry | Checks |
+|---------|----------|--------|
+| `check_dep_compat_pypi` | PyPI | Requires-Python |
+| `check_dep_compat_npm` | npm | engines.node |
+| `check_dep_compat_crates` | crates.io | rust_version (MSRV) |
+| `check_dep_compat_rubygems` | RubyGems | required_ruby_version |
+| `check_dep_compat_packagist` | Packagist | require.php |
+| `check_dep_compat_hex` | Hex.pm | elixir requirement |
+| `update_deps_interactive` | PyPI | Find compatible older versions |
+| `update_deps_npm` | npm | Find compatible older versions |
+| `update_deps_crates` | crates.io | Find compatible older versions |
+| `update_deps_rubygems` | RubyGems | Find compatible older versions |
+| `update_deps_packagist` | Packagist | Find compatible older versions |
+| `update_deps_hex` | Hex.pm | Find compatible older versions |
+
+### Code Scanners (6 handlers)
+| Handler | What |
+|---------|------|
+| `scan_breaking_changes` | Version-specific code features (upgrade) |
+| `scan_incompatible_features` | Features above target (downgrade) |
+| `remove_future_annotations` | Remove __future__ imports |
+| `add_future_annotations` | Add __future__ imports |
+| `modernize_type_hints` | Replace typing.X with builtins |
+| `update_ci_matrix` | Detect CI files + Python version refs |
+
+### Subprocess Ops (7 handlers)
+| Handler | Command |
+|---------|---------|
+| `run_go_mod_tidy` | `go mod tidy` |
+| `run_bundle_update` | `bundle update` |
+| `run_composer_update` | `composer update` |
+| `run_dotnet_restore` | `dotnet restore` |
+| `run_mix_deps_get` | `mix deps.get` |
+| `run_cargo_check` | `cargo check` |
+| `run_npm_install` | `npm install` |
+
+### Other (1 handler)
+| Handler | What |
+|---------|------|
+| `rescan_module` | Invalidate + recompute posture |
+
+## Registry Clients
+
+Cached HTTP queries (1-hour TTL in `.state/registry_cache/`):
+
+| Function | Registry | Returns |
+|----------|----------|---------|
+| `query_npm(pkg)` | npmjs.org | name, version, engines_node |
+| `query_crates(crate)` | crates.io | name, version, rust_version |
+| `query_rubygems(gem)` | rubygems.org | name, version, required_ruby_version |
+| `query_packagist(pkg)` | packagist.org | name, version, require_php |
+| `query_hex(pkg)` | hex.pm | name, version, elixir_requirement |
+
+## Dep Scanners
+
+Per-language dependency file parsers:
+
+| Function | Parses | Returns |
+|----------|--------|---------|
+| `scan_npm_deps(dir)` | package.json | Package names |
+| `scan_go_deps(dir)` | go.mod | Module paths |
+| `scan_rust_deps(dir)` | Cargo.toml | Crate names |
+| `scan_ruby_deps(dir)` | Gemfile | Gem names |
+| `scan_php_deps(dir)` | composer.json | vendor/package names |
+| `scan_elixir_deps(dir)` | mix.exs | Dep atom names |
 
 ## JSON Recipe Schema
 
-Each recipe file has this structure:
+See `data/recipes/python.json` for the reference implementation.
 
-```json
-{
-  "_meta": {
-    "language": "python",
-    "description": "...",
-    "config_files": ["pyproject.toml", "setup.py"]
-  },
-  "upgrade": [ ... step templates ... ],
-  "downgrade": [ ... step templates ... ]
-}
-```
-
-### Step Template Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `label` | string | Step label (supports `{target}`, `{current}`, `{language}` placeholders) |
-| `description` | string | Detailed description (supports same placeholders) |
-| `category` | string | One of: `config`, `deps`, `code`, `test`, `ci`, `verify` |
-| `automatable` | bool | Whether the automation engine can execute this step |
-| `automation_id` | string | Handler key for the automation engine (empty for manual steps) |
-| `risk` | string | Risk level: `low`, `medium`, `high` |
-| `condition` | object | Structured condition dict (all keys AND'd) |
-
-### Condition Operators
+### Condition Operators (15)
 
 | Operator | Type | Description |
 |----------|------|-------------|
-| `always` | bool | Unconditional (always true) |
-| `has_file` | string | File exists in module directory |
-| `not_has_file` | string | File does NOT exist in module directory |
-| `not_has_files` | list | ALL listed files must be absent in module directory |
-| `floor_source_in` | list | Floor source is one of these values |
+| `always` | bool | Unconditional |
+| `has_file` | string | File exists in module dir |
+| `not_has_file` | string | File absent |
+| `not_has_files` | list | ALL listed files absent |
+| `floor_source_in` | list | Floor source is one of |
 | `floor_source_is` | string | Floor source matches exactly |
-| `has_deps_floor` | bool | Module has a dependency floor |
-| `has_code_floor` | bool | Module has a code floor |
-| `has_future_import` | bool | Module uses `from __future__ import annotations` |
-| `strategy_is` | string | Version strategy matches (`latest` or `compatibility`) |
-| `verdict_is` | string | Consistency verdict matches (`gap`, `could_lower`, `consistent`) |
-| `target_gte` | string | Target version >= value |
-| `target_lt` | string | Target version < value |
-| `current_gte` | string | Current floor >= value |
-| `current_lt` | string | Current floor < value |
-
-## Step ID Format
-
-Each generated step gets an `id` field: `{automation_id}:{8-char-hex}`
-
-- Generated steps: `edit_pyproject_requires_python:a1b2c3d4`
-- Manual steps (no automation): `manual:e5f6a7b8`
-- User-added custom steps: `custom:c9d0e1f2`
-
-The prefix before `:` maps to the automation handler registry (Chunk 2).
+| `has_deps_floor` | bool | Has dependency floor |
+| `has_code_floor` | bool | Has code floor |
+| `has_future_import` | bool | Uses __future__ annotations |
+| `strategy_is` | string | Version strategy matches |
+| `verdict_is` | string | Verdict matches |
+| `target_gte` | string | Target >= value |
+| `target_lt` | string | Target < value |
+| `current_gte` | string | Current >= value |
+| `current_lt` | string | Current < value |
 
 ## Adding a New Language
 
-1. Create `data/recipes/{language}.json` following the schema above
-2. Add condition operators to `evaluator.py` if needed (usually not)
-3. Map the language in `generator.py` `_LANGUAGE_TO_RECIPE` dict
-4. That's it — zero changes to the generator logic or evaluator
-
-## Context Fields
-
-The `UpgradeContext` dataclass contains all data available for conditions and interpolation:
-
-| Field | Source | Description |
-|-------|--------|-------------|
-| `module_name` | project.yml | Module name |
-| `language` | detection.py | Detected language (python, javascript, go, ...) |
-| `stack` | project.yml | Stack name (python-fastapi, node-express, ...) |
-| `module_path` | project.yml | Relative path to module directory |
-| `current_floor` | detection.py | Current declared floor (3-tier) |
-| `target_floor` | user input | Target version for upgrade/downgrade |
-| `direction` | computed | `upgrade` or `downgrade` |
-| `floor_source` | detection.py | `module`, `stack`, or `project` |
-| `deps_floor` | module_intel | Highest dep Requires-Python floor |
-| `code_floor` | module_intel | Highest code feature version |
-| `effective_floor` | module_intel | max(declared, deps, code) |
-| `verdict` | module_intel | `consistent`, `gap`, `could_lower`, `unknown` |
-| `strategy` | project.yml | `latest`, `compatibility`, or empty |
-| `has_future_import` | code scan | Any file has `from __future__ import annotations` |
-| `has_pyproject` | file check | pyproject.toml exists in module dir |
-| `has_setup_py` | file check | setup.py exists in module dir |
-| `has_*` | file check | Various config file presence flags |
-
-## Dependencies
-
-This service is a pure consumer of existing intelligence:
-- `src.core.config.loader` — project config
-- `src.core.services.detection` — runtime constraint, language detection
-- `src.core.services.system_posture.bridges.module_intel` — deep analysis
-- `src.core.config.stack_loader` — stack definitions
-
-All imports are lazy (inside function bodies) to prevent circular chains.
+1. Create `data/recipes/{language}.json`
+2. Map in `generator.py` `_LANGUAGE_TO_RECIPE`
+3. Add config editor handler in `config_editor.py`
+4. Add dep scanner in `dep_scanner.py` (if parseable dep file exists)
+5. Add registry client in `registry_clients.py` (if public API exists)
+6. Add dep checker handlers in `dep_checker.py`
+7. Add subprocess handler in `subprocess_ops.py` (if package manager exists)
+8. Register all in `automation/__init__.py`

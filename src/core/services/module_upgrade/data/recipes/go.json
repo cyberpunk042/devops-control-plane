@@ -1,0 +1,145 @@
+{
+  "_meta": {
+    "language": "go",
+    "description": "Go module upgrade/downgrade recipes",
+    "config_files": [
+      "go.mod"
+    ]
+  },
+  "upgrade": [
+    {
+      "label": "Update go directive in go.mod",
+      "description": "Change the go directive from {current} to {target}",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_go_mod_directive",
+      "risk": "low",
+      "condition": {
+        "has_file": "go.mod"
+      }
+    },
+    {
+      "label": "Review stack baseline version",
+      "description": "The floor comes from the stack definition. Check if the stack baseline should also be updated.",
+      "category": "config",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "floor_source_is": "stack"
+      }
+    },
+    {
+      "label": "Run go mod tidy",
+      "description": "Clean up go.sum and verify all dependencies resolve with {language} {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "run_go_mod_tidy",
+      "risk": "low",
+      "condition": {
+        "has_file": "go.mod"
+      }
+    },
+    {
+      "label": "Audit for deprecated API usage",
+      "description": "Check for Go stdlib APIs deprecated or changed between {current} and {target}",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Update CI pipeline {language} version matrix",
+      "description": "Add or require {language} {target} in CI configuration",
+      "category": "ci",
+      "automatable": true,
+      "automation_id": "update_ci_matrix",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against {language} {target}",
+      "description": "Verify all tests pass: go test ./...",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_go_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ],
+  "downgrade": [
+    {
+      "label": "Update go directive in go.mod",
+      "description": "Change the go directive from {current} to {target} to widen compatibility",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_go_mod_directive",
+      "risk": "low",
+      "condition": {
+        "has_file": "go.mod"
+      }
+    },
+    {
+      "label": "Check for language features not available in {language} {target}",
+      "description": "Audit code for features introduced after {target} (generics, range-over-func, etc.)",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "high",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run go mod tidy and verify dependencies",
+      "description": "Ensure all dependencies are compatible with {language} {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "run_go_mod_tidy",
+      "risk": "low",
+      "condition": {
+        "has_file": "go.mod"
+      }
+    },
+    {
+      "label": "Run test suite against {language} {target}",
+      "description": "Verify all tests pass: go test ./...",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_go_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ]
+}

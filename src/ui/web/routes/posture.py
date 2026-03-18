@@ -1250,6 +1250,82 @@ def posture_module_step_execute():  # type: ignore[no-untyped-def]
         return jsonify({"error": str(exc)}), 500
 
 
+@posture_bp.route("/posture/module-wizard", methods=["POST"])
+@tracked("posture.module.wizard")
+def posture_module_wizard():  # type: ignore[no-untyped-def]
+    """Run a wizard automation flow with SSE streaming.
+
+    Body: {module, step_id, wizard_type: "dep_scan"|"subprocess"}
+    Returns SSE event stream with step progress, logs, and results.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    step_id = body.get("step_id", "")
+    wizard_type = body.get("wizard_type", "")
+
+    if not module_name or not wizard_type:
+        return jsonify({"error": "module and wizard_type required"}), 400
+
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+
+        from flask import Response, stream_with_context
+
+        from src.core.services.module_upgrade.automation.executor import _get_plan_target
+        from src.core.services.module_upgrade.context import build_context
+
+        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
+        target = _get_plan_target(module_name)
+        if not target:
+            return jsonify({"error": "No version plan found for module"}), 404
+
+        ctx = build_context(module_name, target, project_root)
+
+        def _sse(data: dict) -> str:
+            return f"data: {_json.dumps(data)}\n\n"
+
+        def generate():
+            try:
+                if wizard_type == "dep_scan":
+                    from src.core.services.module_upgrade.automation.wizard import (
+                        wizard_dep_scan,
+                    )
+                    for event in wizard_dep_scan(ctx):
+                        yield _sse(event)
+
+                elif wizard_type == "subprocess":
+                    from src.core.services.module_upgrade.automation.wizard import (
+                        SUBPROCESS_COMMANDS,
+                        wizard_subprocess,
+                    )
+                    automation_id = step_id.split(":")[0] if ":" in step_id else ""
+                    cmd_info = SUBPROCESS_COMMANDS.get(automation_id)
+                    if not cmd_info:
+                        yield _sse({"type": "done", "ok": False,
+                                    "error": f"Unknown subprocess: {automation_id}"})
+                        return
+                    cmd, label = cmd_info
+                    for event in wizard_subprocess(ctx, cmd, label):
+                        yield _sse(event)
+
+                else:
+                    yield _sse({"type": "done", "ok": False,
+                                "error": f"Unknown wizard_type: {wizard_type}"})
+
+            except Exception as exc:
+                yield _sse({"type": "done", "ok": False, "error": str(exc)})
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @posture_bp.route("/posture/module-note", methods=["POST"])
 @tracked("posture.module.noted")
 def posture_module_note():  # type: ignore[no-untyped-def]

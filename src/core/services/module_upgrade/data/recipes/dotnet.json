@@ -1,0 +1,134 @@
+{
+  "_meta": {
+    "language": "dotnet",
+    "description": "C#/.NET module upgrade/downgrade recipes",
+    "config_files": [
+      "*.csproj"
+    ]
+  },
+  "upgrade": [
+    {
+      "label": "Update TargetFramework in .csproj",
+      "description": "Change TargetFramework to net{target} (e.g. net8.0)",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_csproj_target",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Check NuGet package compatibility",
+      "description": "Verify that all NuGet packages support .NET {target}",
+      "category": "deps",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run dotnet restore",
+      "description": "Restore packages and verify resolution with .NET {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "run_dotnet_restore",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Update CI pipeline .NET version",
+      "description": "Add or require .NET {target} in CI configuration",
+      "category": "ci",
+      "automatable": true,
+      "automation_id": "update_ci_matrix",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against .NET {target}",
+      "description": "Verify all tests pass: dotnet test",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_dotnet_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ],
+  "downgrade": [
+    {
+      "label": "Update TargetFramework in .csproj",
+      "description": "Change TargetFramework to net{target} to widen compatibility",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_csproj_target",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Check for APIs not available in .NET {target}",
+      "description": "Audit code for APIs introduced after .NET {target}",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "high",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Verify NuGet package compatibility with .NET {target}",
+      "description": "Ensure all packages support .NET {target}",
+      "category": "deps",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against .NET {target}",
+      "description": "Verify all tests pass: dotnet test",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_dotnet_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ]
+}

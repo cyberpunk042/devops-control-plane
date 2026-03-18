@@ -1567,8 +1567,8 @@
                 modalClose(); // close confirmation
                 modalClose(); // close remediation
                 if (typeof postureRescan === 'function') postureRescan();
-                // Reload item data then open the plan modal
-                setTimeout(() => moduleOpenPlan(moduleName), 1500);
+                // Open plan modal directly — don't wait for rescan
+                moduleOpenPlanDirect(moduleName);
             } else {
                 const data = await resp.json();
                 toast('⚠️ ' + (data.error || 'Failed'), 'error');
@@ -1577,9 +1577,23 @@
     };
 
     // ── Plan modal ────────────────────────────────────────────
+    window.moduleOpenPlanDirect = async function(moduleName) {
+        // Open plan modal by fetching directly from API — no dependency on _modulePeekItems
+        try {
+            const resp = await fetch('/api/posture/module-plan-detail?module=' + encodeURIComponent(moduleName));
+            if (!resp.ok) { toast('⚠️ Could not load plan', 'warning'); return; }
+            const data = await resp.json();
+            _renderPlanModal(moduleName, data.target || '?', data.date || '?',
+                data.checklist || [], false, false);
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
     window.moduleOpenPlan = async function(moduleName) {
         const item = _modulePeekItems.find(i => i._moduleName === moduleName);
-        if (!item || !item.version_plan || typeof modalOpen !== 'function') return;
+        if (!item || !item.version_plan || typeof modalOpen !== 'function') {
+            // Fallback: try loading directly from API
+            return moduleOpenPlanDirect(moduleName);
+        }
 
         const plan = item.version_plan;
         const checklist = plan.checklist || [];
@@ -1598,13 +1612,17 @@
             }
         } catch (e) { /* use enrichment data as fallback */ }
 
+        _renderPlanModal(moduleName, target, planDate, freshChecklist, met, overdue);
+    };
+
+    function _renderPlanModal(moduleName, target, planDate, freshChecklist, met, overdue) {
         const doneCount = freshChecklist.filter(s => s.done).length;
         const totalCount = freshChecklist.length || 1;
         const pct = Math.round((doneCount / totalCount) * 100);
 
         let body = '';
         body += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">`;
-        body += `<div><strong>Target:</strong> Python ≥${esc(target)}</div>`;
+        body += `<div><strong>Target:</strong> ≥${esc(target)}</div>`;
         body += `<div><strong>Deadline:</strong> ${esc(planDate)}</div>`;
         body += `</div>`;
 
@@ -1620,10 +1638,10 @@
             body += _adm('warning', 'Plan overdue', `The target date (${esc(planDate)}) has passed but the floor hasn't reached ≥${esc(target)} yet.`);
         }
 
-        // "Run all automatable" button (only if there are automatable undone steps)
-        const autoSteps = freshChecklist.filter(s => s.automatable && s.automation_id && !s.done);
-        if (autoSteps.length > 0) {
-            body += `<button class="plan-run-all" onclick="modulePlanRunAll('${esc(moduleName)}')">▶ Run all automatable steps (${autoSteps.length})</button>`;
+        // "Run all automatable" — find the first batch (up to first manual step)
+        const firstBatch = _findAutoBatch(freshChecklist, 0);
+        if (firstBatch.length > 0) {
+            body += `<button class="plan-run-all" onclick="modulePlanRunBatch('${esc(moduleName)}',${firstBatch[0]},${firstBatch[firstBatch.length-1]})">▶ Run automatable steps (${firstBatch.length})</button>`;
         }
 
         // Checklist
@@ -1676,7 +1694,7 @@
                 { label: 'Close', onclick: 'modalClose()' },
             ],
         });
-    };
+    }
 
     window.modulePlanToggleStep = async function(moduleName, stepIndex, done) {
         try {
@@ -1732,6 +1750,17 @@
     // ── Plan automation: preview + execute ──────────────────────
 
     window.modulePlanAutomate = async function(moduleName, stepId, stepIndex) {
+        const aid = stepId.split(':')[0] || '';
+
+        // Route wizard-eligible steps to the wizard modal
+        if (aid.startsWith('run_')) {
+            return modulePlanWizard(moduleName, stepId, stepIndex, 'subprocess');
+        }
+        if (aid.startsWith('check_dep_compat_') || aid.startsWith('update_deps_')) {
+            return modulePlanWizard(moduleName, stepId, stepIndex, 'dep_scan');
+        }
+
+        // Everything else: inline preview
         const previewEl = document.getElementById('plan-preview-' + stepIndex);
         if (!previewEl) return;
 
@@ -1864,32 +1893,35 @@
         }
     };
 
-    window.modulePlanRunAll = async function(moduleName) {
-        // Run all automatable steps sequentially until a manual step is hit
+    // Find a batch of consecutive inline-automatable steps starting from startIdx.
+    // Stops at: done steps (skip), manual steps, wizard-eligible steps.
+    // Returns array of step indices in the batch.
+    function _findAutoBatch(checklist, startIdx) {
+        const batch = [];
+        for (let i = startIdx; i < checklist.length; i++) {
+            const s = checklist[i];
+            if (s.done) continue; // skip done
+            if (!s.automatable || !s.automation_id) break; // manual step — stop
+            const aid = s.automation_id;
+            // Wizard-eligible steps need interaction — stop batch here
+            if (aid.startsWith('run_') || aid.startsWith('check_dep_compat_') || aid.startsWith('update_deps_')) break;
+            batch.push(i);
+        }
+        return batch;
+    }
+
+    window.modulePlanRunBatch = async function(moduleName, fromIdx, toIdx) {
         const steps = document.querySelectorAll('#plan-checklist .plan-step');
         const runAllBtn = document.querySelector('.plan-run-all');
         if (runAllBtn) { runAllBtn.disabled = true; runAllBtn.textContent = '⏳ Running...'; }
 
-        for (let i = 0; i < steps.length; i++) {
+        for (let i = fromIdx; i <= toIdx; i++) {
             const stepEl = steps[i];
-            if (stepEl.classList.contains('done')) continue;
+            if (!stepEl || stepEl.classList.contains('done')) continue;
 
             const stepId = stepEl.getAttribute('data-step-id') || '';
-            const aid = stepId.split(':')[0];
-            if (!aid || aid === 'manual' || aid === 'custom') {
-                // Hit a manual step — stop here
-                toast(`⏸ Stopped at step ${i + 1} (manual step)`, 'info');
-                break;
-            }
-
-            // Check if this step is automatable by looking for the auto button
             const autoBtn = stepEl.querySelector('.plan-step-auto');
-            if (!autoBtn) {
-                toast(`⏸ Stopped at step ${i + 1} (not automatable)`, 'info');
-                break;
-            }
 
-            // Execute directly (skip preview for batch mode)
             try {
                 const resp = await fetch('/api/posture/module-step-execute', {
                     method: 'POST',
@@ -1900,8 +1932,8 @@
 
                 if (data.ok) {
                     stepEl.classList.add('done');
-                    const checkbox = stepEl.querySelector('.plan-step-check');
-                    if (checkbox) checkbox.checked = true;
+                    const cb = stepEl.querySelector('.plan-step-check');
+                    if (cb) cb.checked = true;
                     if (autoBtn) autoBtn.style.display = 'none';
                     toast(`✅ ${data.summary || 'Step ' + (i+1) + ' done'}`, 'success');
                 } else {
@@ -1915,7 +1947,7 @@
         }
 
         _updatePlanProgress();
-        if (runAllBtn) { runAllBtn.disabled = false; runAllBtn.textContent = '✅ Done'; }
+        if (runAllBtn) { runAllBtn.disabled = false; runAllBtn.textContent = '✅ Batch done'; }
     };
 
     function _updatePlanProgress() {
@@ -1931,6 +1963,171 @@
         if (bar && bar.nextElementSibling) {
             bar.nextElementSibling.textContent = `${done}/${total} (${pct}%)`;
         }
+    }
+
+    // ── Wizard modal — multi-step automation with streaming ────
+
+    window.modulePlanWizard = function(moduleName, stepId, stepIndex, wizardType) {
+        let body = '';
+        body += '<div id="wizard-steps"></div>';
+        body += '<div id="wizard-log" class="wizard-log"></div>';
+        body += '<div id="wizard-result"></div>';
+
+        modalOpen({
+            title: '🔧 Automation Wizard',
+            replace: false,
+            body: body,
+            size: 'lg',
+            footerButtons: [
+                { label: 'Close', onclick: 'modalClose()' },
+            ],
+        });
+
+        // Start streaming
+        _wizardStream(moduleName, stepId, stepIndex, wizardType);
+    };
+
+    async function _wizardStream(moduleName, stepId, stepIndex, wizardType) {
+        const stepsEl = document.getElementById('wizard-steps');
+        const logEl = document.getElementById('wizard-log');
+        const resultEl = document.getElementById('wizard-result');
+        if (!stepsEl || !logEl) return;
+
+        let wizardSteps = [];
+        let currentStep = -1;
+
+        await streamSSE('/api/posture/module-wizard', {
+            module: moduleName,
+            step_id: stepId,
+            wizard_type: wizardType,
+        }, {
+            onLog: function(line) {
+                const lineEl = document.createElement('div');
+                lineEl.className = 'wizard-log-line';
+                lineEl.textContent = line;
+                logEl.appendChild(lineEl);
+                logEl.scrollTop = logEl.scrollHeight;
+            },
+            onStepStart: function(event) {
+                currentStep = event.step;
+                const stepEl = document.createElement('div');
+                stepEl.className = 'wizard-step running';
+                stepEl.id = 'wizard-step-' + event.step;
+                stepEl.innerHTML = `<span class="wizard-step-icon">⏳</span> <span class="wizard-step-label">${esc(event.label)}</span>`;
+                stepsEl.appendChild(stepEl);
+            },
+            onStepDone: function(event) {
+                const stepEl = document.getElementById('wizard-step-' + event.step);
+                if (stepEl) {
+                    stepEl.className = 'wizard-step done';
+                    const elapsed = event.elapsed_ms ? ` (${(event.elapsed_ms / 1000).toFixed(1)}s)` : '';
+                    stepEl.querySelector('.wizard-step-icon').textContent = '✅';
+                    stepEl.querySelector('.wizard-step-label').textContent += elapsed;
+                }
+            },
+            onStepFailed: function(event) {
+                const stepEl = document.getElementById('wizard-step-' + event.step);
+                if (stepEl) {
+                    stepEl.className = 'wizard-step failed';
+                    stepEl.querySelector('.wizard-step-icon').textContent = '❌';
+                }
+                if (event.error) {
+                    const errEl = document.createElement('div');
+                    errEl.className = 'wizard-log-line wizard-log-error';
+                    errEl.textContent = '❌ ' + event.error;
+                    logEl.appendChild(errEl);
+                }
+            },
+            onProgress: function(event) {
+                // Could add progress bar per step — for now just log
+            },
+            onDone: function(event) {
+                if (!resultEl) return;
+
+                if (!event.ok) {
+                    resultEl.innerHTML = _adm('danger', 'Failed', esc(event.error || 'Unknown error'));
+                    return;
+                }
+
+                // ── Render scan results ─────────────────────────
+                const sr = event.scan_result;
+                if (sr) {
+                    let html = '';
+                    if (sr.all_compatible) {
+                        html += _adm('success', 'All compatible',
+                            `All ${sr.compatible_count} checked dependencies are compatible.`);
+                    } else {
+                        html += _adm('warning', `${sr.incompatible_count} incompatible`,
+                            `${sr.incompatible_count} of ${sr.compatible_count + sr.incompatible_count} dependencies may not be compatible.`);
+
+                        // Show incompatible deps with alternatives
+                        if (sr.incompatible && sr.incompatible.length) {
+                            html += '<div class="wizard-alternatives">';
+                            for (const dep of sr.incompatible) {
+                                const alts = (sr.alternatives || {})[dep.package] || [];
+                                html += `<div class="wizard-alt-item">`;
+                                html += `<div class="wizard-alt-header">❌ <strong>${esc(dep.package)}</strong> ${esc(dep.version || '')} <span class="plan-preview-tag">${esc(dep.constraint || '')}</span></div>`;
+                                if (alts.length) {
+                                    html += '<div class="wizard-alt-options">';
+                                    for (const a of alts) {
+                                        html += `<div class="wizard-alt-option">→ ${esc(a.version)} <span class="plan-preview-tag">${esc(a.requires_python || '')}</span></div>`;
+                                    }
+                                    html += '</div>';
+                                } else {
+                                    html += '<div class="wizard-alt-none">No compatible versions found</div>';
+                                }
+                                html += '</div>';
+                            }
+                            html += '</div>';
+                        }
+                    }
+
+                    // Unknown deps
+                    if (sr.unknown && sr.unknown.length) {
+                        html += `<div class="plan-preview-detail" style="margin-top:0.5rem">❓ ${sr.unknown.length} package(s) could not be checked</div>`;
+                    }
+
+                    resultEl.innerHTML = html;
+
+                    // Mark step done in plan if all compatible
+                    if (sr.all_compatible) {
+                        _wizardMarkDone(moduleName, stepId, stepIndex);
+                    }
+                    return;
+                }
+
+                // ── Subprocess result ───────────────────────────
+                if (event.summary) {
+                    resultEl.innerHTML = _adm('success', 'Complete', esc(event.summary));
+                    _wizardMarkDone(moduleName, stepId, stepIndex);
+                }
+            },
+            onError: function(errMsg) {
+                if (resultEl) resultEl.innerHTML = _adm('danger', 'Error', esc(errMsg));
+            },
+        });
+    }
+
+    async function _wizardMarkDone(moduleName, stepId, stepIndex) {
+        // Mark the step done via the execute endpoint
+        try {
+            await fetch('/api/posture/module-step-execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute' }),
+            });
+        } catch (e) { /* best effort */ }
+
+        // Update plan modal UI
+        const steps = document.querySelectorAll('#plan-checklist .plan-step');
+        if (steps[stepIndex]) {
+            steps[stepIndex].classList.add('done');
+            const cb = steps[stepIndex].querySelector('.plan-step-check');
+            if (cb) cb.checked = true;
+            const btn = steps[stepIndex].querySelector('.plan-step-auto');
+            if (btn) btn.style.display = 'none';
+        }
+        _updatePlanProgress();
     }
 
     // ── Render: module pillar (matrix table — 9 columns) ───────

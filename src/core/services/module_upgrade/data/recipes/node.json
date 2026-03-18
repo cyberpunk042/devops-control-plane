@@ -1,0 +1,145 @@
+{
+  "_meta": {
+    "language": "node",
+    "description": "Node.js module upgrade/downgrade recipes",
+    "config_files": [
+      "package.json"
+    ]
+  },
+  "upgrade": [
+    {
+      "label": "Update engines.node in package.json",
+      "description": "Change the engines.node constraint to >={target}",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_package_json_engines",
+      "risk": "low",
+      "condition": {
+        "has_file": "package.json"
+      }
+    },
+    {
+      "label": "Review stack baseline version",
+      "description": "The floor comes from the stack definition. Check if the stack baseline should also be updated.",
+      "category": "config",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "floor_source_is": "stack"
+      }
+    },
+    {
+      "label": "Check dependency compatibility with {language} {target}",
+      "description": "Verify that all npm dependencies support {language} {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "check_dep_compat_npm",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Audit for ESM/CJS compatibility changes",
+      "description": "Check if upgrading introduces ESM-only requirements or breaks CommonJS imports",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Update CI pipeline {language} version matrix",
+      "description": "Add or require {language} {target} in CI configuration",
+      "category": "ci",
+      "automatable": true,
+      "automation_id": "update_ci_matrix",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against {language} {target}",
+      "description": "Verify all tests pass on the target version",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_npm_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ],
+  "downgrade": [
+    {
+      "label": "Update engines.node in package.json",
+      "description": "Change the engines.node constraint to >={target} to widen compatibility",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_package_json_engines",
+      "risk": "low",
+      "condition": {
+        "has_file": "package.json"
+      }
+    },
+    {
+      "label": "Check dependency compatibility with {language} {target}",
+      "description": "Verify that all npm dependencies support {language} {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "check_dep_compat_npm",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Audit for API changes not available in {language} {target}",
+      "description": "Check for Node.js APIs introduced after {target} that the code uses",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against {language} {target}",
+      "description": "Verify all tests pass on the target version",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_npm_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ]
+}

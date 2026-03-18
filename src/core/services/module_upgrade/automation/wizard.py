@@ -1,0 +1,301 @@
+"""
+Wizard orchestrator — multi-step automation flows with SSE streaming.
+
+Provides generator functions that yield SSE event dicts for:
+  - Dependency compatibility scanning (scan phase)
+  - Dependency update with alternatives (apply phase)
+  - Subprocess execution with streaming output
+
+Two-phase design:
+  Phase 1 (scan): analyze state, query registries, return results
+  Phase 2 (apply): take user choices, apply changes, stream output
+
+Each generator yields dicts like:
+  {"type": "step_start", "step": 0, "label": "Scanning dependencies"}
+  {"type": "log", "step": 0, "line": "Checking express..."}
+  {"type": "step_done", "step": 0, "elapsed_ms": 234}
+  {"type": "done", "ok": True, "scan_result": {...}}
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING, Generator
+
+if TYPE_CHECKING:
+    from ..context import UpgradeContext
+
+logger = logging.getLogger(__name__)
+
+
+def wizard_dep_scan(ctx: UpgradeContext) -> Generator[dict, None, None]:
+    """Phase 1: Scan dependencies and check compatibility.
+
+    Yields SSE events as it scans. Final event includes full results
+    with compatible/incompatible lists and alternatives for each
+    incompatible dep.
+    """
+    language = ctx.language
+    target = ctx.target_floor
+    module_dir = ctx.project_root / ctx.module_path
+
+    yield {"type": "wizard_start", "title": f"Checking dependency compatibility", "total_steps": 3}
+
+    # ── Step 1: Scan dependencies ────────────────────────────────
+    yield {"type": "step_start", "step": 0, "label": "Scanning dependencies"}
+    t0 = time.time()
+
+    scanner, querier, extractor, version_label = _get_lang_tools(language)
+    if not scanner:
+        yield {"type": "log", "step": 0, "line": f"No dependency scanner for {language}"}
+        yield {"type": "done", "ok": True, "scan_result": {"packages": [], "compatible": [], "incompatible": []}}
+        return
+
+    try:
+        packages = scanner(module_dir)
+    except Exception as exc:
+        yield {"type": "step_failed", "step": 0, "error": f"Failed to scan dependencies: {exc}"}
+        yield {"type": "done", "ok": False, "error": f"Dependency scan failed: {exc}"}
+        return
+    elapsed = int((time.time() - t0) * 1000)
+    yield {"type": "log", "step": 0, "line": f"Found {len(packages)} dependencies"}
+    yield {"type": "step_done", "step": 0, "elapsed_ms": elapsed}
+
+    if not packages:
+        yield {"type": "done", "ok": True, "scan_result": {"packages": [], "compatible": [], "incompatible": []}}
+        return
+
+    # ── Step 2: Query registry ───────────────────────────────────
+    yield {"type": "step_start", "step": 1, "label": "Querying package registry"}
+    t0 = time.time()
+
+    from .dep_checker import _check_constraint_compat, _parse_version
+    target_parts = _parse_version(target)
+
+    compatible = []
+    incompatible = []
+    unknown = []
+
+    for i, pkg in enumerate(packages):
+        yield {"type": "log", "step": 1, "line": f"Checking {pkg}..."}
+        if len(packages) > 1:
+            yield {"type": "progress", "step": 1, "percent": int((i + 1) / len(packages) * 100)}
+
+        try:
+            result = querier(pkg)
+        except Exception as exc:
+            unknown.append({"package": pkg, "note": f"Query error: {exc}"})
+            yield {"type": "log", "step": 1, "line": f"  {pkg}: ❓ query failed ({exc})"}
+            continue
+
+        if not result:
+            unknown.append({"package": pkg, "note": "Could not query registry"})
+            yield {"type": "log", "step": 1, "line": f"  {pkg}: ❓ registry unreachable"}
+            continue
+
+        try:
+            constraint = extractor(result)
+            version = result.get("version", "")
+        except Exception as exc:
+            unknown.append({"package": pkg, "note": f"Parse error: {exc}"})
+            yield {"type": "log", "step": 1, "line": f"  {pkg}: ❓ failed to parse metadata ({exc})"}
+            continue
+
+        if not constraint:
+            unknown.append({"package": pkg, "version": version, "note": f"No {version_label}"})
+            yield {"type": "log", "step": 1, "line": f"  {pkg} {version}: ❓ no {version_label}"}
+            continue
+
+        if target_parts and _check_constraint_compat(constraint, target_parts):
+            compatible.append({"package": pkg, "version": version, "constraint": constraint})
+            yield {"type": "log", "step": 1, "line": f"  {pkg} {version}: ✅ compatible ({constraint})"}
+        else:
+            incompatible.append({"package": pkg, "version": version, "constraint": constraint})
+            yield {"type": "log", "step": 1, "line": f"  {pkg} {version}: ❌ incompatible ({constraint})"}
+
+    elapsed = int((time.time() - t0) * 1000)
+    yield {"type": "step_done", "step": 1, "elapsed_ms": elapsed}
+
+    # ── Step 3: Find alternatives for incompatible deps ──────────
+    alternatives = {}
+    if incompatible:
+        yield {"type": "step_start", "step": 2, "label": f"Finding alternatives for {len(incompatible)} package(s)"}
+        t0 = time.time()
+
+        alt_finder = _get_alt_finder(language)
+        for dep in incompatible:
+            pkg = dep["package"]
+            yield {"type": "log", "step": 2, "line": f"Searching alternatives for {pkg}..."}
+            try:
+                alts = alt_finder(pkg, target_parts, target) if alt_finder else []
+            except Exception as exc:
+                alts = []
+                yield {"type": "log", "step": 2, "line": f"  ❓ Failed to query alternatives: {exc}"}
+            alternatives[pkg] = alts[:5]
+            if alts:
+                yield {"type": "log", "step": 2, "line": f"  Found {len(alts)} compatible version(s)"}
+            elif alt_finder:
+                yield {"type": "log", "step": 2, "line": f"  No compatible versions found"}
+
+        elapsed = int((time.time() - t0) * 1000)
+        yield {"type": "step_done", "step": 2, "elapsed_ms": elapsed}
+    else:
+        yield {"type": "step_start", "step": 2, "label": "No incompatible dependencies"}
+        yield {"type": "step_done", "step": 2, "elapsed_ms": 0}
+
+    # ── Done ─────────────────────────────────────────────────────
+    yield {
+        "type": "done",
+        "ok": True,
+        "scan_result": {
+            "compatible": compatible,
+            "incompatible": incompatible,
+            "unknown": unknown,
+            "alternatives": alternatives,
+            "compatible_count": len(compatible),
+            "incompatible_count": len(incompatible),
+            "all_compatible": len(incompatible) == 0,
+        },
+    }
+
+
+def wizard_subprocess(ctx: UpgradeContext, cmd: list[str], label: str) -> Generator[dict, None, None]:
+    """Run a subprocess with streaming output.
+
+    Yields SSE events for each line of output.
+    """
+    import shutil
+
+    module_dir = ctx.project_root / ctx.module_path
+    binary = cmd[0] if cmd else ""
+
+    yield {"type": "wizard_start", "title": f"Running {label}", "total_steps": 1}
+    yield {"type": "step_start", "step": 0, "label": label}
+
+    if not shutil.which(binary):
+        yield {"type": "step_failed", "step": 0, "error": f"`{binary}` not found on PATH"}
+        yield {"type": "done", "ok": False, "error": f"`{binary}` not found"}
+        return
+
+    if not module_dir.is_dir():
+        yield {"type": "step_failed", "step": 0, "error": f"Directory not found: {ctx.module_path}"}
+        yield {"type": "done", "ok": False, "error": "Module directory not found"}
+        return
+
+    yield {"type": "log", "step": 0, "line": f"$ cd {ctx.module_path}"}
+    yield {"type": "log", "step": 0, "line": f"$ {' '.join(cmd)}"}
+
+    t0 = time.time()
+
+    try:
+        from src.core.services.tool_install.execution.subprocess_runner import (
+            _run_subprocess_streaming,
+        )
+
+        for chunk in _run_subprocess_streaming(cmd, cwd=str(module_dir)):
+            if "line" in chunk:
+                yield {"type": "log", "step": 0, "line": chunk["line"]}
+            elif chunk.get("done"):
+                elapsed = int((time.time() - t0) * 1000)
+                if chunk.get("ok"):
+                    yield {"type": "step_done", "step": 0, "elapsed_ms": elapsed}
+                    yield {"type": "done", "ok": True, "summary": f"{label} completed in {elapsed}ms"}
+                else:
+                    error = chunk.get("stderr", "") or f"Exit code {chunk.get('exit_code', '?')}"
+                    yield {"type": "step_failed", "step": 0, "error": error}
+                    yield {"type": "done", "ok": False, "error": error}
+                return
+
+    except Exception as exc:
+        elapsed = int((time.time() - t0) * 1000)
+        yield {"type": "step_failed", "step": 0, "error": str(exc)}
+        yield {"type": "done", "ok": False, "error": str(exc)}
+
+
+# ── Language tool mapping ────────────────────────────────────────
+
+
+def _get_lang_tools(language: str):
+    """Get scanner + querier + extractor for a language.
+
+    Returns (scan_fn, query_fn, extract_fn, version_label) or (None, None, None, None).
+    """
+    from .dep_scanner import (
+        scan_elixir_deps,
+        scan_npm_deps,
+        scan_php_deps,
+        scan_ruby_deps,
+        scan_rust_deps,
+    )
+    from .registry_clients import (
+        query_crates,
+        query_hex,
+        query_npm,
+        query_packagist,
+        query_rubygems,
+    )
+
+    mapping = {
+        "python": None,  # Python uses its own path (module_intel imports)
+        "javascript": (scan_npm_deps, query_npm, lambda r: r.get("engines_node", ""), "engines.node"),
+        "typescript": (scan_npm_deps, query_npm, lambda r: r.get("engines_node", ""), "engines.node"),
+        "rust": (scan_rust_deps, query_crates, lambda r: ">=" + r["rust_version"] if r.get("rust_version") else "", "rust-version"),
+        "ruby": (scan_ruby_deps, query_rubygems, lambda r: r.get("required_ruby_version", ""), "required_ruby_version"),
+        "php": (scan_php_deps, query_packagist, lambda r: r.get("require_php", ""), "require.php"),
+        "elixir": (scan_elixir_deps, query_hex, lambda r: r.get("elixir_requirement", ""), "elixir requirement"),
+    }
+
+    tools = mapping.get(language)
+    if tools is None:
+        return None, None, None, None
+    return tools
+
+
+def _get_alt_finder(language: str):
+    """Get the alternative version finder for a language."""
+    from .dep_checker import (
+        _find_compatible_versions,
+        _find_crates_alternatives,
+        _find_npm_alternatives,
+        _find_packagist_alternatives,
+    )
+
+    finders = {
+        "python": _find_compatible_versions,
+        "javascript": _find_npm_alternatives,
+        "typescript": _find_npm_alternatives,
+        "rust": _find_crates_alternatives,
+        "php": _find_packagist_alternatives,
+        # Ruby and Elixir don't have per-version queries (API limitation)
+        "ruby": None,
+        "elixir": None,
+    }
+    return finders.get(language)
+
+
+# ── Subprocess command mapping ───────────────────────────────────
+
+
+SUBPROCESS_COMMANDS = {
+    # Package manager operations
+    "run_go_mod_tidy": (["go", "mod", "tidy"], "go mod tidy"),
+    "run_bundle_update": (["bundle", "update"], "bundle update"),
+    "run_composer_update": (["composer", "update", "--no-interaction"], "composer update"),
+    "run_dotnet_restore": (["dotnet", "restore"], "dotnet restore"),
+    "run_mix_deps_get": (["mix", "deps.get"], "mix deps.get"),
+    "run_cargo_check": (["cargo", "check"], "cargo check"),
+    "run_npm_install": (["npm", "install"], "npm install"),
+    # Test suite runners
+    "run_pytest": (["pytest", "--tb=short", "-q"], "pytest"),
+    "run_npm_test": (["npm", "test"], "npm test"),
+    "run_go_test": (["go", "test", "./..."], "go test ./..."),
+    "run_cargo_test": (["cargo", "test"], "cargo test"),
+    "run_bundle_exec_rspec": (["bundle", "exec", "rspec"], "bundle exec rspec"),
+    "run_mvn_test": (["mvn", "test", "-q"], "mvn test"),
+    "run_dotnet_test": (["dotnet", "test"], "dotnet test"),
+    "run_composer_test": (["composer", "test", "--no-interaction"], "composer test"),
+    "run_mix_test": (["mix", "test"], "mix test"),
+}

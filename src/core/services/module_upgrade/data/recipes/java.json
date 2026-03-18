@@ -1,0 +1,136 @@
+{
+  "_meta": {
+    "language": "java",
+    "description": "Java module upgrade/downgrade recipes",
+    "config_files": [
+      "pom.xml",
+      "build.gradle"
+    ]
+  },
+  "upgrade": [
+    {
+      "label": "Update Java source/target version in pom.xml",
+      "description": "Change maven.compiler.source and maven.compiler.target to {target}",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_pom_java_version",
+      "risk": "low",
+      "condition": {
+        "has_file": "pom.xml"
+      }
+    },
+    {
+      "label": "Update Java version in build.gradle",
+      "description": "Change sourceCompatibility and targetCompatibility to {target}",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_pom_java_version",
+      "risk": "low",
+      "condition": {
+        "has_file": "build.gradle",
+        "not_has_file": "pom.xml"
+      }
+    },
+    {
+      "label": "Check dependency Java version support",
+      "description": "Verify that all dependencies are compiled for Java {target} or lower",
+      "category": "deps",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Update CI pipeline Java version",
+      "description": "Add or require Java {target} in CI configuration",
+      "category": "ci",
+      "automatable": true,
+      "automation_id": "update_ci_matrix",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against Java {target}",
+      "description": "Verify all tests pass on the target version",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_mvn_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ],
+  "downgrade": [
+    {
+      "label": "Update Java source/target version in pom.xml",
+      "description": "Change maven.compiler.source and maven.compiler.target to {target}",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_pom_java_version",
+      "risk": "low",
+      "condition": {
+        "has_file": "pom.xml"
+      }
+    },
+    {
+      "label": "Check for Java features not available in {target}",
+      "description": "Audit code for language features introduced after Java {target} (records, sealed classes, pattern matching, etc.)",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "high",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Verify dependency compatibility with Java {target}",
+      "description": "Ensure all dependencies support Java {target}",
+      "category": "deps",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against Java {target}",
+      "description": "Verify all tests pass on the target version",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_mvn_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ]
+}

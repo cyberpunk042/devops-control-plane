@@ -1,0 +1,145 @@
+{
+  "_meta": {
+    "language": "rust",
+    "description": "Rust module upgrade/downgrade recipes",
+    "config_files": [
+      "Cargo.toml"
+    ]
+  },
+  "upgrade": [
+    {
+      "label": "Update rust-version in Cargo.toml",
+      "description": "Change rust-version from {current} to {target} (MSRV)",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_cargo_toml_rust_version",
+      "risk": "low",
+      "condition": {
+        "has_file": "Cargo.toml"
+      }
+    },
+    {
+      "label": "Update edition in Cargo.toml if applicable",
+      "description": "Check if the target version enables a new Rust edition (2021, 2024)",
+      "category": "config",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "medium",
+      "condition": {
+        "has_file": "Cargo.toml"
+      }
+    },
+    {
+      "label": "Check crate MSRV compatibility",
+      "description": "Verify that all dependency crates support Rust {target} as their MSRV",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "check_dep_compat_crates",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Audit for edition-gated features",
+      "description": "Check for language features that require the new edition or Rust {target}",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Update CI pipeline Rust version",
+      "description": "Add or require Rust {target} in CI configuration",
+      "category": "ci",
+      "automatable": true,
+      "automation_id": "update_ci_matrix",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against Rust {target}",
+      "description": "Verify all tests pass: cargo test",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_cargo_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ],
+  "downgrade": [
+    {
+      "label": "Update rust-version in Cargo.toml",
+      "description": "Change rust-version from {current} to {target} to widen MSRV",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_cargo_toml_rust_version",
+      "risk": "low",
+      "condition": {
+        "has_file": "Cargo.toml"
+      }
+    },
+    {
+      "label": "Check for features not available in Rust {target}",
+      "description": "Audit for language features and APIs introduced after Rust {target}",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "high",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Verify crate compatibility with Rust {target}",
+      "description": "Ensure all dependency crates compile on Rust {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "check_dep_compat_crates",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against Rust {target}",
+      "description": "Verify all tests pass: cargo test",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_cargo_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ]
+}

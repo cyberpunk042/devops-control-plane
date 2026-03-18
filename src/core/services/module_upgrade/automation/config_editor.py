@@ -1,12 +1,23 @@
 """
-Config file editors — modify pyproject.toml, setup.py, setup.cfg.
+Config file editors — modify version config files for all languages.
 
 Each handler supports preview (show what would change) and execute
 (write the file). Pattern reused from the existing module-fix-floor endpoint.
+
+Python: pyproject.toml, setup.py, setup.cfg
+Node:   package.json (engines.node)
+Go:     go.mod (go directive)
+Rust:   Cargo.toml (rust-version)
+Ruby:   Gemfile (ruby version) + .ruby-version
+Java:   pom.xml / build.gradle (source/target)
+C#:     *.csproj (TargetFramework)
+PHP:    composer.json (require.php)
+Elixir: mix.exs (elixir version)
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import TYPE_CHECKING
@@ -214,3 +225,276 @@ def handle_edit_setup_cfg_python_requires(ctx: UpgradeContext, mode: str) -> dic
         "old_value": old_value,
         "new_value": new_value,
     }
+
+
+# ══════════════════════════════════════════════════════════════════
+# NON-PYTHON LANGUAGE HANDLERS
+# ══════════════════════════════════════════════════════════════════
+
+
+def handle_edit_package_json_engines(ctx: UpgradeContext, mode: str) -> dict:
+    """Edit engines.node in package.json."""
+    target_path = ctx.project_root / ctx.module_path / "package.json"
+    rel_path = str(target_path.relative_to(ctx.project_root))
+
+    if not target_path.is_file():
+        return {"ok": False, "error": f"package.json not found at {rel_path}"}
+
+    content = target_path.read_text(encoding="utf-8")
+    data = json.loads(content)
+
+    old_value = data.get("engines", {}).get("node", "(not set)")
+    new_value = f">={ctx.target_floor}"
+
+    if mode == "preview":
+        return {
+            "ok": True, "can_apply": True, "preview_type": "diff",
+            "summary": f"Update {rel_path}", "file": rel_path,
+            "old_value": old_value, "new_value": new_value,
+        }
+
+    data.setdefault("engines", {})["node"] = new_value
+    target_path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8",
+    )
+    return {
+        "ok": True, "summary": f"Updated {rel_path}", "file": rel_path,
+        "old_value": old_value, "new_value": new_value,
+    }
+
+
+def handle_edit_go_mod_directive(ctx: UpgradeContext, mode: str) -> dict:
+    """Edit the go directive in go.mod."""
+    target_path = ctx.project_root / ctx.module_path / "go.mod"
+    rel_path = str(target_path.relative_to(ctx.project_root))
+
+    if not target_path.is_file():
+        return {"ok": False, "error": f"go.mod not found at {rel_path}"}
+
+    content = target_path.read_text(encoding="utf-8")
+    match = re.search(r"^go\s+(\S+)", content, re.MULTILINE)
+
+    old_value = match.group(1) if match else "(not set)"
+    new_value = ctx.target_floor
+
+    if match:
+        new_content = content[:match.start()] + f"go {new_value}" + content[match.end():]
+    else:
+        new_content = content.rstrip() + f"\ngo {new_value}\n"
+
+    if mode == "preview":
+        return {
+            "ok": True, "can_apply": True, "preview_type": "diff",
+            "summary": f"Update {rel_path}", "file": rel_path,
+            "old_value": f"go {old_value}", "new_value": f"go {new_value}",
+        }
+
+    target_path.write_text(new_content, encoding="utf-8")
+    return {
+        "ok": True, "summary": f"Updated {rel_path}", "file": rel_path,
+        "old_value": old_value, "new_value": new_value,
+    }
+
+
+def handle_edit_cargo_toml_rust_version(ctx: UpgradeContext, mode: str) -> dict:
+    """Edit rust-version in Cargo.toml."""
+    target_path = ctx.project_root / ctx.module_path / "Cargo.toml"
+    rel_path = str(target_path.relative_to(ctx.project_root))
+
+    if not target_path.is_file():
+        return {"ok": False, "error": f"Cargo.toml not found at {rel_path}"}
+
+    content = target_path.read_text(encoding="utf-8")
+    match = re.search(r'rust-version\s*=\s*"([^"]*)"', content)
+
+    old_value = match.group(1) if match else "(not set)"
+    new_value = ctx.target_floor
+
+    if match:
+        new_content = re.sub(r'rust-version\s*=\s*"[^"]*"', f'rust-version = "{new_value}"', content)
+    else:
+        pkg_match = re.search(r"^\[package\]\s*$", content, re.MULTILINE)
+        if pkg_match:
+            new_content = content[:pkg_match.end()] + f'\nrust-version = "{new_value}"' + content[pkg_match.end():]
+        else:
+            new_content = content.rstrip() + f'\nrust-version = "{new_value}"\n'
+
+    if mode == "preview":
+        return {
+            "ok": True, "can_apply": True, "preview_type": "diff",
+            "summary": f"Update {rel_path}", "file": rel_path,
+            "old_value": old_value, "new_value": new_value,
+        }
+
+    target_path.write_text(new_content, encoding="utf-8")
+    return {
+        "ok": True, "summary": f"Updated {rel_path}", "file": rel_path,
+        "old_value": old_value, "new_value": new_value,
+    }
+
+
+def handle_edit_gemfile_ruby_version(ctx: UpgradeContext, mode: str) -> dict:
+    """Edit ruby version in Gemfile and .ruby-version."""
+    module_dir = ctx.project_root / ctx.module_path
+    gemfile_path = module_dir / "Gemfile"
+    rv_path = module_dir / ".ruby-version"
+    new_value = ctx.target_floor
+    old_value = "(not set)"
+    files_changed = []
+
+    gemfile_new = None
+    if gemfile_path.is_file():
+        gc = gemfile_path.read_text(encoding="utf-8")
+        m = re.search(r"""ruby\s+['"]([^'"]+)['"]""", gc)
+        if m:
+            old_value = m.group(1)
+        gemfile_new = re.sub(r"""ruby\s+['"][^'"]+['"]""", f'ruby "{new_value}"', gc) if m else gc.rstrip() + f'\nruby "{new_value}"\n'
+        files_changed.append(str(gemfile_path.relative_to(ctx.project_root)))
+
+    if rv_path.is_file():
+        rv_old = rv_path.read_text(encoding="utf-8").strip()
+        if old_value == "(not set)":
+            old_value = rv_old
+        files_changed.append(str(rv_path.relative_to(ctx.project_root)))
+
+    if not files_changed:
+        return {"ok": False, "error": "No Gemfile or .ruby-version found"}
+
+    if mode == "preview":
+        return {
+            "ok": True, "can_apply": True, "preview_type": "diff",
+            "summary": f"Update {', '.join(files_changed)}", "file": ", ".join(files_changed),
+            "old_value": old_value, "new_value": new_value,
+        }
+
+    if gemfile_new:
+        gemfile_path.write_text(gemfile_new, encoding="utf-8")
+    rv_path.write_text(new_value + "\n", encoding="utf-8")
+    return {
+        "ok": True, "summary": f"Updated {', '.join(files_changed)}", "file": ", ".join(files_changed),
+        "old_value": old_value, "new_value": new_value,
+    }
+
+
+def handle_edit_pom_java_version(ctx: UpgradeContext, mode: str) -> dict:
+    """Edit Java version in pom.xml or build.gradle."""
+    module_dir = ctx.project_root / ctx.module_path
+    pom = module_dir / "pom.xml"
+    gradle = module_dir / "build.gradle"
+    nv = ctx.target_floor
+
+    if pom.is_file():
+        return _edit_xml_version(pom, ctx.project_root, nv, mode,
+            [r"(<maven\.compiler\.source>)([^<]*)(</)", r"(<maven\.compiler\.target>)([^<]*)(</)", r"(<java\.version>)([^<]*)(</java\.version>)"],
+            "maven.compiler.source/target")
+    elif gradle.is_file():
+        return _edit_gradle_version(gradle, ctx.project_root, nv, mode)
+    return {"ok": False, "error": "No pom.xml or build.gradle found"}
+
+
+def _edit_xml_version(path, project_root, new_value, mode, patterns, desc):
+    rel = str(path.relative_to(project_root))
+    content = path.read_text(encoding="utf-8")
+    olds, nc = [], content
+    for p in patterns:
+        m = re.search(p, nc)
+        if m:
+            olds.append(m.group(2))
+            nc = re.sub(p, rf"\g<1>{new_value}\g<3>", nc)
+    if not olds:
+        return {"ok": True, "can_apply": False, "preview_type": "info",
+                "summary": f"No {desc} found", "detail": f"Add the version property manually."}
+    if mode == "preview":
+        return {"ok": True, "can_apply": True, "preview_type": "diff",
+                "summary": f"Update {rel}", "file": rel, "old_value": olds[0], "new_value": new_value}
+    path.write_text(nc, encoding="utf-8")
+    return {"ok": True, "summary": f"Updated {rel}", "file": rel, "old_value": olds[0], "new_value": new_value}
+
+
+def _edit_gradle_version(path, project_root, new_value, mode):
+    rel = str(path.relative_to(project_root))
+    content = path.read_text(encoding="utf-8")
+    olds, nc = [], content
+    for p in [r"(sourceCompatibility\s*=\s*['\"]?)(\d+(?:\.\d+)?)", r"(targetCompatibility\s*=\s*['\"]?)(\d+(?:\.\d+)?)"]:
+        m = re.search(p, nc)
+        if m:
+            olds.append(m.group(2))
+            nc = re.sub(p, rf"\g<1>{new_value}", nc)
+    if not olds:
+        return {"ok": True, "can_apply": False, "preview_type": "info",
+                "summary": "No sourceCompatibility found", "detail": f"Add sourceCompatibility = '{new_value}' to build.gradle."}
+    if mode == "preview":
+        return {"ok": True, "can_apply": True, "preview_type": "diff",
+                "summary": f"Update {rel}", "file": rel, "old_value": olds[0], "new_value": new_value}
+    path.write_text(nc, encoding="utf-8")
+    return {"ok": True, "summary": f"Updated {rel}", "file": rel, "old_value": olds[0], "new_value": new_value}
+
+
+def handle_edit_csproj_target(ctx: UpgradeContext, mode: str) -> dict:
+    """Edit TargetFramework in *.csproj."""
+    csproj_files = list((ctx.project_root / ctx.module_path).glob("*.csproj"))
+    if not csproj_files:
+        return {"ok": False, "error": "No .csproj file found"}
+
+    path = csproj_files[0]
+    rel = str(path.relative_to(ctx.project_root))
+    content = path.read_text(encoding="utf-8")
+    m = re.search(r"(<TargetFramework>)([^<]*)(</TargetFramework>)", content)
+    new_tfm = f"net{ctx.target_floor}"
+    old = m.group(2) if m else "(not set)"
+
+    if not m:
+        return {"ok": True, "can_apply": False, "preview_type": "info",
+                "summary": "No TargetFramework found", "detail": f"Add <TargetFramework>{new_tfm}</TargetFramework> to .csproj."}
+
+    nc = re.sub(r"(<TargetFramework>)[^<]*(</TargetFramework>)", rf"\g<1>{new_tfm}\g<2>", content)
+    if mode == "preview":
+        return {"ok": True, "can_apply": True, "preview_type": "diff",
+                "summary": f"Update {rel}", "file": rel, "old_value": old, "new_value": new_tfm}
+    path.write_text(nc, encoding="utf-8")
+    return {"ok": True, "summary": f"Updated {rel}", "file": rel, "old_value": old, "new_value": new_tfm}
+
+
+def handle_edit_composer_php_version(ctx: UpgradeContext, mode: str) -> dict:
+    """Edit require.php in composer.json."""
+    path = ctx.project_root / ctx.module_path / "composer.json"
+    rel = str(path.relative_to(ctx.project_root))
+    if not path.is_file():
+        return {"ok": False, "error": f"composer.json not found at {rel}"}
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    old = data.get("require", {}).get("php", "(not set)")
+    nv = f">={ctx.target_floor}"
+
+    if mode == "preview":
+        return {"ok": True, "can_apply": True, "preview_type": "diff",
+                "summary": f"Update {rel}", "file": rel, "old_value": old, "new_value": nv}
+
+    data.setdefault("require", {})["php"] = nv
+    path.write_text(json.dumps(data, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {"ok": True, "summary": f"Updated {rel}", "file": rel, "old_value": old, "new_value": nv}
+
+
+def handle_edit_mix_elixir_version(ctx: UpgradeContext, mode: str) -> dict:
+    """Edit elixir version in mix.exs."""
+    path = ctx.project_root / ctx.module_path / "mix.exs"
+    rel = str(path.relative_to(ctx.project_root))
+    if not path.is_file():
+        return {"ok": False, "error": f"mix.exs not found at {rel}"}
+
+    content = path.read_text(encoding="utf-8")
+    m = re.search(r"""(elixir:\s*")(~>\s*[\d.]+|>=\s*[\d.]+)(")""", content)
+    old = m.group(2) if m else "(not set)"
+    nv = f"~> {ctx.target_floor}"
+
+    if not m:
+        return {"ok": True, "can_apply": False, "preview_type": "info",
+                "summary": "No elixir version found in mix.exs",
+                "detail": f'Add elixir: "~> {ctx.target_floor}" to your mix.exs project/0.'}
+
+    nc = re.sub(r"""(elixir:\s*")(~>\s*[\d.]+|>=\s*[\d.]+)(")""", rf"\g<1>{nv}\g<3>", content)
+    if mode == "preview":
+        return {"ok": True, "can_apply": True, "preview_type": "diff",
+                "summary": f"Update {rel}", "file": rel, "old_value": old, "new_value": nv}
+    path.write_text(nc, encoding="utf-8")
+    return {"ok": True, "summary": f"Updated {rel}", "file": rel, "old_value": old, "new_value": nv}

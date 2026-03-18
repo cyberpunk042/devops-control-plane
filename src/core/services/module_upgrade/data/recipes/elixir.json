@@ -1,0 +1,134 @@
+{
+  "_meta": {
+    "language": "elixir",
+    "description": "Elixir module upgrade/downgrade recipes",
+    "config_files": [
+      "mix.exs"
+    ]
+  },
+  "upgrade": [
+    {
+      "label": "Update elixir version in mix.exs",
+      "description": "Change the elixir version constraint to ~> {target}",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_mix_elixir_version",
+      "risk": "low",
+      "condition": {
+        "has_file": "mix.exs"
+      }
+    },
+    {
+      "label": "Check Hex package compatibility",
+      "description": "Verify that all Hex dependencies support Elixir {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "check_dep_compat_hex",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run mix deps.get",
+      "description": "Update dependencies and verify resolution with Elixir {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "run_mix_deps_get",
+      "risk": "low",
+      "condition": {
+        "has_file": "mix.exs"
+      }
+    },
+    {
+      "label": "Update CI pipeline Elixir version",
+      "description": "Add or require Elixir {target} in CI configuration",
+      "category": "ci",
+      "automatable": true,
+      "automation_id": "update_ci_matrix",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against Elixir {target}",
+      "description": "Verify all tests pass: mix test",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_mix_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ],
+  "downgrade": [
+    {
+      "label": "Update elixir version in mix.exs",
+      "description": "Change the elixir version constraint to ~> {target} to widen compatibility",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_mix_elixir_version",
+      "risk": "low",
+      "condition": {
+        "has_file": "mix.exs"
+      }
+    },
+    {
+      "label": "Check for Elixir features not available in {target}",
+      "description": "Audit code for syntax introduced after Elixir {target}",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "high",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Verify Hex package compatibility with Elixir {target}",
+      "description": "Ensure all packages support Elixir {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "check_dep_compat_hex",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against Elixir {target}",
+      "description": "Verify all tests pass: mix test",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_mix_test",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ]
+}

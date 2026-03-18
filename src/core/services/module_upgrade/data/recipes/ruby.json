@@ -1,0 +1,135 @@
+{
+  "_meta": {
+    "language": "ruby",
+    "description": "Ruby module upgrade/downgrade recipes",
+    "config_files": [
+      "Gemfile",
+      ".ruby-version"
+    ]
+  },
+  "upgrade": [
+    {
+      "label": "Update ruby version in Gemfile",
+      "description": "Change the ruby version constraint to ~> {target}",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_gemfile_ruby_version",
+      "risk": "low",
+      "condition": {
+        "has_file": "Gemfile"
+      }
+    },
+    {
+      "label": "Check gem compatibility with Ruby {target}",
+      "description": "Verify that all gem dependencies work with Ruby {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "check_dep_compat_rubygems",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run bundle update if needed",
+      "description": "Update Gemfile.lock for Ruby {target} compatibility",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "run_bundle_update",
+      "risk": "medium",
+      "condition": {
+        "has_file": "Gemfile"
+      }
+    },
+    {
+      "label": "Update CI pipeline Ruby version",
+      "description": "Add or require Ruby {target} in CI configuration",
+      "category": "ci",
+      "automatable": true,
+      "automation_id": "update_ci_matrix",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against Ruby {target}",
+      "description": "Verify all tests pass on the target version",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_bundle_exec_rspec",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ],
+  "downgrade": [
+    {
+      "label": "Update ruby version in Gemfile",
+      "description": "Change the ruby version constraint to ~> {target} to widen compatibility",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_gemfile_ruby_version",
+      "risk": "low",
+      "condition": {
+        "has_file": "Gemfile"
+      }
+    },
+    {
+      "label": "Check for Ruby features not available in {target}",
+      "description": "Audit code for syntax or APIs introduced after Ruby {target}",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "high",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Verify gem compatibility with Ruby {target}",
+      "description": "Ensure all gems support Ruby {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "check_dep_compat_rubygems",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against Ruby {target}",
+      "description": "Verify all tests pass on the target version",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_bundle_exec_rspec",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ]
+}

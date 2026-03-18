@@ -2,7 +2,12 @@
   "_meta": {
     "language": "python",
     "description": "Python module upgrade/downgrade recipes",
-    "config_files": ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
+    "config_files": [
+      "pyproject.toml",
+      "setup.py",
+      "setup.cfg",
+      "requirements.txt"
+    ]
   },
   "upgrade": [
     {
@@ -14,7 +19,10 @@
       "risk": "low",
       "condition": {
         "has_file": "pyproject.toml",
-        "floor_source_in": ["module", "project"]
+        "floor_source_in": [
+          "module",
+          "project"
+        ]
       }
     },
     {
@@ -38,7 +46,10 @@
       "risk": "low",
       "condition": {
         "has_file": "setup.cfg",
-        "not_has_files": ["pyproject.toml", "setup.py"]
+        "not_has_files": [
+          "pyproject.toml",
+          "setup.py"
+        ]
       }
     },
     {
@@ -79,7 +90,7 @@
       "label": "Update incompatible dependencies",
       "description": "Find and update dependency versions that don't support Python {target}",
       "category": "deps",
-      "automatable": false,
+      "automatable": true,
       "automation_id": "update_deps_interactive",
       "risk": "medium",
       "condition": {
@@ -113,7 +124,7 @@
       "label": "Modernize type hints to use builtin generics",
       "description": "Replace typing.List, typing.Dict, typing.Optional with list, dict, X | None",
       "category": "code",
-      "automatable": false,
+      "automatable": true,
       "automation_id": "modernize_type_hints",
       "risk": "medium",
       "condition": {
@@ -125,7 +136,7 @@
       "label": "Update CI pipeline Python version matrix",
       "description": "Add or require Python {target} in CI configuration",
       "category": "ci",
-      "automatable": false,
+      "automatable": true,
       "automation_id": "update_ci_matrix",
       "risk": "medium",
       "condition": {
@@ -136,8 +147,8 @@
       "label": "Run test suite against Python {target}",
       "description": "Verify all tests pass on the target Python version",
       "category": "test",
-      "automatable": false,
-      "automation_id": "",
+      "automatable": true,
+      "automation_id": "run_pytest",
       "risk": "low",
       "condition": {
         "always": true
@@ -227,7 +238,7 @@
       "label": "Update CI pipeline to include Python {target}",
       "description": "Add Python {target} to CI test matrix to ensure ongoing compatibility",
       "category": "ci",
-      "automatable": false,
+      "automatable": true,
       "automation_id": "update_ci_matrix",
       "risk": "medium",
       "condition": {
@@ -238,8 +249,8 @@
       "label": "Run test suite against Python {target}",
       "description": "Verify all tests pass on the target Python version",
       "category": "test",
-      "automatable": false,
-      "automation_id": "",
+      "automatable": true,
+      "automation_id": "run_pytest",
       "risk": "low",
       "condition": {
         "always": true

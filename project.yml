@@ -25,6 +25,37 @@ modules:
   deferral:
     until: '2023-01-01'
     reason: fdsfdsfdsfdsfsd
+  version_plan:
+    target: '3.12'
+    date: fgfgdfgdf
+    checklist:
+    - label: Review stack baseline version
+      description: The floor comes from the stack definition, not module config. Check
+        if the stack baseline should also be updated.
+      id: manual:d0a8d0f3
+    - label: Check dependency compatibility with Python 3.12
+      description: Query Requires-Python metadata for each dependency to verify they
+        support 3.12
+      id: check_dep_compat_pypi:aa2b73ca
+    - label: Update incompatible dependencies
+      description: Find and update dependency versions that don't support Python 3.12
+      id: update_deps_interactive:a804b089
+    - label: Audit code for Python 3.8 to 3.12 breaking changes
+      description: Scan source files for patterns that changed behavior between versions
+      id: scan_breaking_changes:a8c6370d
+    - label: Remove unnecessary __future__ annotations imports
+      description: With Python >=3.12, from __future__ import annotations is no longer
+        needed for type hint syntax
+      id: remove_future_annotations:4288efa4
+    - label: Update CI pipeline Python version matrix
+      description: Add or require Python 3.12 in CI configuration
+      id: update_ci_matrix:7345d2fd
+    - label: Run test suite against Python 3.12
+      description: Verify all tests pass on the target Python version
+      id: manual:f16019ef
+    - label: Re-scan module and verify new floor
+      description: Confirm the platform detects the updated floor after all changes
+      id: rescan_module:8b2c3a29
 - description: Tool bindings for git, docker, etc.
   domain: library
   name: adapters

@@ -69,12 +69,21 @@ def execute_step(
     # ── Execute handler ──────────────────────────────────────────
     try:
         result = handler(ctx, mode)
+    except PermissionError as exc:
+        logger.error("Permission denied in handler '%s': %s", automation_id, exc)
+        return {"ok": False, "error": f"Permission denied: cannot write to {exc.filename or 'file'}. Check file permissions."}
+    except FileNotFoundError as exc:
+        logger.error("File not found in handler '%s': %s", automation_id, exc)
+        return {"ok": False, "error": f"File not found: {exc.filename or 'unknown'}"}
+    except OSError as exc:
+        logger.error("I/O error in handler '%s': %s", automation_id, exc)
+        return {"ok": False, "error": f"File system error: {exc}"}
     except Exception as exc:
         logger.error(
             "Automation handler '%s' failed: %s", automation_id, exc,
             exc_info=True,
         )
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": f"Automation failed: {exc}"}
 
     # ── Mark done on successful execute ──────────────────────────
     if mode == "execute" and result.get("ok"):
