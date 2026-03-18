@@ -359,9 +359,12 @@ def wizard_batch(
             for line in result["output"].split("\n")[:10]:
                 yield {"type": "log", "step": idx, "line": f"  {line}"}
 
-        # For dep checkers: report findings
+        # Report findings — different handling for dep checks vs code scans
         findings = result.get("findings", [])
-        if findings:
+        is_dep_check = automation_id.startswith("check_dep_compat_")
+
+        if findings and is_dep_check:
+            # Dep checker: findings have {package, compatible, version}
             compat = sum(1 for f in findings if f.get("compatible"))
             incompat = sum(1 for f in findings if not f.get("compatible") and not f.get("unknown"))
             yield {"type": "log", "step": idx, "line": f"  {compat} compatible, {incompat} incompatible"}
@@ -371,9 +374,28 @@ def wizard_batch(
             if len(findings) > 5:
                 yield {"type": "log", "step": idx, "line": f"  ...and {len(findings) - 5} more"}
 
-            # Dep check with incompatible results = NOT done
-            # → query alternatives and offer remediation
             if incompat > 0:
+                # Dep check with incompatible results → remediation
+                pass  # falls through to remediation block below
+            else:
+                incompat = 0  # all clear
+
+        elif findings:
+            # Code scanner: findings have {file, line, feature, version}
+            yield {"type": "log", "step": idx, "line": f"  {len(findings)} finding(s)"}
+            for f in findings[:5]:
+                file_ref = f.get("file", "")
+                if f.get("line"):
+                    file_ref += f":{f['line']}"
+                yield {"type": "log", "step": idx, "line": f"  📄 {file_ref} — {f.get('feature', '')} ({f.get('version', '')}+)"}
+            if len(findings) > 5:
+                yield {"type": "log", "step": idx, "line": f"  ...and {len(findings) - 5} more"}
+            incompat = 0  # code scan findings don't block the step
+
+        else:
+            incompat = 0
+
+        if is_dep_check and incompat > 0:
                 incompat_pkgs = [f for f in findings if not f.get("compatible") and not f.get("unknown")]
                 yield {"type": "log", "step": idx, "line": f"⚠️ {incompat} incompatible — searching alternatives..."}
 
@@ -415,6 +437,7 @@ def wizard_batch(
                 yield {"type": "done", "ok": False,
                        "summary": f"{incompat} incompatible dependencies found",
                        "completed": completed, "total": total,
+                       "failed_step_id": step_id, "failed_step_idx": idx,
                        "remediation": {
                            "packages": remediation_packages,
                            "options": [

@@ -1988,7 +1988,12 @@
                 if (event.ok) {
                     resultEl.innerHTML = _adm('success', 'Batch complete', esc(event.summary || 'All steps done'));
                 } else if (event.remediation) {
-                    // Dep check failure with remediation options
+                    // Track the failed step so remediation can mark it done
+                    const failedBatchIdx = event.failed_step_idx;
+                    window._wizardRemModule = moduleName;
+                    window._wizardRemStepId = event.failed_step_id || '';
+                    window._wizardRemStepIndex = (failedBatchIdx !== undefined && stepIndices[failedBatchIdx] !== undefined)
+                        ? stepIndices[failedBatchIdx] : -1;
                     resultEl.innerHTML = _renderRemediation(event.remediation, moduleName);
                 } else {
                     resultEl.innerHTML = _adm('danger', 'Batch stopped', esc(event.summary || event.error || 'Failed'));
@@ -2313,6 +2318,11 @@
         return html;
     }
 
+    // Track the step that triggered remediation so we can mark it done after
+    window._wizardRemStepId = '';
+    window._wizardRemStepIndex = -1;
+    window._wizardRemModule = '';
+
     window.wizardApplyVersions = async function(moduleName) {
         // Collect selected versions from dropdowns
         const pins = {};
@@ -2335,13 +2345,61 @@
             const data = await resp.json();
             if (data.ok) {
                 toast('📦 ' + (data.summary || 'Versions pinned'), 'success');
+                // Mark the dep check step as done
+                _wizardMarkRemDone();
                 modalClose();
-                _refreshPlanState();
             } else {
                 toast('⚠️ ' + (data.error || 'Failed to pin versions'), 'error');
             }
         } catch (e) { toast('❌ ' + e.message, 'error'); }
     };
+
+    async function _wizardMarkRemDone() {
+        const mod = window._wizardRemModule;
+        const sid = window._wizardRemStepId;
+        const idx = window._wizardRemStepIndex;
+        if (!mod || !sid) return;
+
+        // Mark the failed step done
+        await _markStepDoneByIndex(mod, sid, idx);
+
+        // Also mark the NEXT step done if it's "update_deps_*"
+        // (remediation already resolved the deps — no need to run it again)
+        const steps = document.querySelectorAll('#plan-checklist .plan-step');
+        for (let i = idx + 1; i < steps.length; i++) {
+            const nextEl = steps[i];
+            if (nextEl.classList.contains('done')) continue;
+            const nextId = nextEl.getAttribute('data-step-id') || '';
+            const nextAid = nextId.split(':')[0];
+            if (nextAid.startsWith('update_deps')) {
+                await _markStepDoneByIndex(mod, nextId, i);
+            }
+            break; // only check the immediately next undone step
+        }
+
+        _refreshPlanState();
+    }
+
+    async function _markStepDoneByIndex(moduleName, stepId, stepIndex) {
+        // Mark done in backend
+        try {
+            await fetch('/api/posture/module-plan-progress', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, step_index: stepIndex, done: true }),
+            });
+        } catch (e) { /* best effort */ }
+
+        // Update plan modal UI
+        const steps = document.querySelectorAll('#plan-checklist .plan-step');
+        if (stepIndex >= 0 && steps[stepIndex]) {
+            steps[stepIndex].classList.add('done');
+            const cb = steps[stepIndex].querySelector('.plan-step-check');
+            if (cb) cb.checked = true;
+            const btn = steps[stepIndex].querySelector('.plan-step-auto');
+            if (btn) btn.style.display = 'none';
+        }
+    }
 
     window.wizardRaiseTarget = async function(moduleName, newTarget) {
         try {

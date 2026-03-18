@@ -38,11 +38,11 @@ modules:
       description: Query Requires-Python metadata for each dependency to verify they
         support 3.8
       id: check_dep_compat_pypi:ed9ca300
-      done: false
+      done: true
     - label: Update incompatible dependencies
       description: Find and update dependency versions that don't support Python 3.8
       id: update_deps_interactive:7f92494e
-      done: false
+      done: true
     - label: Audit code for Python 3.8 to 3.8 breaking changes
       description: Scan source files for patterns that changed behavior between versions
       id: scan_breaking_changes:1eff318c
