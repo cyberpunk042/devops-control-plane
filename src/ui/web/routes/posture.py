@@ -541,6 +541,43 @@ def posture_rescan_tool():  # type: ignore[no-untyped-def]
         return jsonify({"error": str(exc)}), 500
 
 
+def _build_automation_meta(ref):
+    """Build a lookup dict of automation metadata from the recipe JSON.
+
+    Reads the recipe for the module's language and returns a dict
+    mapping automation_id → {automatable, risk, category}.
+    Used by plan-detail to enrich step responses.
+    """
+    meta = {}
+    try:
+        from src.core.services.detection import detect_language
+
+        language = detect_language(ref.stack) if ref.stack else None
+        if not language:
+            return meta
+
+        from src.core.services.module_upgrade.generator import _load_recipe
+
+        recipe = _load_recipe(language)
+        if not recipe:
+            return meta
+
+        # Collect from both upgrade and downgrade arrays
+        for direction in ("upgrade", "downgrade"):
+            for step in recipe.get(direction, []):
+                aid = step.get("automation_id", "")
+                if aid and aid not in meta:
+                    meta[aid] = {
+                        "automatable": step.get("automatable", False),
+                        "risk": step.get("risk", "low"),
+                        "category": step.get("category", ""),
+                    }
+    except Exception:
+        pass  # graceful degradation — steps just won't show automation buttons
+
+    return meta
+
+
 def _build_floor_tiers(ref, floor, floor_source, project_root, all_stacks):
     """Build the 3-tier floor analysis for tooltip display."""
     from pathlib import Path as _Path
@@ -895,6 +932,7 @@ def posture_module_plan():  # type: ignore[no-untyped-def]
 
     try:
         import yaml
+        from pathlib import Path as _Path
         from src.core.config.loader import find_project_file
 
         config_path = find_project_file()
@@ -912,16 +950,19 @@ def posture_module_plan():  # type: ignore[no-untyped-def]
                     # Clear plan
                     mod.pop("version_plan", None)
                 else:
+                    # Generate context-aware checklist from recipe
+                    from src.core.services.module_upgrade import generate_checklist
+
+                    project_root = _Path(
+                        current_app.config.get("PROJECT_ROOT", "."),
+                    )
+                    checklist_steps = generate_checklist(
+                        module_name, target_floor, project_root,
+                    )
                     mod["version_plan"] = {
                         "target": target_floor,
                         "date": target_date,
-                        "checklist": [
-                            {"label": f"Verify all dependencies support Python ≥{target_floor}"},
-                            {"label": f"Update requires-python to ≥{target_floor}"},
-                            {"label": "Update CI test matrix"},
-                            {"label": f"Run full test suite on Python {target_floor}"},
-                            {"label": "Remove compatibility shims if any"},
-                        ],
+                        "checklist": checklist_steps,
                     }
                 found = True
                 break
@@ -963,13 +1004,30 @@ def posture_module_plan_detail():  # type: ignore[no-untyped-def]
             return jsonify({"error": "no plan found"}), 404
 
         plan = ref.version_plan
+
+        # Build automation metadata lookup from recipe
+        auto_meta = _build_automation_meta(ref)
+
+        checklist = []
+        for s in plan.checklist:
+            # Extract automation_id from step id prefix
+            aid = s.id.split(":")[0] if s.id and ":" in s.id else ""
+            meta = auto_meta.get(aid, {})
+            checklist.append({
+                "id": s.id,
+                "label": s.label,
+                "description": s.description,
+                "done": s.done,
+                "automatable": meta.get("automatable", False),
+                "automation_id": aid if aid not in ("manual", "custom", "") else "",
+                "risk": meta.get("risk", "low"),
+                "category": meta.get("category", ""),
+            })
+
         result = {
             "target": plan.target,
             "date": plan.date,
-            "checklist": [
-                {"label": s.label, "description": s.description, "done": s.done}
-                for s in plan.checklist
-            ],
+            "checklist": checklist,
         }
         return jsonify(result)
 
@@ -1040,17 +1098,19 @@ def posture_module_plan_progress():  # type: ignore[no-untyped-def]
 def posture_module_plan_add_step():  # type: ignore[no-untyped-def]
     """Add a custom step to a module's version plan checklist.
 
-    Body: {module, label}
+    Body: {module, label, description?}
     Adds to project.yml version_plan.checklist.
     """
     body = request.get_json(silent=True) or {}
     module_name = body.get("module", "")
     label = body.get("label", "")
+    description = body.get("description", "")
 
     if not module_name or not label:
         return jsonify({"error": "module and label required"}), 400
 
     try:
+        import uuid as _uuid
         import yaml
         from src.core.config.loader import find_project_file
 
@@ -1069,7 +1129,11 @@ def posture_module_plan_add_step():  # type: ignore[no-untyped-def]
                 if not plan:
                     return jsonify({"error": "no plan exists for this module"}), 404
                 plan.setdefault("checklist", [])
-                plan["checklist"].append({"label": label})
+                step_id = f"custom:{_uuid.uuid4().hex[:8]}"
+                step_entry = {"id": step_id, "label": label}
+                if description:
+                    step_entry["description"] = description
+                plan["checklist"].append(step_entry)
                 found = True
                 break
 
@@ -1143,6 +1207,44 @@ def posture_module_plan_remove_step():  # type: ignore[no-untyped-def]
         get_mediator().put("posture.modules", cascade=True)
 
         return jsonify({"ok": True, "module": module_name})
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@posture_bp.route("/posture/module-step-execute", methods=["POST"])
+@tracked("posture.module.step_executed")
+def posture_module_step_execute():  # type: ignore[no-untyped-def]
+    """Execute an automation step in preview or execute mode.
+
+    Body: {module, step_id, mode}
+      - module: module name from project.yml
+      - step_id: step ID (format: automation_id:suffix)
+      - mode: "preview" or "execute"
+
+    Preview returns what would change. Execute performs the action
+    and marks the step done in project.yml.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    step_id = body.get("step_id", "")
+    mode = body.get("mode", "preview")
+
+    if not module_name or not step_id:
+        return jsonify({"error": "module and step_id required"}), 400
+    if mode not in ("preview", "execute"):
+        return jsonify({"error": "mode must be 'preview' or 'execute'"}), 400
+
+    try:
+        from pathlib import Path as _Path
+
+        from src.core.services.module_upgrade.automation.executor import execute_step
+
+        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
+        result = execute_step(module_name, step_id, mode, project_root)
+
+        status_code = 200 if result.get("ok") else 400
+        return jsonify(result), status_code
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

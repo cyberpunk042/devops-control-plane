@@ -9450,12 +9450,70 @@ select option {
 .plan-step:last-child                  { border-bottom: none; }
 .plan-step-check                       { accent-color: var(--accent); width: 16px; height: 16px;
                                          margin-top: 2px; cursor: pointer; flex-shrink: 0; }
-.plan-step-label                       { font-size: 0.85rem; flex: 1; }
+.plan-step-content                     { flex: 1; min-width: 0; }
+.plan-step-label                       { font-size: 0.85rem; }
 .plan-step.done .plan-step-label       { text-decoration: line-through; color: var(--text-muted); }
+.plan-step-desc                        { font-size: 0.78rem; color: var(--text-muted);
+                                         margin-top: 0.15rem; line-height: 1.4; }
 .plan-step-date                        { font-size: 0.72rem; color: var(--text-muted); }
 .plan-step-remove                      { font-size: 0.7rem; color: var(--text-muted);
                                          cursor: pointer; opacity: 0; transition: opacity 0.15s; }
 .plan-step:hover .plan-step-remove     { opacity: 1; }
+
+/* Plan step: automation button */
+.plan-step-auto                        { background: var(--bg-inset); border: 1px solid var(--accent);
+                                         border-radius: var(--radius-sm); cursor: pointer;
+                                         font-size: 0.72rem; padding: 0.2rem 0.5rem;
+                                         color: var(--accent); flex-shrink: 0;
+                                         font-weight: 600; white-space: nowrap; }
+.plan-step-auto:hover                  { background: var(--accent); color: var(--bg-primary); }
+
+/* Plan: run-all button */
+.plan-run-all                          { display: flex; align-items: center; gap: 0.4rem;
+                                         background: var(--accent); color: var(--bg-primary);
+                                         border: none; border-radius: var(--radius-sm);
+                                         cursor: pointer; font-size: 0.78rem; font-weight: 600;
+                                         padding: 0.35rem 0.7rem; margin-bottom: 0.75rem; }
+.plan-run-all:hover                    { opacity: 0.85; }
+
+/* Plan step: category badge */
+.plan-step-cat                         { display: inline-block; font-size: 0.65rem;
+                                         text-transform: uppercase; letter-spacing: 0.03em;
+                                         color: var(--text-muted); background: var(--bg-inset);
+                                         border-radius: 3px; padding: 0.05rem 0.35rem;
+                                         margin-right: 0.4rem; vertical-align: middle; }
+
+/* Plan step: preview area */
+.plan-step-preview                     { margin: 0 0 0.5rem 2rem; padding: 0.6rem 0.8rem;
+                                         background: var(--bg-inset); border-radius: var(--radius-sm);
+                                         border-left: 3px solid var(--accent); font-size: 0.82rem; }
+.plan-preview-summary                  { font-weight: 600; margin-bottom: 0.3rem;
+                                         color: var(--text-primary); }
+.plan-preview-detail                   { color: var(--text-secondary); margin-bottom: 0.4rem;
+                                         font-size: 0.8rem; line-height: 1.5; }
+.plan-preview-file                     { font-size: 0.78rem; color: var(--text-muted);
+                                         margin-bottom: 0.3rem; }
+
+/* Preview: diff display */
+.plan-preview-diff                     { font-family: var(--font-mono, monospace);
+                                         font-size: 0.78rem; margin: 0.3rem 0; }
+.plan-preview-old                      { color: var(--error, #f87171); }
+.plan-preview-new                      { color: var(--success, #4ade80); }
+
+/* Preview: findings list */
+.plan-preview-findings                 { margin: 0.3rem 0; }
+.plan-preview-finding                  { padding: 0.2rem 0; font-size: 0.8rem;
+                                         border-bottom: 1px solid var(--border-subtle);
+                                         display: flex; align-items: center; gap: 0.4rem;
+                                         flex-wrap: wrap; }
+.plan-preview-finding:last-child       { border-bottom: none; }
+.plan-preview-finding code             { font-size: 0.75rem; color: var(--accent); }
+.plan-preview-tag                      { font-size: 0.68rem; background: var(--bg-primary);
+                                         border: 1px solid var(--border); border-radius: 3px;
+                                         padding: 0 0.3rem; color: var(--text-muted); }
+
+/* Preview: action buttons */
+.plan-preview-actions                  { margin-top: 0.5rem; display: flex; gap: 0.4rem; }
 
 /* Module row severity coloring */
 .posture-module-row.degraded .posture-module-cell-name {

@@ -25,16 +25,6 @@ modules:
   deferral:
     until: '2023-01-01'
     reason: fdsfdsfdsfdsfsd
-  version_plan:
-    target: '3.12'
-    date: fgfgdfgdf
-    checklist:
-    - label: Verify all dependencies support Python ≥3.12
-    - label: Update requires-python to ≥3.12
-      done: true
-    - label: Update CI test matrix
-    - label: Run full test suite on Python 3.12
-    - label: Remove compatibility shims if any
 - description: Tool bindings for git, docker, etc.
   domain: library
   name: adapters

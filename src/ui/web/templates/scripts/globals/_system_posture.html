@@ -1339,17 +1339,8 @@
             : '<input id="mf-rem_plan_date" placeholder="Q3 2026" style="padding:0.4rem;width:120px">';
         planContent += '</div>';
 
-        planContent += '<div style="font-size:0.82rem;line-height:1.8;padding:0.5rem 0.75rem;background:var(--bg-inset);border-radius:var(--radius-md);margin:0.5rem 0">';
-        planContent += '<strong style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.03em;color:var(--text-muted)">Auto-generated checklist</strong><br>';
-        planContent += '☐ Verify all dependencies support target floor<br>';
-        planContent += '☐ Update requires-python in module config<br>';
-        planContent += '☐ Update CI test matrix<br>';
-        planContent += '☐ Run full test suite on target version<br>';
-        planContent += '☐ Remove compatibility shims if any<br>';
-        planContent += '</div>';
-
-        planContent += _adm('tip', 'You can customize this later',
-            `After creating the plan, you can add or remove checklist items, update the target date, and mark items as done as you progress.`);
+        planContent += _adm('tip', 'Intelligent checklist',
+            `The platform generates a context-aware checklist based on this module's stack, dependencies, code features, and config files. Steps that can be automated will have a <strong>🔧 Automate</strong> button. You can also add, remove, or edit steps after creation.`);
         planContent += _adm('note', 'Plans are guidance, not enforcement',
             `The platform tracks your plan but doesn't enforce it. Missing the target date doesn't break anything — it surfaces a reminder that the plan is overdue.`);
 
@@ -1368,7 +1359,7 @@
 
         let body = '';
         body += _adm('info', 'Creating version plan',
-            `Target: Python <strong>≥${esc(target)}</strong>${date ? ' by <strong>' + esc(date) + '</strong>' : ''}. The platform will track a 5-item checklist toward this goal.`);
+            `Target: Python <strong>≥${esc(target)}</strong>${date ? ' by <strong>' + esc(date) + '</strong>' : ''}. The platform will generate an intelligent checklist tailored to this module.`);
         body += _adm('note', 'Where this is stored',
             `Plans are saved to <code>project.yml</code> on the module's <code>version_plan</code> field. This is version-controlled — your team sees it in git.`);
         body += _adm('success', 'After creating',
@@ -1418,7 +1409,7 @@
     window._remConfirmClearPlan = function(n) {
         let body = '';
         body += _adm('warning', 'This will remove the version plan',
-            'The plan and its checklist will be removed from <code>project.yml</code>. Progress data in <code>.state/</code> will remain but become orphaned.');
+            'The plan and its checklist will be removed from <code>project.yml</code>.');
         _remConfirm({
             title: '❌ Clear plan for ' + n,
             body: body,
@@ -1437,7 +1428,8 @@
             });
             if (resp.ok) {
                 toast('❌ Plan cleared for ' + moduleName, 'success');
-                modalClose();
+                modalClose(); // close confirmation
+                modalClose(); // close plan modal
                 if (typeof postureRescan === 'function') postureRescan();
             } else {
                 const data = await resp.json();
@@ -1628,24 +1620,47 @@
             body += _adm('warning', 'Plan overdue', `The target date (${esc(planDate)}) has passed but the floor hasn't reached ≥${esc(target)} yet.`);
         }
 
+        // "Run all automatable" button (only if there are automatable undone steps)
+        const autoSteps = freshChecklist.filter(s => s.automatable && s.automation_id && !s.done);
+        if (autoSteps.length > 0) {
+            body += `<button class="plan-run-all" onclick="modulePlanRunAll('${esc(moduleName)}')">▶ Run all automatable steps (${autoSteps.length})</button>`;
+        }
+
         // Checklist
         body += '<div id="plan-checklist">';
         for (let i = 0; i < freshChecklist.length; i++) {
             const step = freshChecklist[i];
             const done = step.done || false;
-            body += `<div class="plan-step ${done ? 'done' : ''}">
+            const canAutomate = step.automatable && step.automation_id && !done;
+            const stepId = step.id || '';
+            const cat = step.category || '';
+            const catBadge = cat ? `<span class="plan-step-cat">${esc(cat)}</span>` : '';
+
+            const desc = step.description || '';
+            body += `<div class="plan-step ${done ? 'done' : ''}" data-step-id="${esc(stepId)}">
                 <input type="checkbox" class="plan-step-check" ${done ? 'checked' : ''}
                     onchange="modulePlanToggleStep('${esc(moduleName)}',${i},this.checked)">
-                <div class="plan-step-label">${esc(step.label)}</div>
-                <div class="plan-step-remove" onclick="modulePlanRemoveStep('${esc(moduleName)}',${i})" title="Remove step">✕</div>
+                <div class="plan-step-content">
+                    <div class="plan-step-label">${catBadge}${esc(step.label)}</div>
+                    ${desc ? '<div class="plan-step-desc">' + esc(desc) + '</div>' : ''}
+                </div>`;
+            if (canAutomate) {
+                body += `<button class="plan-step-auto" onclick="modulePlanAutomate('${esc(moduleName)}','${esc(stepId)}',${i})" title="Run automation">🔧 Automate</button>`;
+            }
+            body += `<div class="plan-step-remove" onclick="modulePlanRemoveStep('${esc(moduleName)}',${i})" title="Remove step">✕</div>
             </div>`;
+            // Preview area (hidden until automation is clicked)
+            body += `<div class="plan-step-preview" id="plan-preview-${i}" style="display:none"></div>`;
         }
         body += '</div>';
 
         // Add step
         body += `<div style="margin-top:0.75rem;display:flex;gap:0.5rem">
-            <input id="plan-new-step" type="text" placeholder="Add a custom step..." style="flex:1;padding:0.4rem 0.6rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.82rem">
-            <button class="btn btn-sm btn-ghost" onclick="modulePlanAddStep('${esc(moduleName)}')">➕ Add</button>
+            <div style="flex:1;display:flex;flex-direction:column;gap:0.3rem">
+                <input id="plan-new-step" type="text" placeholder="Step label..." style="padding:0.4rem 0.6rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.82rem">
+                <input id="plan-new-step-desc" type="text" placeholder="Description (optional)" style="padding:0.3rem 0.6rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-secondary);font-size:0.78rem">
+            </div>
+            <button class="btn btn-sm btn-ghost" onclick="modulePlanAddStep('${esc(moduleName)}')" style="align-self:flex-start;margin-top:0.15rem">➕ Add</button>
         </div>`;
 
         body += _adm('info', 'How this works',
@@ -1657,6 +1672,7 @@
             body: body,
             size: 'md',
             footerButtons: [
+                { label: '❌ Clear plan', cls: 'btn-danger', onclick: "_remConfirmClearPlan('" + esc(moduleName) + "')" },
                 { label: 'Close', onclick: 'modalClose()' },
             ],
         });
@@ -1679,13 +1695,15 @@
 
     window.modulePlanAddStep = async function(moduleName) {
         const input = document.getElementById('plan-new-step');
+        const descInput = document.getElementById('plan-new-step-desc');
         const label = input ? input.value.trim() : '';
+        const description = descInput ? descInput.value.trim() : '';
         if (!label) return;
         try {
             const resp = await fetch('/api/posture/module-plan-step', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ module: moduleName, label: label }),
+                body: JSON.stringify({ module: moduleName, label: label, description: description }),
             });
             if (resp.ok) {
                 toast('➕ Step added', 'success');
@@ -1710,6 +1728,210 @@
             }
         } catch (e) { toast('❌ ' + e.message, 'error'); }
     };
+
+    // ── Plan automation: preview + execute ──────────────────────
+
+    window.modulePlanAutomate = async function(moduleName, stepId, stepIndex) {
+        const previewEl = document.getElementById('plan-preview-' + stepIndex);
+        if (!previewEl) return;
+
+        // Toggle: if already showing, hide
+        if (previewEl.style.display !== 'none') {
+            previewEl.style.display = 'none';
+            previewEl.innerHTML = '';
+            return;
+        }
+
+        previewEl.style.display = 'block';
+        previewEl.innerHTML = '<span class="spinner" style="margin:0.5rem"></span> Running preview...';
+
+        try {
+            const resp = await fetch('/api/posture/module-step-execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'preview' }),
+            });
+            const data = await resp.json();
+
+            if (!data.ok) {
+                previewEl.innerHTML = _adm('warning', 'Preview failed', esc(data.error || 'Unknown error'));
+                return;
+            }
+
+            let html = '';
+            const ptype = data.preview_type || 'info';
+
+            // Summary
+            if (data.summary) {
+                html += `<div class="plan-preview-summary">${esc(data.summary)}</div>`;
+            }
+
+            // Detail text
+            if (data.detail) {
+                html += `<div class="plan-preview-detail">${esc(data.detail)}</div>`;
+            }
+
+            // Diff preview (config edits)
+            if (ptype === 'diff') {
+                html += '<div class="plan-preview-diff">';
+                if (data.file) html += `<div class="plan-preview-file">📄 ${esc(data.file)}</div>`;
+                if (data.old_value) html += `<div class="plan-preview-old">− ${esc(data.old_value)}</div>`;
+                if (data.new_value) html += `<div class="plan-preview-new">+ ${esc(data.new_value)}</div>`;
+                html += '</div>';
+            }
+
+            // Findings list (code scan, dep check)
+            if (ptype === 'findings' && data.findings && data.findings.length) {
+                html += '<div class="plan-preview-findings">';
+                for (const f of data.findings.slice(0, 20)) {
+                    if (f.feature) {
+                        // Code scan finding
+                        html += `<div class="plan-preview-finding">`;
+                        html += `<code>${esc(f.file || '')}${f.line ? ':' + f.line : ''}</code> `;
+                        html += `<span>${esc(f.feature)}</span> `;
+                        if (f.version) html += `<span class="plan-preview-tag">${esc(f.version)}+</span>`;
+                        html += '</div>';
+                    } else if (f.package) {
+                        // Dep check finding
+                        const icon = f.compatible ? '✅' : (f.unknown ? '❓' : '❌');
+                        html += `<div class="plan-preview-finding">`;
+                        html += `${icon} <strong>${esc(f.package)}</strong>`;
+                        if (f.version) html += ` ${esc(f.version)}`;
+                        html += ` <span class="plan-preview-tag">${esc(f.requires_python || '')}</span>`;
+                        if (f.note) html += ` <em>${esc(f.note)}</em>`;
+                        html += '</div>';
+                    } else if (f.file) {
+                        // File list (__future__ etc.)
+                        html += `<div class="plan-preview-finding"><code>${esc(f.file)}</code></div>`;
+                    }
+                }
+                if (data.findings.length > 20) {
+                    html += `<div class="plan-preview-detail">...and ${data.findings.length - 20} more</div>`;
+                }
+                html += '</div>';
+            }
+
+            // Apply button (only for steps that can be applied)
+            if (data.can_apply) {
+                html += `<div class="plan-preview-actions">
+                    <button class="posture-btn posture-btn-update" onclick="modulePlanApplyStep('${esc(moduleName)}','${esc(stepId)}',${stepIndex})">✅ Apply</button>
+                </div>`;
+            }
+
+            previewEl.innerHTML = html;
+
+        } catch (e) {
+            previewEl.innerHTML = _adm('danger', 'Error', esc(e.message));
+        }
+    };
+
+    window.modulePlanApplyStep = async function(moduleName, stepId, stepIndex) {
+        const previewEl = document.getElementById('plan-preview-' + stepIndex);
+        if (previewEl) {
+            previewEl.innerHTML = '<span class="spinner" style="margin:0.5rem"></span> Applying...';
+        }
+
+        try {
+            const resp = await fetch('/api/posture/module-step-execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute' }),
+            });
+            const data = await resp.json();
+
+            if (data.ok) {
+                toast('✅ ' + (data.summary || 'Step completed'), 'success');
+                // Mark step done in UI
+                const steps = document.querySelectorAll('#plan-checklist .plan-step');
+                if (steps[stepIndex]) {
+                    steps[stepIndex].classList.add('done');
+                    const checkbox = steps[stepIndex].querySelector('.plan-step-check');
+                    if (checkbox) checkbox.checked = true;
+                    // Hide automation button
+                    const autoBtn = steps[stepIndex].querySelector('.plan-step-auto');
+                    if (autoBtn) autoBtn.style.display = 'none';
+                }
+                // Hide preview
+                if (previewEl) previewEl.style.display = 'none';
+                // Update progress bar
+                _updatePlanProgress();
+            } else {
+                if (previewEl) previewEl.innerHTML = _adm('danger', 'Failed', esc(data.error || 'Unknown error'));
+                else toast('❌ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) {
+            toast('❌ ' + e.message, 'error');
+        }
+    };
+
+    window.modulePlanRunAll = async function(moduleName) {
+        // Run all automatable steps sequentially until a manual step is hit
+        const steps = document.querySelectorAll('#plan-checklist .plan-step');
+        const runAllBtn = document.querySelector('.plan-run-all');
+        if (runAllBtn) { runAllBtn.disabled = true; runAllBtn.textContent = '⏳ Running...'; }
+
+        for (let i = 0; i < steps.length; i++) {
+            const stepEl = steps[i];
+            if (stepEl.classList.contains('done')) continue;
+
+            const stepId = stepEl.getAttribute('data-step-id') || '';
+            const aid = stepId.split(':')[0];
+            if (!aid || aid === 'manual' || aid === 'custom') {
+                // Hit a manual step — stop here
+                toast(`⏸ Stopped at step ${i + 1} (manual step)`, 'info');
+                break;
+            }
+
+            // Check if this step is automatable by looking for the auto button
+            const autoBtn = stepEl.querySelector('.plan-step-auto');
+            if (!autoBtn) {
+                toast(`⏸ Stopped at step ${i + 1} (not automatable)`, 'info');
+                break;
+            }
+
+            // Execute directly (skip preview for batch mode)
+            try {
+                const resp = await fetch('/api/posture/module-step-execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute' }),
+                });
+                const data = await resp.json();
+
+                if (data.ok) {
+                    stepEl.classList.add('done');
+                    const checkbox = stepEl.querySelector('.plan-step-check');
+                    if (checkbox) checkbox.checked = true;
+                    if (autoBtn) autoBtn.style.display = 'none';
+                    toast(`✅ ${data.summary || 'Step ' + (i+1) + ' done'}`, 'success');
+                } else {
+                    toast(`❌ Step ${i + 1} failed: ${data.error || 'Unknown error'}`, 'error');
+                    break;
+                }
+            } catch (e) {
+                toast(`❌ Step ${i + 1} error: ${e.message}`, 'error');
+                break;
+            }
+        }
+
+        _updatePlanProgress();
+        if (runAllBtn) { runAllBtn.disabled = false; runAllBtn.textContent = '✅ Done'; }
+    };
+
+    function _updatePlanProgress() {
+        const steps = document.querySelectorAll('#plan-checklist .plan-step');
+        const total = steps.length || 1;
+        let done = 0;
+        for (const s of steps) { if (s.classList.contains('done')) done++; }
+        const pct = Math.round((done / total) * 100);
+        const fill = document.querySelector('.plan-progress-fill');
+        if (fill) fill.style.width = pct + '%';
+        // Update count text (find the span next to the progress bar)
+        const bar = document.querySelector('.plan-progress-bar');
+        if (bar && bar.nextElementSibling) {
+            bar.nextElementSibling.textContent = `${done}/${total} (${pct}%)`;
+        }
+    }
 
     // ── Render: module pillar (matrix table — 9 columns) ───────
     function renderModulePillar(pillar) {

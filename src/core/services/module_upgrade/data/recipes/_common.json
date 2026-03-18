@@ -1,0 +1,53 @@
+{
+  "_meta": {
+    "description": "Common steps appended to all language recipes. Deduplicated by automation_id — if a language recipe already includes a step with the same automation_id, the common step is skipped."
+  },
+  "upgrade_tail": [
+    {
+      "label": "Run test suite against {language} {target}",
+      "description": "Verify all tests pass on the target version",
+      "category": "test",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ],
+  "downgrade_tail": [
+    {
+      "label": "Run test suite against {language} {target}",
+      "description": "Verify all tests pass on the target version",
+      "category": "test",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ]
+}

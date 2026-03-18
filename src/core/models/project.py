@@ -37,8 +37,15 @@ class ModuleDeferral(BaseModel):
 
 
 class ModuleVersionPlanStep(BaseModel):
-    """A single step in a version upgrade checklist."""
+    """A single step in a version upgrade checklist.
 
+    The ``id`` field links the step to an automation handler.
+    Format: ``{automation_id}:{suffix}`` for generated steps,
+    ``custom:{suffix}`` for user-added steps, or ``""`` for
+    legacy steps created before the generator existed.
+    """
+
+    id: str = ""
     label: str
     description: str = ""
     done: bool = False

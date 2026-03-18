@@ -1,0 +1,260 @@
+{
+  "_meta": {
+    "language": "python",
+    "description": "Python module upgrade/downgrade recipes",
+    "config_files": ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
+  },
+  "upgrade": [
+    {
+      "label": "Update requires-python in pyproject.toml",
+      "description": "Change >={current} to >={target} in [project] section",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_pyproject_requires_python",
+      "risk": "low",
+      "condition": {
+        "has_file": "pyproject.toml",
+        "floor_source_in": ["module", "project"]
+      }
+    },
+    {
+      "label": "Update python_requires in setup.py",
+      "description": "Change >={current} to >={target} in setup() call",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_setup_py_python_requires",
+      "risk": "low",
+      "condition": {
+        "has_file": "setup.py",
+        "not_has_file": "pyproject.toml"
+      }
+    },
+    {
+      "label": "Update requires-python in setup.cfg",
+      "description": "Change >={current} to >={target} in [options] section",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_setup_cfg_python_requires",
+      "risk": "low",
+      "condition": {
+        "has_file": "setup.cfg",
+        "not_has_files": ["pyproject.toml", "setup.py"]
+      }
+    },
+    {
+      "label": "Review stack baseline version",
+      "description": "The floor comes from the stack definition, not module config. Check if the stack baseline should also be updated.",
+      "category": "config",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "floor_source_is": "stack"
+      }
+    },
+    {
+      "label": "Add module-level requires-python",
+      "description": "The floor comes from project root config. Consider adding a pyproject.toml to this module with its own requires-python.",
+      "category": "config",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "floor_source_is": "project",
+        "not_has_file": "pyproject.toml"
+      }
+    },
+    {
+      "label": "Check dependency compatibility with Python {target}",
+      "description": "Query Requires-Python metadata for each dependency to verify they support {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "check_dep_compat_pypi",
+      "risk": "low",
+      "condition": {
+        "has_deps_floor": true
+      }
+    },
+    {
+      "label": "Update incompatible dependencies",
+      "description": "Find and update dependency versions that don't support Python {target}",
+      "category": "deps",
+      "automatable": false,
+      "automation_id": "update_deps_interactive",
+      "risk": "medium",
+      "condition": {
+        "has_deps_floor": true
+      }
+    },
+    {
+      "label": "Audit code for Python {current} to {target} breaking changes",
+      "description": "Scan source files for patterns that changed behavior between versions",
+      "category": "code",
+      "automatable": true,
+      "automation_id": "scan_breaking_changes",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Remove unnecessary __future__ annotations imports",
+      "description": "With Python >={target}, from __future__ import annotations is no longer needed for type hint syntax",
+      "category": "code",
+      "automatable": true,
+      "automation_id": "remove_future_annotations",
+      "risk": "low",
+      "condition": {
+        "has_future_import": true,
+        "target_gte": "3.10"
+      }
+    },
+    {
+      "label": "Modernize type hints to use builtin generics",
+      "description": "Replace typing.List, typing.Dict, typing.Optional with list, dict, X | None",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "modernize_type_hints",
+      "risk": "medium",
+      "condition": {
+        "strategy_is": "latest",
+        "target_gte": "3.9"
+      }
+    },
+    {
+      "label": "Update CI pipeline Python version matrix",
+      "description": "Add or require Python {target} in CI configuration",
+      "category": "ci",
+      "automatable": false,
+      "automation_id": "update_ci_matrix",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against Python {target}",
+      "description": "Verify all tests pass on the target Python version",
+      "category": "test",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ],
+  "downgrade": [
+    {
+      "label": "Update requires-python in pyproject.toml",
+      "description": "Change >={current} to >={target} to widen compatibility range",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_pyproject_requires_python",
+      "risk": "low",
+      "condition": {
+        "has_file": "pyproject.toml"
+      }
+    },
+    {
+      "label": "Update python_requires in setup.py",
+      "description": "Change >={current} to >={target} to widen compatibility range",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "edit_setup_py_python_requires",
+      "risk": "low",
+      "condition": {
+        "has_file": "setup.py",
+        "not_has_file": "pyproject.toml"
+      }
+    },
+    {
+      "label": "Scan for features not available in Python {target}",
+      "description": "Find code patterns that require a newer Python than {target}",
+      "category": "code",
+      "automatable": true,
+      "automation_id": "scan_incompatible_features",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Add __future__ annotations import where needed",
+      "description": "Enable PEP 604 (X | Y) and PEP 585 (builtin generics) syntax on older Python via deferred evaluation",
+      "category": "code",
+      "automatable": true,
+      "automation_id": "add_future_annotations",
+      "risk": "low",
+      "condition": {
+        "target_lt": "3.10"
+      }
+    },
+    {
+      "label": "Replace incompatible syntax with backport patterns",
+      "description": "Rewrite match/case, except*, walrus operator and other syntax not available in Python {target}",
+      "category": "code",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "high",
+      "condition": {
+        "has_code_floor": true
+      }
+    },
+    {
+      "label": "Check all dependencies support Python {target}",
+      "description": "Verify Requires-Python of all dependencies includes {target}",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "check_dep_compat_pypi",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Update CI pipeline to include Python {target}",
+      "description": "Add Python {target} to CI test matrix to ensure ongoing compatibility",
+      "category": "ci",
+      "automatable": false,
+      "automation_id": "update_ci_matrix",
+      "risk": "medium",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run test suite against Python {target}",
+      "description": "Verify all tests pass on the target Python version",
+      "category": "test",
+      "automatable": false,
+      "automation_id": "",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Re-scan module and verify new floor",
+      "description": "Confirm the platform detects the updated floor after all changes",
+      "category": "verify",
+      "automatable": true,
+      "automation_id": "rescan_module",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    }
+  ]
+}
