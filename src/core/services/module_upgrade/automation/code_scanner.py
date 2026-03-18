@@ -591,7 +591,9 @@ def _scan_ci_file(
                 versions_found.append(ver)
 
     if versions_found:
-        line_no = content[:python_re.search(content).start()].count("\n") + 1
+        # Find line number from whichever regex matched first
+        first_match = python_re.search(content) or matrix_re.search(content)
+        line_no = content[:first_match.start()].count("\n") + 1 if first_match else 1
         findings.append({
             "file": rel_path,
             "line": line_no,
