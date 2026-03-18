@@ -33,6 +33,7 @@ modules:
       description: The floor comes from the stack definition, not module config. Check
         if the stack baseline should also be updated.
       id: manual:d0a8d0f3
+      done: false
     - label: Check dependency compatibility with Python 3.12
       description: Query Requires-Python metadata for each dependency to verify they
         support 3.12

@@ -1638,11 +1638,8 @@
             body += _adm('warning', 'Plan overdue', `The target date (${esc(planDate)}) has passed but the floor hasn't reached ≥${esc(target)} yet.`);
         }
 
-        // "Run all automatable" — find the first batch (up to first manual step)
-        const firstBatch = _findAutoBatch(freshChecklist, 0);
-        if (firstBatch.length > 0) {
-            body += `<button class="plan-run-all" onclick="modulePlanRunBatch('${esc(moduleName)}',${firstBatch[0]},${firstBatch[firstBatch.length-1]})">▶ Run automatable steps (${firstBatch.length})</button>`;
-        }
+        // Batch button container — dynamically updated by _refreshPlanState()
+        body += `<div id="plan-batch-container" data-module="${esc(moduleName)}"></div>`;
 
         // Checklist
         body += '<div id="plan-checklist">';
@@ -1694,6 +1691,9 @@
                 { label: 'Close', onclick: 'modalClose()' },
             ],
         });
+
+        // Initial state evaluation (batch buttons, automate colors)
+        setTimeout(_refreshPlanState, 0);
     }
 
     window.modulePlanToggleStep = async function(moduleName, stepIndex, done) {
@@ -1708,6 +1708,8 @@
             if (steps[stepIndex]) {
                 steps[stepIndex].classList.toggle('done', done);
             }
+            // Re-evaluate batch buttons + automate colors
+            _refreshPlanState();
         } catch (e) { toast('❌ ' + e.message, 'error'); }
     };
 
@@ -1893,23 +1895,6 @@
         }
     };
 
-    // Find a batch of consecutive inline-automatable steps starting from startIdx.
-    // Stops at: done steps (skip), manual steps, wizard-eligible steps.
-    // Returns array of step indices in the batch.
-    function _findAutoBatch(checklist, startIdx) {
-        const batch = [];
-        for (let i = startIdx; i < checklist.length; i++) {
-            const s = checklist[i];
-            if (s.done) continue; // skip done
-            if (!s.automatable || !s.automation_id) break; // manual step — stop
-            const aid = s.automation_id;
-            // Wizard-eligible steps need interaction — stop batch here
-            if (aid.startsWith('run_') || aid.startsWith('check_dep_compat_') || aid.startsWith('update_deps_')) break;
-            batch.push(i);
-        }
-        return batch;
-    }
-
     window.modulePlanRunBatch = async function(moduleName, fromIdx, toIdx) {
         const steps = document.querySelectorAll('#plan-checklist .plan-step');
         const runAllBtn = document.querySelector('.plan-run-all');
@@ -1950,20 +1935,98 @@
         if (runAllBtn) { runAllBtn.disabled = false; runAllBtn.textContent = '✅ Batch done'; }
     };
 
-    function _updatePlanProgress() {
+    // Central state refresh — called on EVERY state change (checkbox, apply, batch)
+    function _refreshPlanState() {
         const steps = document.querySelectorAll('#plan-checklist .plan-step');
         const total = steps.length || 1;
-        let done = 0;
-        for (const s of steps) { if (s.classList.contains('done')) done++; }
-        const pct = Math.round((done / total) * 100);
+        let doneCount = 0;
+        let hasUndonePredecessor = false;
+
+        // ── Pass 1: update progress + automate button colors ────
+        for (let i = 0; i < steps.length; i++) {
+            const stepEl = steps[i];
+            const isDone = stepEl.classList.contains('done');
+            if (isDone) { doneCount++; }
+
+            const autoBtn = stepEl.querySelector('.plan-step-auto');
+            if (autoBtn) {
+                if (isDone) {
+                    // Done steps: hide automate button
+                    autoBtn.style.display = 'none';
+                } else if (hasUndonePredecessor) {
+                    // Undone step with unchecked steps above: warning color
+                    autoBtn.classList.add('plan-step-auto-warn');
+                    autoBtn.classList.remove('plan-step-auto-ready');
+                } else {
+                    // Undone step with all predecessors done: ready color
+                    autoBtn.classList.remove('plan-step-auto-warn');
+                    autoBtn.classList.add('plan-step-auto-ready');
+                }
+            }
+
+            if (!isDone) { hasUndonePredecessor = true; }
+        }
+
+        // ── Progress bar ────────────────────────────────────────
+        const pct = Math.round((doneCount / total) * 100);
         const fill = document.querySelector('.plan-progress-fill');
         if (fill) fill.style.width = pct + '%';
-        // Update count text (find the span next to the progress bar)
         const bar = document.querySelector('.plan-progress-bar');
         if (bar && bar.nextElementSibling) {
-            bar.nextElementSibling.textContent = `${done}/${total} (${pct}%)`;
+            bar.nextElementSibling.textContent = `${doneCount}/${total} (${pct}%)`;
+        }
+
+        // ── Batch button: find next automatable chunk ───────────
+        const batchContainer = document.getElementById('plan-batch-container');
+        if (!batchContainer) return;
+
+        // Find the next batch of automatable undone steps.
+        // ALL automatable steps count (inline + wizard).
+        // Manual steps (no automate button) are blockers.
+        // Done steps are transparent (skipped).
+        // We find the first contiguous group of automatable undone steps.
+        const moduleName = batchContainer.dataset.module;
+        let batchIndices = [];
+
+        for (let i = 0; i < steps.length; i++) {
+            const stepEl = steps[i];
+            if (stepEl.classList.contains('done')) continue;
+
+            const autoBtn = stepEl.querySelector('.plan-step-auto');
+            const hasBtn = autoBtn && autoBtn.style.display !== 'none';
+
+            if (hasBtn) {
+                batchIndices.push(i);
+            } else {
+                // Manual undone step — this is a blocker
+                if (batchIndices.length > 0) break; // found batch, stop
+                // else keep scanning past this blocker
+            }
+        }
+
+        if (batchIndices.length > 0) {
+            const first = batchIndices[0];
+            const last = batchIndices[batchIndices.length - 1];
+            const count = batchIndices.length;
+
+            // Check if all steps before the batch are done
+            const allPredsDone = !Array.from(steps).slice(0, first).some(
+                s => !s.classList.contains('done')
+            );
+            const label = `▶ Run ${count} automatable step${count > 1 ? 's' : ''}`;
+
+            if (allPredsDone) {
+                batchContainer.innerHTML = `<button class="plan-run-all" onclick="modulePlanRunBatch('${esc(moduleName)}',${first},${last})">${label}</button>`;
+            } else {
+                batchContainer.innerHTML = `<button class="plan-run-all plan-run-all-disabled" disabled title="Complete earlier steps first">${label}</button>`;
+            }
+        } else {
+            batchContainer.innerHTML = '';
         }
     }
+
+    // Backward compat alias
+    function _updatePlanProgress() { _refreshPlanState(); }
 
     // ── Wizard modal — multi-step automation with streaming ────
 

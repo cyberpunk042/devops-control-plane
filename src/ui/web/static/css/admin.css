@@ -9467,6 +9467,10 @@ select option {
                                          color: var(--accent); flex-shrink: 0;
                                          font-weight: 600; white-space: nowrap; }
 .plan-step-auto:hover                  { background: var(--accent); color: var(--bg-primary); }
+.plan-step-auto-ready                  { border-color: var(--accent); color: var(--accent); }
+.plan-step-auto-warn                   { border-color: var(--warning); color: var(--warning);
+                                         background: color-mix(in srgb, var(--warning) 8%, transparent); }
+.plan-step-auto-warn:hover             { background: var(--warning); color: var(--bg-primary); }
 
 /* Plan: run-all button */
 .plan-run-all                          { display: flex; align-items: center; gap: 0.4rem;
@@ -9475,6 +9479,8 @@ select option {
                                          cursor: pointer; font-size: 0.78rem; font-weight: 600;
                                          padding: 0.35rem 0.7rem; margin-bottom: 0.75rem; }
 .plan-run-all:hover                    { opacity: 0.85; }
+.plan-run-all-disabled                 { opacity: 0.45; cursor: not-allowed !important;
+                                         background: var(--text-muted); }
 
 /* Plan step: category badge */
 .plan-step-cat                         { display: inline-block; font-size: 0.65rem;
