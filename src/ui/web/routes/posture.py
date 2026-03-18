@@ -1341,6 +1341,122 @@ def posture_module_wizard():  # type: ignore[no-untyped-def]
         return jsonify({"error": str(exc)}), 500
 
 
+@posture_bp.route("/posture/module-pin-deps", methods=["POST"])
+@tracked("posture.module.deps_pinned")
+def posture_module_pin_deps():  # type: ignore[no-untyped-def]
+    """Pin dependency versions in requirements files.
+
+    Body: {module, pins: {package: version, ...}}
+    Writes version constraints to the appropriate requirements file.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    pins = body.get("pins", {})
+
+    if not module_name or not pins:
+        return jsonify({"error": "module and pins required"}), 400
+
+    try:
+        from pathlib import Path as _Path
+
+        from src.core.config.loader import load_project
+
+        project = load_project()
+        ref = project.get_module(module_name)
+        if not ref:
+            return jsonify({"error": f"module '{module_name}' not found"}), 404
+
+        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
+        module_dir = project_root / ref.path
+
+        # Find the requirements file to edit
+        pinned = []
+        req_file = None
+
+        # Try requirements.txt first
+        for candidate in ["requirements.txt", "requirements/base.txt", "requirements/main.txt"]:
+            path = module_dir / candidate
+            if path.is_file():
+                req_file = path
+                break
+
+        # Fall back to pyproject.toml [project.dependencies]
+        pyproject = module_dir / "pyproject.toml"
+
+        if req_file:
+            # Edit requirements.txt — replace or append pinned versions
+            content = req_file.read_text(encoding="utf-8")
+            import re as _re
+            lines = content.split("\n")
+            new_lines = []
+            pinned_pkgs = set()
+
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    new_lines.append(line)
+                    continue
+
+                # Parse package name from line (e.g., "flask>=3.0" → "flask")
+                pkg_match = _re.match(r"([a-zA-Z0-9_-]+)", stripped)
+                if pkg_match:
+                    pkg_name = pkg_match.group(1).lower().replace("_", "-")
+                    if pkg_name in {k.lower().replace("_", "-") for k in pins}:
+                        # Replace with pinned version
+                        for orig_name, version in pins.items():
+                            if orig_name.lower().replace("_", "-") == pkg_name:
+                                new_lines.append(f"{orig_name}=={version}")
+                                pinned.append(f"{orig_name}=={version}")
+                                pinned_pkgs.add(pkg_name)
+                                break
+                        continue
+
+                new_lines.append(line)
+
+            # Append any pins not already in the file
+            for pkg_name, version in pins.items():
+                if pkg_name.lower().replace("_", "-") not in pinned_pkgs:
+                    new_lines.append(f"{pkg_name}=={version}")
+                    pinned.append(f"{pkg_name}=={version}")
+
+            req_file.write_text("\n".join(new_lines), encoding="utf-8")
+            rel_path = str(req_file.relative_to(project_root))
+
+        elif pyproject.is_file():
+            # Note: editing pyproject.toml dependencies is complex (TOML arrays)
+            # For now, create a constraints.txt file
+            constraints_file = module_dir / "constraints.txt"
+            constraint_lines = []
+            for pkg_name, version in pins.items():
+                constraint_lines.append(f"{pkg_name}=={version}")
+                pinned.append(f"{pkg_name}=={version}")
+            constraints_file.write_text("\n".join(constraint_lines) + "\n", encoding="utf-8")
+            rel_path = str(constraints_file.relative_to(project_root))
+
+        else:
+            # No requirements file — create one
+            req_file = module_dir / "requirements.txt"
+            lines = []
+            for pkg_name, version in pins.items():
+                lines.append(f"{pkg_name}=={version}")
+                pinned.append(f"{pkg_name}=={version}")
+            req_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            rel_path = str(req_file.relative_to(project_root))
+
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
+
+        return jsonify({
+            "ok": True,
+            "summary": f"Pinned {len(pinned)} package(s) in {rel_path}",
+            "file": rel_path,
+            "pinned": pinned,
+        })
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @posture_bp.route("/posture/module-note", methods=["POST"])
 @tracked("posture.module.noted")
 def posture_module_note():  # type: ignore[no-untyped-def]

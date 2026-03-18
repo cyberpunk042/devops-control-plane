@@ -372,13 +372,61 @@ def wizard_batch(
                 yield {"type": "log", "step": idx, "line": f"  ...and {len(findings) - 5} more"}
 
             # Dep check with incompatible results = NOT done
+            # → query alternatives and offer remediation
             if incompat > 0:
-                yield {"type": "log", "step": idx, "line": f"⚠️ {incompat} incompatible — step not marked done"}
+                incompat_pkgs = [f for f in findings if not f.get("compatible") and not f.get("unknown")]
+                yield {"type": "log", "step": idx, "line": f"⚠️ {incompat} incompatible — searching alternatives..."}
+
+                # Query alternatives for each incompatible package
+                from .dep_checker import _parse_version
+                target_parts = _parse_version(ctx.target_floor)
+                alt_finder = _get_alt_finder(ctx.language) if ctx.language else None
+
+                remediation_packages = []
+                for dep in incompat_pkgs:
+                    pkg = dep.get("package", "")
+                    alts = []
+                    if alt_finder and target_parts:
+                        try:
+                            alts = alt_finder(pkg, target_parts, ctx.target_floor)[:5]
+                        except Exception:
+                            pass
+                    if alts:
+                        yield {"type": "log", "step": idx, "line": f"  📦 {pkg}: {len(alts)} compatible version(s) available"}
+                    else:
+                        yield {"type": "log", "step": idx, "line": f"  📦 {pkg}: no compatible versions found"}
+
+                    remediation_packages.append({
+                        "package": pkg,
+                        "current_version": dep.get("version", ""),
+                        "constraint": dep.get("requires_python", ""),
+                        "alternatives": [
+                            {"version": a.get("version", ""), "constraint": a.get("requires_python", "")}
+                            for a in alts
+                        ],
+                    })
+
                 yield {"type": "step_failed", "step": idx,
                        "error": f"{incompat} incompatible dependencies found",
                        "elapsed_ms": elapsed}
+
                 failed_step = idx
-                break
+                # Don't break yet — emit done with remediation data
+                yield {"type": "done", "ok": False,
+                       "summary": f"{incompat} incompatible dependencies found",
+                       "completed": completed, "total": total,
+                       "remediation": {
+                           "packages": remediation_packages,
+                           "options": [
+                               {"id": "downgrade", "label": "Use compatible versions",
+                                "description": "Update dependency constraints to use older versions that support your target"},
+                               {"id": "raise_target", "label": "Raise target version",
+                                "description": "Change your plan target to match what your dependencies require"},
+                               {"id": "skip", "label": "Skip — handle manually",
+                                "description": "Continue with the remaining steps and resolve dependencies later"},
+                           ],
+                       }}
+                return  # done event already emitted
 
         if result.get("error"):
             yield {"type": "log", "step": idx, "line": f"❌ {result['error']}"}

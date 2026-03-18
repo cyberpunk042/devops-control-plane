@@ -1987,6 +1987,9 @@
                 if (!resultEl) return;
                 if (event.ok) {
                     resultEl.innerHTML = _adm('success', 'Batch complete', esc(event.summary || 'All steps done'));
+                } else if (event.remediation) {
+                    // Dep check failure with remediation options
+                    resultEl.innerHTML = _renderRemediation(event.remediation, moduleName);
                 } else {
                     resultEl.innerHTML = _adm('danger', 'Batch stopped', esc(event.summary || event.error || 'Failed'));
                 }
@@ -2234,6 +2237,131 @@
             },
         });
     }
+
+    function _renderRemediation(rem, moduleName) {
+        let html = '';
+        html += _adm('warning', 'Incompatible dependencies found',
+            'Some dependencies don\'t support your target version. Choose how to proceed:');
+
+        // Show each incompatible package with alternatives
+        if (rem.packages && rem.packages.length) {
+            html += '<div class="wizard-alternatives">';
+            for (const pkg of rem.packages) {
+                html += '<div class="wizard-alt-item">';
+                html += `<div class="wizard-alt-header">❌ <strong>${esc(pkg.package)}</strong>`;
+                if (pkg.current_version) html += ` ${esc(pkg.current_version)}`;
+                if (pkg.constraint) html += ` <span class="plan-preview-tag">${esc(pkg.constraint)}</span>`;
+                html += '</div>';
+
+                if (pkg.alternatives && pkg.alternatives.length) {
+                    html += '<div class="wizard-alt-options">';
+                    for (const alt of pkg.alternatives) {
+                        html += `<div class="wizard-alt-option">→ <strong>${esc(alt.version)}</strong>`;
+                        if (alt.constraint) html += ` <span class="plan-preview-tag">${esc(alt.constraint)}</span>`;
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                } else {
+                    html += '<div class="wizard-alt-none">No compatible versions found</div>';
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        // Per-package version selector (for "use compatible versions")
+        if (rem.packages && rem.packages.some(p => p.alternatives && p.alternatives.length)) {
+            html += '<div class="wizard-rem-selectors">';
+            html += `<div style="font-weight:600;margin-bottom:0.4rem;font-size:0.85rem">Select compatible versions:</div>`;
+            for (const pkg of rem.packages) {
+                if (!pkg.alternatives || !pkg.alternatives.length) continue;
+                html += `<div class="wizard-rem-selector">`;
+                html += `<label>${esc(pkg.package)}</label>`;
+                html += `<select id="rem-ver-${esc(pkg.package)}" style="padding:0.3rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.8rem">`;
+                for (const alt of pkg.alternatives) {
+                    html += `<option value="${esc(alt.version)}">${esc(alt.version)} (${esc(alt.constraint)})</option>`;
+                }
+                html += `</select>`;
+                html += `</div>`;
+            }
+            html += '</div>';
+        }
+
+        // Find the highest minimum across all incompatible deps (for "raise target")
+        let suggestedTarget = '';
+        for (const pkg of (rem.packages || [])) {
+            const c = pkg.constraint || '';
+            const m = c.match(/>=\s*(\d+(?:\.\d+)*)/);
+            if (m) {
+                if (!suggestedTarget || m[1] > suggestedTarget) suggestedTarget = m[1];
+            }
+        }
+
+        // Store package names for the apply button
+        const pkgNames = (rem.packages || [])
+            .filter(p => p.alternatives && p.alternatives.length)
+            .map(p => p.package);
+        html += `<div style="margin-top:0.5rem">`;
+        if (pkgNames.length) {
+            html += `<button class="btn btn-sm btn-primary" style="margin-right:0.5rem" onclick="wizardApplyVersions('${esc(moduleName)}')">📦 Pin selected versions</button>`;
+        }
+        if (suggestedTarget) {
+            html += `<button class="btn btn-sm btn-primary" style="margin-right:0.5rem" onclick="wizardRaiseTarget('${esc(moduleName)}','${esc(suggestedTarget)}')">🎯 Raise target to ${esc(suggestedTarget)}</button>`;
+        }
+        html += `<button class="btn btn-sm btn-ghost" onclick="modalClose()">Skip</button>`;
+        html += `</div>`;
+        return html;
+    }
+
+    window.wizardApplyVersions = async function(moduleName) {
+        // Collect selected versions from dropdowns
+        const pins = {};
+        document.querySelectorAll('[id^="rem-ver-"]').forEach(function(sel) {
+            const pkg = sel.id.replace('rem-ver-', '');
+            pins[pkg] = sel.value;
+        });
+
+        if (!Object.keys(pins).length) {
+            toast('⚠️ No versions selected', 'warning');
+            return;
+        }
+
+        try {
+            const resp = await fetch('/api/posture/module-pin-deps', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, pins: pins }),
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                toast('📦 ' + (data.summary || 'Versions pinned'), 'success');
+                modalClose();
+                _refreshPlanState();
+            } else {
+                toast('⚠️ ' + (data.error || 'Failed to pin versions'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    window.wizardRaiseTarget = async function(moduleName, newTarget) {
+        try {
+            const resp = await fetch('/api/posture/module-plan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, target_floor: newTarget, target_date: '' }),
+            });
+            if (resp.ok) {
+                toast('🎯 Plan target raised to ≥' + newTarget + ' — new checklist generated', 'success');
+                modalClose(); // close wizard
+                modalClose(); // close plan modal
+                if (typeof postureRescan === 'function') postureRescan();
+                moduleOpenPlanDirect(moduleName);
+            } else {
+                const data = await resp.json();
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
 
     async function _wizardMarkDone(moduleName, stepId, stepIndex) {
         // Mark the step done via the execute endpoint
