@@ -41,6 +41,7 @@ class ModuleVersionPlanStep(BaseModel):
 
     label: str
     description: str = ""
+    done: bool = False
 
 
 class ModuleVersionPlan(BaseModel):

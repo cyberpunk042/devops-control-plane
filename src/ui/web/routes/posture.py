@@ -392,7 +392,7 @@ def _enrich_posture_actions(posture_dict: dict) -> None:
                     "overdue": is_plan_overdue(plan.date) if plan.date else False,
                     "met": is_plan_met(plan.target, eff_raw),
                     "checklist": [
-                        {"label": s.label, "description": s.description}
+                        {"label": s.label, "description": s.description, "done": s.done}
                         for s in (plan.checklist or [])
                     ],
                 }
@@ -945,19 +945,16 @@ def posture_module_plan():  # type: ignore[no-untyped-def]
 
 @posture_bp.route("/posture/module-plan-detail")
 def posture_module_plan_detail():  # type: ignore[no-untyped-def]
-    """Get plan + progress merged for a module.
+    """Get full plan detail for a module.
 
     Query: ?module=core
-    Returns plan from project.yml + progress from .state/version-plans/.
+    Returns plan from project.yml with checklist steps and their done status.
     """
     module_name = request.args.get("module", "")
     if not module_name:
         return jsonify({"error": "module required"}), 400
 
     try:
-        import json
-        from pathlib import Path as _Path
-
         from src.core.config.loader import load_project
 
         project = load_project()
@@ -969,17 +966,11 @@ def posture_module_plan_detail():  # type: ignore[no-untyped-def]
         result = {
             "target": plan.target,
             "date": plan.date,
-            "checklist": [{"label": s.label, "description": s.description} for s in plan.checklist],
+            "checklist": [
+                {"label": s.label, "description": s.description, "done": s.done}
+                for s in plan.checklist
+            ],
         }
-
-        # Load progress from .state/
-        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
-        progress_path = project_root / ".state" / "version-plans" / f"{module_name}.json"
-        progress = {}
-        if progress_path.is_file():
-            progress = json.loads(progress_path.read_text(encoding="utf-8")).get("progress", {})
-
-        result["progress"] = progress
         return jsonify(result)
 
     except Exception as exc:
@@ -991,7 +982,7 @@ def posture_module_plan_progress():  # type: ignore[no-untyped-def]
     """Toggle a plan step's done status.
 
     Body: {module, step_index, done}
-    Writes to .state/version-plans/{module}.json.
+    Updates the checklist step's done field in project.yml.
     """
     body = request.get_json(silent=True) or {}
     module_name = body.get("module", "")
@@ -1002,35 +993,41 @@ def posture_module_plan_progress():  # type: ignore[no-untyped-def]
         return jsonify({"error": "module and step_index required"}), 400
 
     try:
-        import json
-        from datetime import UTC, datetime
-        from pathlib import Path as _Path
+        import yaml
+        from src.core.config.loader import find_project_file
 
-        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
-        progress_dir = project_root / ".state" / "version-plans"
-        progress_dir.mkdir(parents=True, exist_ok=True)
-        progress_path = progress_dir / f"{module_name}.json"
+        config_path = find_project_file()
+        if not config_path:
+            return jsonify({"error": "project.yml not found"}), 404
 
-        data = {}
-        if progress_path.is_file():
-            data = json.loads(progress_path.read_text(encoding="utf-8"))
+        raw = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw)
+        project_data = data.get("project", data) if "project" in data else data
 
-        data.setdefault("module", module_name)
-        data.setdefault("progress", {})
+        found = False
+        for mod in project_data.get("modules", []):
+            if mod.get("name") == module_name:
+                plan = mod.get("version_plan")
+                if not plan or "checklist" not in plan:
+                    return jsonify({"error": "no checklist found"}), 404
+                idx = int(step_index)
+                if 0 <= idx < len(plan["checklist"]):
+                    plan["checklist"][idx]["done"] = done
+                    found = True
+                else:
+                    return jsonify({"error": "step_index out of range"}), 400
+                break
 
-        key = str(step_index)
-        if done:
-            data["progress"][key] = {
-                "done": True,
-                "completed_at": datetime.now(UTC).isoformat(),
-            }
-        else:
-            data["progress"][key] = {"done": False}
+        if not found:
+            return jsonify({"error": f"module '{module_name}' not found"}), 404
 
-        progress_path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        config_path.write_text(
+            yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
         )
+
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
 
         return jsonify({"ok": True, "step_index": step_index, "done": done})
 

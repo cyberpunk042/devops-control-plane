@@ -1596,18 +1596,18 @@
         const met = plan.met;
         const overdue = plan.overdue;
 
-        // Load progress from API
-        let progress = {};
+        // Load fresh plan data from API (checklist has done flags)
+        let freshChecklist = checklist;
         try {
             const resp = await fetch('/api/posture/module-plan-detail?module=' + encodeURIComponent(moduleName));
             if (resp.ok) {
                 const data = await resp.json();
-                progress = data.progress || {};
+                if (data.checklist) freshChecklist = data.checklist;
             }
-        } catch (e) { /* no progress data available */ }
+        } catch (e) { /* use enrichment data as fallback */ }
 
-        const doneCount = Object.values(progress).filter(p => p && p.done).length;
-        const totalCount = checklist.length || 1;
+        const doneCount = freshChecklist.filter(s => s.done).length;
+        const totalCount = freshChecklist.length || 1;
         const pct = Math.round((doneCount / totalCount) * 100);
 
         let body = '';
@@ -1630,15 +1630,13 @@
 
         // Checklist
         body += '<div id="plan-checklist">';
-        for (let i = 0; i < checklist.length; i++) {
-            const step = checklist[i];
-            const done = progress[String(i)] && progress[String(i)].done;
-            const completedAt = done && progress[String(i)].completed_at ? progress[String(i)].completed_at.split('T')[0] : '';
+        for (let i = 0; i < freshChecklist.length; i++) {
+            const step = freshChecklist[i];
+            const done = step.done || false;
             body += `<div class="plan-step ${done ? 'done' : ''}">
                 <input type="checkbox" class="plan-step-check" ${done ? 'checked' : ''}
                     onchange="modulePlanToggleStep('${esc(moduleName)}',${i},this.checked)">
                 <div class="plan-step-label">${esc(step.label)}</div>
-                ${completedAt ? `<div class="plan-step-date">${esc(completedAt)}</div>` : ''}
                 <div class="plan-step-remove" onclick="modulePlanRemoveStep('${esc(moduleName)}',${i})" title="Remove step">✕</div>
             </div>`;
         }
