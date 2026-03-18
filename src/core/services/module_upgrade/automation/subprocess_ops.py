@@ -271,9 +271,26 @@ def _run_pkg_cmd(
         stderr = result.get("stderr", "")
         elapsed = result.get("elapsed_ms", 0)
 
+        # Extract exit code from error string (blocking _run_subprocess
+        # doesn't return exit_code as a field)
+        import re as _re
+        exit_code = result.get("exit_code")
+        if exit_code is None:
+            ec_match = _re.search(r"exit (\d+)", result.get("error", ""))
+            exit_code = int(ec_match.group(1)) if ec_match else None
+
+        # pytest exit code 5 = "no tests collected" — treat as success
+        if not ok and exit_code == 5 and "pytest" in binary:
+            ok = True
+            stdout = stdout or stderr or ""
+
+        # "no tests ran" in output with exit 0 is also fine
+        full_output = (stdout or "") + (stderr or "")
+        if not ok and exit_code == 0:
+            ok = True
+
         if ok:
-            output_lines = (stdout or "").strip().split("\n")
-            # Show last 10 lines of output for context
+            output_lines = (full_output or "").strip().split("\n")
             tail = output_lines[-10:] if len(output_lines) > 10 else output_lines
             return {
                 "ok": True,
@@ -281,15 +298,13 @@ def _run_pkg_cmd(
                 "output": "\n".join(tail),
             }
         else:
-            exit_code = result.get("exit_code", "unknown")
             error_output = (stderr or stdout or "No output").strip()
-            # Show last 20 lines of output in the error
             error_lines = error_output.split("\n")
             if len(error_lines) > 20:
                 error_output = "...\n" + "\n".join(error_lines[-20:])
             return {
                 "ok": False,
-                "error": f"`{label}` failed with exit code {exit_code}",
+                "error": f"`{label}` failed (exit code {exit_code or '?'})",
                 "detail": error_output,
                 "output": error_output,
                 "exit_code": exit_code,

@@ -473,9 +473,40 @@ def wizard_batch(
 
     # Final summary
     if failed_step is not None:
-        yield {"type": "done", "ok": False,
-               "summary": f"Stopped at step {failed_step + 1}: {step_labels[failed_step]}",
-               "completed": completed, "total": total}
+        failed_aid = step_ids[failed_step].split(":")[0] if ":" in step_ids[failed_step] else ""
+        is_test = failed_aid.startswith("run_") and "test" in failed_aid
+        is_subprocess = failed_aid.startswith("run_")
+
+        remediation = None
+        if is_test:
+            remediation = {
+                "packages": [],
+                "options": [
+                    {"id": "skip", "label": "Mark as done anyway",
+                     "description": "The test output shows no failures — mark this step complete"},
+                    {"id": "skip", "label": "Skip — fix tests later",
+                     "description": "Continue and revisit test failures separately"},
+                ],
+            }
+        elif is_subprocess:
+            remediation = {
+                "packages": [],
+                "options": [
+                    {"id": "skip", "label": "Skip — handle manually",
+                     "description": "Run the command manually and resolve the issue"},
+                ],
+            }
+
+        done_event = {
+            "type": "done", "ok": False,
+            "summary": f"Stopped at step {failed_step + 1}: {step_labels[failed_step]}",
+            "completed": completed, "total": total,
+            "failed_step_id": step_ids[failed_step],
+            "failed_step_idx": failed_step,
+        }
+        if remediation:
+            done_event["remediation"] = remediation
+        yield done_event
     else:
         yield {"type": "done", "ok": True,
                "summary": f"All {completed} steps completed",

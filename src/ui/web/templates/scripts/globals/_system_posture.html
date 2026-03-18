@@ -2306,13 +2306,20 @@
         const pkgNames = (rem.packages || [])
             .filter(p => p.alternatives && p.alternatives.length)
             .map(p => p.package);
-        html += `<div style="margin-top:0.5rem">`;
+        html += `<div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.4rem">`;
+        // Pin versions button (only if we have alternatives to pin)
         if (pkgNames.length) {
-            html += `<button class="btn btn-sm btn-primary" style="margin-right:0.5rem" onclick="wizardApplyVersions('${esc(moduleName)}')">📦 Pin selected versions</button>`;
+            html += `<button class="btn btn-sm btn-primary" onclick="wizardApplyVersions('${esc(moduleName)}')">📦 Pin selected versions</button>`;
         }
+        // Raise target button (only if we computed a suggested target)
         if (suggestedTarget) {
-            html += `<button class="btn btn-sm btn-primary" style="margin-right:0.5rem" onclick="wizardRaiseTarget('${esc(moduleName)}','${esc(suggestedTarget)}')">🎯 Raise target to ${esc(suggestedTarget)}</button>`;
+            html += `<button class="btn btn-sm btn-primary" onclick="wizardRaiseTarget('${esc(moduleName)}','${esc(suggestedTarget)}')">🎯 Raise target to ${esc(suggestedTarget)}</button>`;
         }
+        // "Mark as done" button — marks the failed step done and closes
+        if (rem.options && rem.options.some(o => o.label && o.label.includes('done anyway'))) {
+            html += `<button class="btn btn-sm btn-primary" onclick="_wizardMarkRemDone();modalClose()">✅ Mark as done</button>`;
+        }
+        // Skip always available
         html += `<button class="btn btn-sm btn-ghost" onclick="modalClose()">Skip</button>`;
         html += `</div>`;
         return html;
