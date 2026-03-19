@@ -560,10 +560,30 @@ def wizard_batch(
                     if detail_line.strip():
                         yield {"type": "log", "step": idx, "line": f"  {detail_line}"}
 
-        if ok:
+        # Read-only steps with findings should NOT be marked done
+        # (user needs to act on them before proceeding)
+        step_not_done = False
+        if ok and result.get("can_apply") is False and findings:
+            step_not_done = True
+        elif ok and findings:
+            # Findings without "compatible" field → not a dep-check → block
+            has_non_dep = any(
+                not f.get("compatible") and not f.get("unknown")
+                for f in findings
+            )
+            if has_non_dep:
+                step_not_done = True
+
+        if ok and not step_not_done:
             _mark_step_done(ctx.module_name, step_id)
             yield {"type": "step_done", "step": idx, "elapsed_ms": elapsed,
                    "step_id": step_id}
+            completed += 1
+        elif step_not_done:
+            yield {"type": "log", "step": idx,
+                   "line": "⚠️ Step needs attention — not marked done"}
+            yield {"type": "step_done", "step": idx, "elapsed_ms": elapsed,
+                   "step_id": step_id, "needs_attention": True}
             completed += 1
         else:
             error_msg = result.get("error", "Step failed")

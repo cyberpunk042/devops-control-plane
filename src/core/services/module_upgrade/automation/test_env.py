@@ -267,11 +267,13 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
         return {
             "ok": True,
             "can_apply": True,
-            "preview_type": "diff",
+            "preview_type": "info",
             "summary": f"Run pytest on Python {target}",
-            "file": str(tests_dir.relative_to(ctx.project_root)),
-            "old_value": f"$ cd {ctx.module_path}",
-            "new_value": f"$ {venv_python} -m pytest tests/ -v",
+            "detail": (
+                f"Will execute the test suite using the Python {target} venv.\n"
+                f"Venv: .venvs/{ctx.module_name}-{target}/\n"
+                f"Tests: {tests_dir.relative_to(ctx.project_root)}/"
+            ),
         }
 
     # Execute

@@ -66,11 +66,12 @@ def execute_step(
 
     ctx = build_context(module_name, target, project_root)
 
-    # ── Smart state: auto-skip if artifact already exists ───────
+    # ── Smart state: skip handler if artifact already exists ─────
+    # Returns a clean ok result (no findings) so the normal
+    # mark-done flow handles it — preserves already-done steps.
     if mode == "execute":
         skip = _check_already_done(automation_id, ctx)
         if skip:
-            _mark_step_done(module_name, step_id)
             return skip
 
     # ── Execute handler ──────────────────────────────────────────
@@ -93,17 +94,26 @@ def execute_step(
         return {"ok": False, "error": f"Automation failed: {exc}"}
 
     # ── Mark done on successful execute ──────────────────────────
-    # BUT: dep checkers with incompatible findings are NOT done
+    # Read-only steps (can_apply=False) with findings are NOT done —
+    # they showed the user something that needs attention.
+    # Dep checkers with incompatible findings are NOT done.
+    # Steps with findings lacking "compatible" field are NOT done.
     if mode == "execute" and result.get("ok"):
         findings = result.get("findings", [])
-        has_incompatible = any(
-            not f.get("compatible") and not f.get("unknown")
-            for f in findings
-        ) if findings else False
 
-        if has_incompatible:
-            result["ok"] = True  # the check itself succeeded
-            result["step_not_done"] = True  # but the step needs attention
+        # Read-only step with findings → not done (user needs to act)
+        if result.get("can_apply") is False and findings:
+            result["step_not_done"] = True
+        elif findings:
+            has_incompatible = any(
+                not f.get("compatible") and not f.get("unknown")
+                for f in findings
+            )
+            if has_incompatible:
+                result["ok"] = True  # the check itself succeeded
+                result["step_not_done"] = True  # but the step needs attention
+            else:
+                _mark_step_done(module_name, step_id)
         else:
             _mark_step_done(module_name, step_id)
 

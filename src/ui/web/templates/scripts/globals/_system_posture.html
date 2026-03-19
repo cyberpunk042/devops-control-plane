@@ -1816,8 +1816,13 @@
 
         // Streaming steps — use wizard modal with SSE
         // (but NOT run_isolated_tests / setup_test_env — those are handlers, not subprocesses)
-        if (aid.startsWith('run_') && aid !== 'run_isolated_tests') {
+        if (aid.startsWith('run_') && aid !== 'run_isolated_tests' && aid !== 'setup_test_env') {
             return _openStepModal(moduleName, stepId, stepIndex, 'subprocess');
+        }
+
+        // run_isolated_tests — execute directly, no preview step
+        if (aid === 'run_isolated_tests') {
+            return _modalApplyStep(moduleName, stepId, stepIndex);
         }
         if (aid.startsWith('check_dep_compat_') || aid.startsWith('update_deps_')) {
             return _openStepModal(moduleName, stepId, stepIndex, 'dep_scan');
