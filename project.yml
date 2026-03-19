@@ -61,33 +61,42 @@ modules:
     - label: Install pinned dependency versions
       description: Run pip install to apply the version constraints from requirements.txt
       id: run_pip_install:a0b91f99
+      done: true
     - label: Update CI pipeline to include Python 3.8
       description: Add Python 3.8 to CI test matrix to ensure ongoing compatibility
       id: update_ci_matrix:8254cd35
+      done: true
     - label: Scaffold module test structure
       description: Generate test files (smoke tests, import checks, conftest) if none
         exist
       id: scaffold_module_tests:f7464fa9
+      done: true
     - label: Generate compatibility tests
       description: Auto-generate import verification, API, version floor, and dependency
         tests
       id: generate_smart_tests:20aa5daa
+      done: true
     - label: Add integration tests to parent tests/ directory
       description: Generate a test file in the root tests/ that verifies this module
         works at project level
       id: scaffold_parent_tests:8e425cc7
+      done: true
     - label: Set up test environment for Python 3.8
       description: Create a venv with the target Python version and install dependencies
       id: setup_test_env:054d2bf4
+      done: true
     - label: Run isolated tests on Python 3.8
       description: Execute the module test suite using the target Python venv
       id: run_isolated_tests:3293dc6c
+      done: true
     - label: Re-scan module and verify new floor
       description: Confirm the platform detects the updated floor after all changes
       id: rescan_module:df9a68e9
+      done: true
     - label: Run test suite against Python 3.8
       description: Verify all tests pass on the target version
       id: manual:fcdc20c3
+      done: true
 - description: Flask admin web interface
   domain: ops
   name: web

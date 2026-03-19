@@ -2123,15 +2123,17 @@
             bar.nextElementSibling.textContent = `${doneCount}/${total} (${pct}%)`;
         }
 
-        // ── All done? Show completion summary ────────────────────
+        // ── All done? Show completion summary at BOTTOM ────────────
         const completionEl = document.getElementById('plan-completion-banner');
-        if (doneCount === total && total > 0) {
+        const allDone = doneCount === total && total > 0;
+        if (allDone) {
             if (!completionEl) {
-                const barParent = bar ? bar.parentElement : null;
-                if (barParent) {
+                const checklist = document.getElementById('plan-checklist');
+                if (checklist) {
                     const banner = document.createElement('div');
                     banner.id = 'plan-completion-banner';
-                    barParent.parentElement.insertBefore(banner, barParent.nextSibling);
+                    // Insert after the checklist
+                    checklist.parentElement.insertBefore(banner, checklist.nextSibling);
                 }
             }
             const cel = document.getElementById('plan-completion-banner');
@@ -2144,6 +2146,18 @@
         } else if (completionEl) {
             completionEl.style.display = 'none';
             if (completionEl.dataset.loaded) delete completionEl.dataset.loaded;
+        }
+
+        // ── Footer button: "Finish plan" when all done ───────────
+        const footerDanger = document.querySelector('.modal-footer .btn-danger');
+        if (footerDanger) {
+            if (allDone) {
+                footerDanger.textContent = '✅ Finish plan';
+                footerDanger.className = footerDanger.className.replace('btn-danger', 'btn-primary');
+            } else {
+                footerDanger.textContent = '❌ Clear plan';
+                footerDanger.className = footerDanger.className.replace('btn-primary', 'btn-danger');
+            }
         }
 
         // ── Batch button: find next contiguous chunk of automatable undone steps

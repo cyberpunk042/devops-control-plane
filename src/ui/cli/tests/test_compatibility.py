@@ -90,6 +90,7 @@ def test_python_version_floor():
 
 _DECLARED_DEPS = [
     "click",
+    "pytest",
 ]
 
 
