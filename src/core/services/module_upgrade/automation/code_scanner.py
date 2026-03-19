@@ -143,9 +143,19 @@ def handle_add_future_annotations(ctx: UpgradeContext, mode: str) -> dict:
         re.compile(r"\b(?:list|dict|set|tuple|frozenset)\[", re.MULTILINE),  # builtin generics
     ]
 
+    # Import the string stripper to avoid false positives from docstrings
+    try:
+        from src.core.services.system_posture.bridges.module_intel import (
+            _strip_strings_and_comments,
+        )
+    except ImportError:
+        _strip_strings_and_comments = None
+
     files_needing_future: list[dict] = []
 
     for py_file in sorted(module_dir.rglob("*.py")):
+        if "__pycache__" in str(py_file):
+            continue
         try:
             content = py_file.read_text(encoding="utf-8", errors="ignore")
         except OSError:
@@ -155,9 +165,12 @@ def handle_add_future_annotations(ctx: UpgradeContext, mode: str) -> dict:
         if _FUTURE_IMPORT_RE.search(content):
             continue
 
-        # Check if any annotation pattern is used
+        # Strip strings/comments to avoid false positives
+        check_content = _strip_strings_and_comments(content) if _strip_strings_and_comments else content
+
+        # Check if any annotation pattern is used (in stripped content)
         for pattern in annotation_patterns:
-            if pattern.search(content):
+            if pattern.search(check_content):
                 rel_path = str(py_file.relative_to(ctx.project_root))
                 files_needing_future.append({"file": rel_path})
                 break

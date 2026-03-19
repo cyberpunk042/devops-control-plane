@@ -385,19 +385,45 @@ def wizard_batch(
         elif findings:
             # Code scanner: findings have {file, line, feature, version}
             # Classify: annotation features (fixable with __future__) vs runtime (unfixable)
-            _ANNOTATION_FEATURES = {"builtin generics (runtime)", "union type X | Y (runtime)"}
-            annotation_findings = [f for f in findings if f.get("feature") in _ANNOTATION_FEATURES]
-            runtime_findings = [f for f in findings if f.get("feature") not in _ANNOTATION_FEATURES]
+            # BUT: annotation features in files that already have __future__ are FALSE POSITIVES
+            # (compute_code_floor should not return them, but filter here as safety net)
+            _ANNOTATION_FEATURE_NAMES = {"builtin generics (runtime)", "union type X | Y (runtime)"}
+            _future_re = re.compile(r"^from\s+__future__\s+import\s+annotations", re.MULTILINE)
 
-            yield {"type": "log", "step": idx, "line": f"  {len(findings)} finding(s)"}
-            for f in findings[:8]:
-                file_ref = f.get("file", "")
-                if f.get("line"):
-                    file_ref += f":{f['line']}"
-                fixable = "🔧" if f.get("feature") in _ANNOTATION_FEATURES else "⚠️"
-                yield {"type": "log", "step": idx, "line": f"  {fixable} {file_ref} — {f.get('feature', '')} ({f.get('version', '')}+)"}
-            if len(findings) > 8:
-                yield {"type": "log", "step": idx, "line": f"  ...and {len(findings) - 8} more"}
+            def _file_has_future(file_path):
+                try:
+                    content = (ctx.project_root / file_path).read_text(encoding="utf-8", errors="ignore")
+                    return bool(_future_re.search(content))
+                except OSError:
+                    return False
+
+            # Filter out annotation findings in files that already have __future__
+            real_findings = []
+            for f in findings:
+                if f.get("feature") in _ANNOTATION_FEATURE_NAMES and _file_has_future(f.get("file", "")):
+                    continue  # false positive — file already has __future__
+                real_findings.append(f)
+
+            if not real_findings:
+                yield {"type": "log", "step": idx, "line": f"  {len(findings)} finding(s) — all in files with __future__ (no action needed)"}
+                findings = []
+                annotation_findings = []
+                runtime_findings = []
+                incompat = 0
+            else:
+                findings = real_findings
+                annotation_findings = [f for f in findings if f.get("feature") in _ANNOTATION_FEATURE_NAMES]
+                runtime_findings = [f for f in findings if f.get("feature") not in _ANNOTATION_FEATURE_NAMES]
+
+                yield {"type": "log", "step": idx, "line": f"  {len(findings)} finding(s)"}
+                for f in findings[:8]:
+                    file_ref = f.get("file", "")
+                    if f.get("line"):
+                        file_ref += f":{f['line']}"
+                    fixable = "🔧" if f.get("feature") in _ANNOTATION_FEATURE_NAMES else "⚠️"
+                    yield {"type": "log", "step": idx, "line": f"  {fixable} {file_ref} — {f.get('feature', '')} ({f.get('version', '')}+)"}
+                if len(findings) > 8:
+                    yield {"type": "log", "step": idx, "line": f"  ...and {len(findings) - 8} more"}
 
             # Check if any findings are above the target version
             from .dep_checker import _parse_version
