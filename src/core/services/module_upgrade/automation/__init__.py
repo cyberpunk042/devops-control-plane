@@ -57,6 +57,7 @@ def get_handler_registry() -> dict:
         handle_generate_smart_tests,
         handle_rescan_module,
         handle_scaffold_module_tests,
+        handle_scaffold_parent_tests,
     )
     from .test_env import handle_run_isolated_tests, handle_setup_test_env
     from .subprocess_ops import (
@@ -152,6 +153,7 @@ def get_handler_registry() -> dict:
         "rescan_module": handle_rescan_module,
         # ── Test scaffolding & isolation ──────────────────────────
         "scaffold_module_tests": handle_scaffold_module_tests,
+        "scaffold_parent_tests": handle_scaffold_parent_tests,
         "generate_smart_tests": handle_generate_smart_tests,
         "setup_test_env": handle_setup_test_env,
         "run_isolated_tests": handle_run_isolated_tests,

@@ -9,6 +9,7 @@ build/
 *.egg
 
 # ── Virtual environments ────────────────────────────────────────────
+.venvs/
 .venv/
 .venv-ft/
 venv/

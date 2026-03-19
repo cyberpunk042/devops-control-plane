@@ -1816,6 +1816,14 @@
             return modulePlanWizard(moduleName, stepId, stepIndex, 'dep_scan');
         }
 
+        // Route modal steps to their dedicated modals
+        if (aid === 'scaffold_module_tests' || aid === 'scaffold_parent_tests') {
+            return moduleScaffoldTests(moduleName);
+        }
+        if (aid === 'generate_module_toml') {
+            return moduleGenerateToml(moduleName);
+        }
+
         // Everything else: inline preview
         const previewEl = document.getElementById('plan-preview-' + stepIndex);
         if (!previewEl) return;
@@ -2174,6 +2182,24 @@
         } catch (e) { toast('❌ ' + e.message, 'error'); }
     }
 
+    // Steps that need user interaction — excluded from blind batch execution.
+    // These open modals, wizards, or need confirmation before running.
+    function _isInteractiveStep(aid) {
+        if (!aid) return false;
+        // Wizard steps (streaming)
+        if (aid.startsWith('run_')) return true;
+        if (aid.startsWith('check_dep_compat_')) return true;
+        if (aid.startsWith('update_deps')) return true;
+        // Modal steps (choices/preview)
+        if (aid === 'scaffold_module_tests') return true;
+        if (aid === 'scaffold_parent_tests') return true;
+        if (aid === 'generate_module_toml') return true;
+        if (aid === 'generate_smart_tests') return true;
+        if (aid === 'setup_test_env') return true;
+        if (aid === 'guide_incompatible_syntax') return true;
+        return false;
+    }
+
     function _refreshPlanState() {
         const steps = document.querySelectorAll('#plan-checklist .plan-step');
         const total = steps.length || 1;
@@ -2254,13 +2280,16 @@
             const stepEl = steps[i];
             if (stepEl.classList.contains('done')) continue;
 
+            const stepId = stepEl.getAttribute('data-step-id') || '';
+            const aid = stepId.split(':')[0];
             const autoBtn = stepEl.querySelector('.plan-step-auto');
             const hasBtn = autoBtn && autoBtn.style.display !== 'none';
 
-            if (hasBtn) {
+            if (hasBtn && !_isInteractiveStep(aid)) {
+                // Non-interactive automatable step — batch-eligible
                 batchIndices.push(i);
             } else {
-                // Manual undone step — this is a blocker
+                // Manual, interactive, or no button — this is a blocker
                 if (batchIndices.length > 0) break; // found batch, stop
                 // else keep scanning past this blocker
             }

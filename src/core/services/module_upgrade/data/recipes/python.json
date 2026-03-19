@@ -188,6 +188,17 @@
       }
     },
     {
+      "label": "Add integration tests to parent tests/ directory",
+      "description": "Generate a test file in the root tests/ that verifies this module works at project level",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "scaffold_parent_tests",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
       "label": "Set up test environment for Python {target}",
       "description": "Create a venv with the target Python version and install dependencies",
       "category": "test",
@@ -339,6 +350,17 @@
       "category": "test",
       "automatable": true,
       "automation_id": "generate_smart_tests",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Add integration tests to parent tests/ directory",
+      "description": "Generate a test file in the root tests/ that verifies this module works at project level",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "scaffold_parent_tests",
       "risk": "low",
       "condition": {
         "always": true
