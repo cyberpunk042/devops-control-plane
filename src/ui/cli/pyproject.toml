@@ -1,7 +1,9 @@
 [project]
 name = "cli"
 version = "0.1.0"
+description = "Click-based CLI interface"
 requires-python = ">=3.8"
 dependencies = [
     "click>=8.1.8",
+    "pytest>=8.3.5",
 ]

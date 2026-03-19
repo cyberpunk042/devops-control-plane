@@ -2538,8 +2538,55 @@
     }
 
     window.wizardRunPipInstall = function(moduleName, reqFile) {
-        _openStepModal(moduleName, 'run_pip_install:0000', -1, 'subprocess', {
-            title: '📦 Installing packages',
+        // Reuse the current modal's wizard elements — don't open a new modal
+        const stepsEl = document.getElementById('wizard-steps');
+        const logEl = document.getElementById('wizard-log');
+        const resultEl = document.getElementById('wizard-result');
+        if (stepsEl) stepsEl.innerHTML = '';
+        if (logEl) logEl.innerHTML = '';
+        if (resultEl) resultEl.innerHTML = '';
+
+        streamSSE('/api/posture/module-wizard', {
+            module: moduleName,
+            wizard_type: 'subprocess',
+            step_id: 'run_pip_install:0000',
+        }, {
+            onLog: function(line) {
+                if (!logEl) return;
+                const el = document.createElement('div');
+                el.className = 'wizard-log-line';
+                el.textContent = line;
+                logEl.appendChild(el);
+                logEl.scrollTop = logEl.scrollHeight;
+            },
+            onStepStart: function(event) {
+                if (!stepsEl) return;
+                const el = document.createElement('div');
+                el.className = 'wizard-step running';
+                el.id = 'wizard-pip-step-' + event.step;
+                el.innerHTML = `<span class="wizard-step-icon">⏳</span> <span class="wizard-step-label">${esc(event.label)}</span>`;
+                stepsEl.appendChild(el);
+            },
+            onStepDone: function(event) {
+                const el = document.getElementById('wizard-pip-step-' + event.step);
+                if (el) { el.className = 'wizard-step done'; el.querySelector('.wizard-step-icon').textContent = '✅'; }
+            },
+            onStepFailed: function(event) {
+                const el = document.getElementById('wizard-pip-step-' + event.step);
+                if (el) { el.className = 'wizard-step failed'; el.querySelector('.wizard-step-icon').textContent = '❌'; }
+            },
+            onDone: function(event) {
+                if (!resultEl) return;
+                if (event.ok) {
+                    resultEl.innerHTML = _adm('success', 'Packages installed', 'Rescan posture to see updated dependency floors.')
+                        + `<button class="btn btn-sm btn-primary" onclick="modalClose();if(typeof postureRescan==='function')postureRescan()">🔄 Rescan & Close</button>`;
+                } else {
+                    resultEl.innerHTML = _adm('danger', 'Install failed', esc(event.error || 'Unknown error'));
+                }
+            },
+            onError: function(msg) {
+                if (resultEl) resultEl.innerHTML = _adm('danger', 'Error', esc(msg));
+            },
         });
     };
 

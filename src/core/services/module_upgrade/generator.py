@@ -113,6 +113,7 @@ def generate_checklist(
     # ── Filter by conditions ─────────────────────────────────────
     steps: list[dict] = []
     seen_automation_ids: set[str] = set()
+    seen_categories: set[str] = set()
 
     for template in step_templates:
         condition = template.get("condition", {})
@@ -122,10 +123,13 @@ def generate_checklist(
         step = _materialize_step(template, ctx)
         steps.append(step)
 
-        # Track automation_ids for deduplication with common tail
+        # Track automation_ids and categories for deduplication with common tail
         aid = template.get("automation_id", "")
         if aid:
             seen_automation_ids.add(aid)
+        cat = template.get("category", "")
+        if cat:
+            seen_categories.add(cat)
 
     # ── Append common tail steps (deduplicated) ──────────────────
     common = _load_common_recipe()
@@ -138,6 +142,12 @@ def generate_checklist(
 
             # Skip if language recipe already includes this automation
             if aid and aid in seen_automation_ids:
+                continue
+
+            # Skip generic fallback steps (no automation_id) if the
+            # language recipe already covers this category
+            cat = template.get("category", "")
+            if not aid and cat and cat in seen_categories:
                 continue
 
             # Skip if label already present (for manual steps without automation_id)
