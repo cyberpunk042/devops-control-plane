@@ -646,9 +646,18 @@
             h += '<div class="mp-title">⚠️ Compatibility gap</div>';
             h += `<div class="mp-row warn">This module claims to support Python ${esc(declared)}+, but it actually needs <strong>${esc(effClean)}+</strong> to run.</div>`;
 
-            // Explain what drives the gap
-            const deps = item.deps_details || [];
-            const features = item.code_features || [];
+            // Explain what drives the gap — only show ACTUAL gap contributors
+            // (deps/features where their floor > declared floor)
+            const declaredClean = declared.replace('≥', '').trim();
+            const declaredParts = declaredClean.split('.').map(Number);
+            const deps = (item.deps_details || []).filter(d => {
+                const fp = (d.floor || '').split('.').map(Number);
+                return fp.length >= 2 && (fp[0] > declaredParts[0] || (fp[0] === declaredParts[0] && fp[1] > (declaredParts[1]||0)));
+            });
+            const features = (item.code_features || []).filter(f => {
+                const fp = (f.version || '').split('.').map(Number);
+                return fp.length >= 2 && (fp[0] > declaredParts[0] || (fp[0] === declaredParts[0] && fp[1] > (declaredParts[1]||0)));
+            });
 
             if (deps.length) {
                 const sorted = [...deps].sort((a,b) => {
@@ -656,13 +665,26 @@
                     const bv = (b.floor||'').split('.').map(Number);
                     return (bv[1]||0) - (av[1]||0);
                 });
-                h += `<div class="mp-muted" style="margin-top:0.3rem">• <strong>${esc(sorted[0].package)}</strong> requires Python ≥${esc(sorted[0].floor)}</div>`;
+                for (const d of sorted.slice(0, 3)) {
+                    h += `<div class="mp-muted" style="margin-top:0.3rem">• <strong>${esc(d.package)}</strong> requires Python ≥${esc(d.floor)}</div>`;
+                }
             }
             if (features.length) {
-                h += `<div class="mp-muted">• Code uses <strong>${esc(features[0].feature)}</strong> which needs Python ${esc(features[0].version)}+</div>`;
+                for (const f of features.slice(0, 3)) {
+                    h += `<div class="mp-muted">• Code uses <strong>${esc(f.feature)}</strong> which needs Python ${esc(f.version)}+</div>`;
+                }
             }
 
             h += `<div class="mp-row" style="margin-top:0.5rem">If someone tries to run this module on Python ${esc(declared)}, it will fail.</div>`;
+
+            // Consolidate EOL info if the effective floor has an EOL concern
+            if (eol && effClean !== declaredClean) {
+                h += `<div class="mp-muted" style="margin-top:0.3rem">Note: Python ${esc(effClean)} ${rank === 'outdated' ? 'reaches' : 'reached'} EOL ${esc(eol)}. Fixing the gap would change the EOL assessment.</div>`;
+            }
+
+            if (!deps.length && !features.length) {
+                h += `<div class="mp-muted" style="margin-top:0.3rem">All dependencies and code features are compatible with ${esc(declared)}. The gap may have been resolved — try rescanning.</div>`;
+            }
 
             if (item.version_note) {
                 h += '<div class="mp-divider"></div>';
@@ -1347,6 +1369,13 @@
         planContent += `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem" onclick="_remConfirmPlan('${esc(n)}')">📋 Create plan</button>`;
         h += _remOption('plan', '📋 Create a version upgrade plan', planContent);
 
+        // Generate pyproject.toml option
+        let tomlContent = '';
+        tomlContent += _adm('info', 'What this does',
+            `Generate a <code>pyproject.toml</code> for this module with the proper <code>requires-python</code> constraint and dependency declarations. Pre-filled from the stack and module config.`);
+        tomlContent += `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem" onclick="moduleGenerateToml('${esc(n)}')">📄 Generate pyproject.toml</button>`;
+        h += _remOption('toml', '📄 Generate module pyproject.toml', tomlContent);
+
         return h;
     }
 
@@ -2009,6 +2038,78 @@
     };
 
     // Central state refresh — called on EVERY state change (checkbox, apply, batch)
+    async function _loadPlanSummary(el) {
+        const moduleName = (document.getElementById('plan-batch-container') || {}).dataset?.module || '';
+        if (!moduleName) { el.innerHTML = _adm('success', 'All steps complete!', ''); return; }
+
+        // Fetch current posture for this module
+        try {
+            const resp = await fetch('/api/posture/module-plan-detail?module=' + encodeURIComponent(moduleName));
+            if (!resp.ok) throw new Error('Could not load plan');
+            const plan = await resp.json();
+
+            const target = plan.target || '?';
+            const steps = plan.checklist || [];
+
+            // Categorize completed steps
+            const cats = {};
+            for (const s of steps) {
+                const cat = s.category || 'other';
+                if (!cats[cat]) cats[cat] = [];
+                cats[cat].push(s.label);
+            }
+
+            let html = '';
+            html += _adm('success', '✅ All steps complete',
+                `All ${steps.length} steps for target Python ≥${esc(target)} have been completed.`);
+
+            // What was done by category
+            html += '<div style="font-size:0.82rem;margin:0.5rem 0">';
+            html += '<strong>What was done:</strong><ul style="margin:0.3rem 0;padding-left:1.2rem">';
+            const catLabels = {config:'Config', deps:'Dependencies', code:'Code', ci:'CI', test:'Testing', verify:'Verification'};
+            for (const [cat, items] of Object.entries(cats)) {
+                const label = catLabels[cat] || cat;
+                html += `<li><strong>${esc(label)}</strong>: ${items.length} step(s)</li>`;
+            }
+            html += '</ul></div>';
+
+            // Version note input
+            html += '<div style="margin-top:0.75rem">';
+            html += '<label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem">Add a note about this version decision:</label>';
+            html += `<textarea id="plan-completion-note" rows="2" style="width:100%;padding:0.4rem 0.6rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.82rem;resize:vertical" placeholder="e.g. Targeting 3.8 for broad compatibility. Deps pinned. Code uses __future__ for annotation compat."></textarea>`;
+            html += `<div style="margin-top:0.4rem;display:flex;gap:0.4rem">`;
+            html += `<button class="btn btn-sm btn-primary" onclick="_savePlanNote('${esc(moduleName)}')">💾 Save note</button>`;
+            html += `<button class="btn btn-sm btn-primary" onclick="moduleGenerateToml('${esc(moduleName)}')">📄 Generate pyproject.toml</button>`;
+            html += `</div>`;
+            html += '</div>';
+
+            el.innerHTML = html;
+        } catch (e) {
+            el.innerHTML = _adm('success', 'All steps complete!', 'Every step has been checked off.');
+        }
+    }
+
+    async function _savePlanNote(moduleName) {
+        const noteEl = document.getElementById('plan-completion-note');
+        const note = noteEl ? noteEl.value.trim() : '';
+        if (!note) { toast('⚠️ Enter a note first', 'warning'); return; }
+
+        try {
+            const resp = await fetch('/api/posture/module-note', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, version_note: note }),
+            });
+            if (resp.ok) {
+                toast('💾 Note saved', 'success');
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                const data = await resp.json();
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    }
+
     function _refreshPlanState() {
         const steps = document.querySelectorAll('#plan-checklist .plan-step');
         const total = steps.length || 1;
@@ -2050,25 +2151,27 @@
             bar.nextElementSibling.textContent = `${doneCount}/${total} (${pct}%)`;
         }
 
-        // ── All done? Show completion banner ────────────────────
+        // ── All done? Show completion summary ────────────────────
         const completionEl = document.getElementById('plan-completion-banner');
         if (doneCount === total && total > 0) {
-            if (completionEl) {
-                completionEl.style.display = 'block';
-            } else {
-                // Insert banner after progress bar
+            if (!completionEl) {
                 const barParent = bar ? bar.parentElement : null;
                 if (barParent) {
                     const banner = document.createElement('div');
                     banner.id = 'plan-completion-banner';
-                    banner.innerHTML = '<div class="adm adm-success"><div class="adm-icon">✅</div><div class="adm-content"><div class="adm-title">All steps complete!</div><div class="adm-body">Every step in this plan has been checked off. You can clear the plan or keep it as a record.</div></div></div>';
                     barParent.parentElement.insertBefore(banner, barParent.nextSibling);
                 }
             }
-            // Also trigger posture rescan
+            const cel = document.getElementById('plan-completion-banner');
+            if (cel && !cel.dataset.loaded) {
+                cel.dataset.loaded = '1';
+                _loadPlanSummary(cel);
+            }
+            if (cel) cel.style.display = 'block';
             if (typeof postureRescan === 'function') postureRescan();
         } else if (completionEl) {
             completionEl.style.display = 'none';
+            if (completionEl.dataset.loaded) delete completionEl.dataset.loaded;
         }
 
         // ── Batch button: find next automatable chunk ───────────
@@ -2334,6 +2437,10 @@
         if (pkgNames.length) {
             html += `<button class="btn btn-sm btn-primary" onclick="wizardApplyVersions('${esc(moduleName)}')">📦 Pin selected versions</button>`;
         }
+        // Add __future__ button (only if code files need it)
+        if (rem.code_files && rem.code_files.length) {
+            html += `<button class="btn btn-sm btn-primary" onclick="wizardAddFuture('${esc(moduleName)}')">🔧 Add __future__ to ${rem.code_files.length} file(s)</button>`;
+        }
         // Raise target button (only if we computed a suggested target)
         if (suggestedTarget) {
             html += `<button class="btn btn-sm btn-primary" onclick="wizardRaiseTarget('${esc(moduleName)}','${esc(suggestedTarget)}')">🎯 Raise target to ${esc(suggestedTarget)}</button>`;
@@ -2385,8 +2492,9 @@
                             'The version constraints have been updated in <code>' + esc(data.file || 'requirements.txt') + '</code>. '
                             + 'Run <code>pip install -r ' + esc(data.file || 'requirements.txt') + '</code> to actually install the compatible versions, '
                             + 'then rescan posture to see the updated dep floor.')
-                        + `<div style="margin-top:0.5rem;display:flex;gap:0.4rem">
+                        + `<div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.4rem">
                             <button class="btn btn-sm btn-primary" onclick="wizardRunPipInstall('${esc(moduleName)}','${esc(data.file || '')}')">📦 Install now</button>
+                            <button class="btn btn-sm btn-primary" onclick="moduleGenerateToml('${esc(moduleName)}')">📄 Generate pyproject.toml</button>
                             <button class="btn btn-sm btn-ghost" onclick="modalClose()">Close</button>
                         </div>`;
                 } else {
@@ -2504,6 +2612,169 @@
                 if (resultEl) resultEl.innerHTML = _adm('danger', 'Error', esc(msg));
             },
         });
+    };
+
+    window.moduleGenerateToml = async function(moduleName) {
+        // Fetch prefill data from backend
+        try {
+            const resp = await fetch('/api/posture/module-generate-toml', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, mode: 'preview' }),
+            });
+            const data = await resp.json();
+            if (!data.ok) { toast('⚠️ ' + (data.error || 'Failed'), 'error'); return; }
+
+            const pf = data.prefill || {};
+            const isNew = data.is_new;
+
+            let body = '';
+            body += _adm('info', isNew ? 'Create pyproject.toml' : 'Update pyproject.toml',
+                `${isNew ? 'Generate a new' : 'Update the existing'} <code>pyproject.toml</code> for this module. Fields are pre-filled from the stack and module config.`);
+
+            // Form fields
+            body += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin:0.5rem 0">';
+            body += _tomlField('Name', 'toml-name', pf.name || '');
+            body += _tomlField('Version', 'toml-version', pf.version || '0.1.0');
+            body += '</div>';
+            body += _tomlField('Description', 'toml-desc', pf.description || '', true);
+            body += _tomlField('Requires-Python', 'toml-requires-python', pf.requires_python || '', true);
+
+            // Dependencies (editable textarea)
+            const depsText = (pf.dependencies || []).join('\n');
+            body += '<div style="margin:0.5rem 0">';
+            body += '<label style="font-size:0.78rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:0.2rem">Dependencies (one per line)</label>';
+            body += `<textarea id="toml-deps" rows="5" style="width:100%;padding:0.4rem 0.6rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.8rem;font-family:var(--font-mono,monospace);resize:vertical">${esc(depsText)}</textarea>`;
+            body += '</div>';
+
+            // Preview
+            body += '<div style="margin:0.5rem 0">';
+            body += '<label style="font-size:0.78rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:0.2rem">Preview</label>';
+            body += `<pre id="toml-preview" style="padding:0.5rem 0.75rem;background:var(--bg-inset);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.78rem;max-height:200px;overflow-y:auto;white-space:pre-wrap">${esc(data.preview || '')}</pre>`;
+            body += '</div>';
+
+            // Update preview on input change
+            body += `<script>
+                (function() {
+                    const fields = ['toml-name','toml-version','toml-desc','toml-requires-python','toml-deps'];
+                    fields.forEach(function(id) {
+                        const el = document.getElementById(id);
+                        if (el) el.addEventListener('input', function() { _updateTomlPreview(); });
+                    });
+                })();
+            <\/script>`;
+
+            modalOpen({
+                title: '📄 ' + (isNew ? 'Generate' : 'Update') + ' pyproject.toml: ' + moduleName,
+                replace: false,
+                body: body,
+                size: 'lg',
+                footerButtons: [
+                    { label: '📄 Save', cls: 'btn-primary', onclick: "_saveToml('" + esc(moduleName) + "')" },
+                    { label: 'Cancel', onclick: 'modalClose()' },
+                ],
+            });
+
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    function _tomlField(label, id, value, fullWidth) {
+        return `<div style="${fullWidth ? 'margin:0.3rem 0' : ''}">
+            <label style="font-size:0.78rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:0.2rem">${label}</label>
+            <input id="${id}" type="text" value="${esc(value)}" style="width:100%;padding:0.35rem 0.6rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.82rem">
+        </div>`;
+    }
+
+    window._updateTomlPreview = function() {
+        const name = (document.getElementById('toml-name') || {}).value || '';
+        const version = (document.getElementById('toml-version') || {}).value || '';
+        const desc = (document.getElementById('toml-desc') || {}).value || '';
+        const reqPy = (document.getElementById('toml-requires-python') || {}).value || '';
+        const depsRaw = (document.getElementById('toml-deps') || {}).value || '';
+        const deps = depsRaw.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+
+        let lines = ['[project]'];
+        lines.push('name = "' + name + '"');
+        lines.push('version = "' + version + '"');
+        if (desc) lines.push('description = "' + desc + '"');
+        if (reqPy) lines.push('requires-python = "' + reqPy + '"');
+        if (deps.length) {
+            lines.push('dependencies = [');
+            for (const d of deps) lines.push('    "' + d + '",');
+            lines.push(']');
+        }
+
+        const pre = document.getElementById('toml-preview');
+        if (pre) pre.textContent = lines.join('\n');
+    };
+
+    window._saveToml = async function(moduleName) {
+        const name = (document.getElementById('toml-name') || {}).value || '';
+        const version = (document.getElementById('toml-version') || {}).value || '';
+        const desc = (document.getElementById('toml-desc') || {}).value || '';
+        const reqPy = (document.getElementById('toml-requires-python') || {}).value || '';
+        const depsRaw = (document.getElementById('toml-deps') || {}).value || '';
+        const deps = depsRaw.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+
+        try {
+            const resp = await fetch('/api/posture/module-generate-toml', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    module: moduleName, mode: 'save',
+                    name: name, version: version, description: desc,
+                    requires_python: reqPy, dependencies: deps,
+                }),
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                toast('📄 ' + (data.summary || 'pyproject.toml saved'), 'success');
+                modalClose();
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    window.wizardAddFuture = async function(moduleName) {
+        // Run the add_future_annotations handler via the executor
+        // Find the step_id for add_future_annotations in the plan
+        const steps = document.querySelectorAll('#plan-checklist .plan-step');
+        let futureStepId = '';
+        let futureStepIdx = -1;
+        for (let i = 0; i < steps.length; i++) {
+            const sid = steps[i].getAttribute('data-step-id') || '';
+            if (sid.startsWith('add_future_annotations:')) {
+                futureStepId = sid;
+                futureStepIdx = i;
+                break;
+            }
+        }
+
+        // If no dedicated step exists, run it directly via execute
+        const stepId = futureStepId || 'add_future_annotations:0000';
+        try {
+            const resp = await fetch('/api/posture/module-step-execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute' }),
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                toast('🔧 ' + (data.summary || '__future__ annotations added'), 'success');
+                // Mark the code scan step as done (it's been remediated)
+                _wizardMarkRemDone();
+                // Also mark the add_future step if it exists
+                if (futureStepIdx >= 0) {
+                    await _markStepDoneByIndex(moduleName, futureStepId, futureStepIdx);
+                }
+                modalClose();
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
     };
 
     window.wizardRaiseTarget = async function(moduleName, newTarget) {

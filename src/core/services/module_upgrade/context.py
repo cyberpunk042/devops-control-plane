@@ -204,10 +204,12 @@ def _compute_direction(current: str, target: str) -> str:
 
     if target_parts > current_parts:
         return "upgrade"
-    elif target_parts < current_parts:
-        return "downgrade"
     else:
-        return "upgrade"  # same version — treat as upgrade (re-verify)
+        # target <= current → downgrade/verify compatibility
+        # When target == current, the goal is to verify the module actually
+        # supports the declared floor. The downgrade recipe includes steps
+        # like add_future_annotations that fix compatibility issues.
+        return "downgrade"
 
 
 def _check_future_import(module_dir: Path) -> bool:

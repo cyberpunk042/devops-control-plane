@@ -22,9 +22,6 @@ modules:
   name: core
   path: src/core
   stack: python-lib
-  deferral:
-    until: '2023-01-01'
-    reason: fdsfdsfdsfdsfsd
   version_plan:
     target: '3.8'
     date: Now

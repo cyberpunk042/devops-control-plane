@@ -54,8 +54,8 @@
       }
     },
     {
-      "label": "Run test suite against Java {target}",
-      "description": "Verify all tests pass on the target version",
+      "label": "Run test suite (current JDK)",
+      "description": "Runs tests on your current runtime. To validate target compatibility, use CI with the target version or tox.",
       "category": "test",
       "automatable": true,
       "automation_id": "run_mvn_test",
@@ -111,8 +111,8 @@
       }
     },
     {
-      "label": "Run test suite against Java {target}",
-      "description": "Verify all tests pass on the target version",
+      "label": "Run test suite (current JDK)",
+      "description": "Runs tests on your current runtime. To validate target compatibility, use CI with the target version or tox.",
       "category": "test",
       "automatable": true,
       "automation_id": "run_mvn_test",

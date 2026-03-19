@@ -36,6 +36,7 @@ def get_handler_registry() -> dict:
         handle_edit_pyproject_requires_python,
         handle_edit_setup_cfg_python_requires,
         handle_edit_setup_py_python_requires,
+        handle_generate_module_toml,
     )
     from .dep_checker import (
         handle_check_dep_compat_crates,
@@ -62,6 +63,7 @@ def get_handler_registry() -> dict:
         handle_run_dotnet_restore,
         handle_run_dotnet_test,
         handle_run_go_mod_tidy,
+        handle_run_pip_install,
         handle_run_go_test,
         handle_run_mix_deps_get,
         handle_run_mix_test,
@@ -126,6 +128,9 @@ def get_handler_registry() -> dict:
         "run_mix_deps_get": handle_run_mix_deps_get,
         "run_cargo_check": handle_run_cargo_check,
         "run_npm_install": handle_run_npm_install,
+        "run_pip_install": handle_run_pip_install,
+        # ── Config generation ────────────────────────────────────
+        "generate_module_toml": handle_generate_module_toml,
         # ── Test suite runners ───────────────────────────────────
         "run_pytest": handle_run_pytest,
         "run_npm_test": handle_run_npm_test,

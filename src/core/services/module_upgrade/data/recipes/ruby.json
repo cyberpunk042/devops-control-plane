@@ -53,8 +53,8 @@
       }
     },
     {
-      "label": "Run test suite against Ruby {target}",
-      "description": "Verify all tests pass on the target version",
+      "label": "Run test suite (current Ruby)",
+      "description": "Runs tests on your current runtime. To validate target compatibility, use CI with the target version or tox.",
       "category": "test",
       "automatable": true,
       "automation_id": "run_bundle_exec_rspec",
@@ -110,8 +110,8 @@
       }
     },
     {
-      "label": "Run test suite against Ruby {target}",
-      "description": "Verify all tests pass on the target version",
+      "label": "Run test suite (current Ruby)",
+      "description": "Runs tests on your current runtime. To validate target compatibility, use CI with the target version or tox.",
       "category": "test",
       "automatable": true,
       "automation_id": "run_bundle_exec_rspec",

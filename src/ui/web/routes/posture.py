@@ -1405,8 +1405,8 @@ def posture_module_pin_deps():  # type: ignore[no-untyped-def]
                         # Replace with pinned version
                         for orig_name, version in pins.items():
                             if orig_name.lower().replace("_", "-") == pkg_name:
-                                new_lines.append(f"{orig_name}=={version}")
-                                pinned.append(f"{orig_name}=={version}")
+                                new_lines.append(f"{orig_name}>={version}")
+                                pinned.append(f"{orig_name}>={version}")
                                 pinned_pkgs.add(pkg_name)
                                 break
                         continue
@@ -1416,8 +1416,8 @@ def posture_module_pin_deps():  # type: ignore[no-untyped-def]
             # Append any pins not already in the file
             for pkg_name, version in pins.items():
                 if pkg_name.lower().replace("_", "-") not in pinned_pkgs:
-                    new_lines.append(f"{pkg_name}=={version}")
-                    pinned.append(f"{pkg_name}=={version}")
+                    new_lines.append(f"{pkg_name}>={version}")
+                    pinned.append(f"{pkg_name}>={version}")
 
             req_file.write_text("\n".join(new_lines), encoding="utf-8")
             rel_path = str(req_file.relative_to(project_root))
@@ -1428,8 +1428,8 @@ def posture_module_pin_deps():  # type: ignore[no-untyped-def]
             constraints_file = module_dir / "constraints.txt"
             constraint_lines = []
             for pkg_name, version in pins.items():
-                constraint_lines.append(f"{pkg_name}=={version}")
-                pinned.append(f"{pkg_name}=={version}")
+                constraint_lines.append(f"{pkg_name}>={version}")
+                pinned.append(f"{pkg_name}>={version}")
             constraints_file.write_text("\n".join(constraint_lines) + "\n", encoding="utf-8")
             rel_path = str(constraints_file.relative_to(project_root))
 
@@ -1438,8 +1438,8 @@ def posture_module_pin_deps():  # type: ignore[no-untyped-def]
             req_file = module_dir / "requirements.txt"
             lines = []
             for pkg_name, version in pins.items():
-                lines.append(f"{pkg_name}=={version}")
-                pinned.append(f"{pkg_name}=={version}")
+                lines.append(f"{pkg_name}>={version}")
+                pinned.append(f"{pkg_name}>={version}")
             req_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
             rel_path = str(req_file.relative_to(project_root))
 
@@ -1451,6 +1451,144 @@ def posture_module_pin_deps():  # type: ignore[no-untyped-def]
             "summary": f"Pinned {len(pinned)} package(s) in {rel_path}",
             "file": rel_path,
             "pinned": pinned,
+        })
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@posture_bp.route("/posture/module-generate-toml", methods=["POST"])
+@tracked("posture.module.toml_generated")
+def posture_module_generate_toml():  # type: ignore[no-untyped-def]
+    """Generate or preview a pyproject.toml for a module.
+
+    Body: {module, mode: "preview"|"save", name?, description?, version?,
+           requires_python?, dependencies?: [...]}
+
+    Preview: returns the generated TOML content.
+    Save: writes the file to the module directory.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    mode = body.get("mode", "preview")
+
+    if not module_name:
+        return jsonify({"error": "module required"}), 400
+
+    try:
+        from pathlib import Path as _Path
+        from src.core.config.loader import load_project
+
+        project = load_project()
+        ref = project.get_module(module_name)
+        if not ref:
+            return jsonify({"error": f"module '{module_name}' not found"}), 404
+
+        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
+        module_dir = project_root / ref.path
+        toml_path = module_dir / "pyproject.toml"
+        rel_path = str(toml_path.relative_to(project_root))
+
+        # Gather pre-fill data from stack/module config
+        from src.core.services.detection import detect_language
+        language = detect_language(ref.stack) if ref.stack else None
+
+        # Read existing requirements.txt for dependencies
+        existing_deps = []
+        for req_candidate in [module_dir / "requirements.txt", project_root / "requirements.txt"]:
+            if req_candidate.is_file():
+                for line in req_candidate.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#") and not line.startswith("-"):
+                        existing_deps.append(line)
+                break
+
+        # Read existing pyproject.toml for current values
+        existing_version = "0.1.0"
+        existing_name = module_name
+        existing_desc = ref.description or ""
+        existing_requires_python = ""
+
+        if toml_path.is_file():
+            import re as _re
+            content = toml_path.read_text(encoding="utf-8")
+            m = _re.search(r'name\s*=\s*"([^"]*)"', content)
+            if m: existing_name = m.group(1)
+            m = _re.search(r'version\s*=\s*"([^"]*)"', content)
+            if m: existing_version = m.group(1)
+            m = _re.search(r'description\s*=\s*"([^"]*)"', content)
+            if m: existing_desc = m.group(1)
+            m = _re.search(r'requires-python\s*=\s*"([^"]*)"', content)
+            if m: existing_requires_python = m.group(1)
+
+        # Detect requires-python from plan target or stack
+        if not existing_requires_python:
+            if ref.version_plan and ref.version_plan.target:
+                existing_requires_python = f">={ref.version_plan.target}"
+            else:
+                # From stack requires
+                try:
+                    from src.core.config.stack_loader import discover_stacks
+                    stacks = discover_stacks()
+                    if ref.stack and ref.stack in stacks:
+                        sdef = stacks[ref.stack]
+                        for req in sdef.requires:
+                            if req.adapter in ("python", "node", "go", "rust"):
+                                existing_requires_python = f">={req.min_version}"
+                                break
+                except Exception:
+                    pass
+
+        # Use provided values or defaults
+        name = body.get("name", existing_name)
+        description = body.get("description", existing_desc)
+        version = body.get("version", existing_version)
+        requires_python = body.get("requires_python", existing_requires_python)
+        dependencies = body.get("dependencies", existing_deps)
+
+        # Generate TOML content
+        toml_lines = ['[project]']
+        toml_lines.append(f'name = "{name}"')
+        toml_lines.append(f'version = "{version}"')
+        if description:
+            toml_lines.append(f'description = "{description}"')
+        if requires_python:
+            toml_lines.append(f'requires-python = "{requires_python}"')
+        if dependencies:
+            toml_lines.append('dependencies = [')
+            for dep in dependencies:
+                toml_lines.append(f'    "{dep}",')
+            toml_lines.append(']')
+        toml_lines.append('')
+
+        toml_content = '\n'.join(toml_lines)
+
+        if mode == "preview":
+            return jsonify({
+                "ok": True,
+                "preview": toml_content,
+                "path": rel_path,
+                "prefill": {
+                    "name": name,
+                    "description": description,
+                    "version": version,
+                    "requires_python": requires_python,
+                    "dependencies": dependencies,
+                },
+                "is_new": not toml_path.is_file(),
+            })
+
+        # Save
+        module_dir.mkdir(parents=True, exist_ok=True)
+        toml_path.write_text(toml_content, encoding="utf-8")
+
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
+
+        return jsonify({
+            "ok": True,
+            "summary": f"{'Created' if not toml_path.is_file() else 'Updated'} {rel_path}",
+            "path": rel_path,
         })
 
     except Exception as exc:

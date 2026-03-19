@@ -109,6 +109,17 @@ def handle_run_npm_install(ctx: UpgradeContext, mode: str) -> dict:
 # ── Test suite runners ───────────────────────────────────────────
 
 
+def handle_run_pip_install(ctx: UpgradeContext, mode: str) -> dict:
+    """Run `pip install -r requirements.txt` in the module directory."""
+    return _run_pkg_cmd(
+        ctx, mode,
+        binary="pip",
+        cmd=["pip", "install", "-r", "requirements.txt"],
+        label="pip install -r requirements.txt",
+        description="Install pinned dependency versions",
+    )
+
+
 def handle_run_pytest(ctx: UpgradeContext, mode: str) -> dict:
     """Run `pytest` in the module directory."""
     return _run_pkg_cmd(

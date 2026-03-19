@@ -63,8 +63,8 @@
       }
     },
     {
-      "label": "Run test suite against Rust {target}",
-      "description": "Verify all tests pass: cargo test",
+      "label": "Run test suite (current toolchain)",
+      "description": "Runs tests on your current runtime. To validate target compatibility, use CI with the target version or tox.",
       "category": "test",
       "automatable": true,
       "automation_id": "run_cargo_test",
@@ -120,8 +120,8 @@
       }
     },
     {
-      "label": "Run test suite against Rust {target}",
-      "description": "Verify all tests pass: cargo test",
+      "label": "Run test suite (current toolchain)",
+      "description": "Runs tests on your current runtime. To validate target compatibility, use CI with the target version or tox.",
       "category": "test",
       "automatable": true,
       "automation_id": "run_cargo_test",

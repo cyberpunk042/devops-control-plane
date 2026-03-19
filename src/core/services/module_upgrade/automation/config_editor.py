@@ -498,3 +498,62 @@ def handle_edit_mix_elixir_version(ctx: UpgradeContext, mode: str) -> dict:
                 "summary": f"Update {rel}", "file": rel, "old_value": old, "new_value": nv}
     path.write_text(nc, encoding="utf-8")
     return {"ok": True, "summary": f"Updated {rel}", "file": rel, "old_value": old, "new_value": nv}
+
+
+# ══════════════════════════════════════════════════════════════════
+# PYPROJECT.TOML GENERATION
+# ══════════════════════════════════════════════════════════════════
+
+
+def handle_generate_module_toml(ctx: UpgradeContext, mode: str) -> dict:
+    """Generate or update pyproject.toml for the module.
+
+    Preview: shows what would be generated.
+    Execute: writes the file.
+    """
+    module_dir = ctx.project_root / ctx.module_path
+    toml_path = module_dir / "pyproject.toml"
+    rel_path = str(toml_path.relative_to(ctx.project_root))
+    is_new = not toml_path.is_file()
+
+    # Read existing deps from requirements.txt
+    deps = []
+    req_file = module_dir / "requirements.txt"
+    if req_file.is_file():
+        for line in req_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and not line.startswith("-"):
+                deps.append(line)
+
+    # Build content
+    requires_python = f">={ctx.target_floor}" if ctx.target_floor else ""
+    name = ctx.module_name
+    lines = ["[project]", f'name = "{name}"', 'version = "0.1.0"']
+    if requires_python:
+        lines.append(f'requires-python = "{requires_python}"')
+    if deps:
+        lines.append("dependencies = [")
+        for d in deps:
+            lines.append(f'    "{d}",')
+        lines.append("]")
+    lines.append("")
+    content = "\n".join(lines)
+
+    if mode == "preview":
+        return {
+            "ok": True,
+            "can_apply": True,
+            "preview_type": "diff",
+            "summary": f"{'Create' if is_new else 'Update'} {rel_path}",
+            "file": rel_path,
+            "old_value": "(new file)" if is_new else "(existing)",
+            "new_value": f"pyproject.toml with requires-python {requires_python}",
+        }
+
+    module_dir.mkdir(parents=True, exist_ok=True)
+    toml_path.write_text(content, encoding="utf-8")
+    return {
+        "ok": True,
+        "summary": f"{'Created' if is_new else 'Updated'} {rel_path}",
+        "file": rel_path,
+    }

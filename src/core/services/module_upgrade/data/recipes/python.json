@@ -98,6 +98,28 @@
       }
     },
     {
+      "label": "Install pinned dependency versions",
+      "description": "Run pip install to apply the version constraints from requirements.txt",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "run_pip_install",
+      "risk": "low",
+      "condition": {
+        "has_file": "requirements.txt"
+      }
+    },
+    {
+      "label": "Generate module pyproject.toml",
+      "description": "Create a pyproject.toml with requires-python and dependency declarations",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "generate_module_toml",
+      "risk": "low",
+      "condition": {
+        "not_has_file": "pyproject.toml"
+      }
+    },
+    {
       "label": "Audit code for Python {current} to {target} breaking changes",
       "description": "Scan source files for patterns that changed behavior between versions",
       "category": "code",
@@ -144,8 +166,8 @@
       }
     },
     {
-      "label": "Run test suite against Python {target}",
-      "description": "Verify all tests pass on the target Python version",
+      "label": "Run test suite (current Python)",
+      "description": "Runs tests on your current runtime. To validate target compatibility, use CI with the target version or tox.",
       "category": "test",
       "automatable": true,
       "automation_id": "run_pytest",
@@ -235,6 +257,28 @@
       }
     },
     {
+      "label": "Install pinned dependency versions",
+      "description": "Run pip install to apply the version constraints from requirements.txt",
+      "category": "deps",
+      "automatable": true,
+      "automation_id": "run_pip_install",
+      "risk": "low",
+      "condition": {
+        "has_file": "requirements.txt"
+      }
+    },
+    {
+      "label": "Generate module pyproject.toml",
+      "description": "Create a pyproject.toml with requires-python and dependency declarations",
+      "category": "config",
+      "automatable": true,
+      "automation_id": "generate_module_toml",
+      "risk": "low",
+      "condition": {
+        "not_has_file": "pyproject.toml"
+      }
+    },
+    {
       "label": "Update CI pipeline to include Python {target}",
       "description": "Add Python {target} to CI test matrix to ensure ongoing compatibility",
       "category": "ci",
@@ -246,8 +290,8 @@
       }
     },
     {
-      "label": "Run test suite against Python {target}",
-      "description": "Verify all tests pass on the target Python version",
+      "label": "Run test suite (current Python)",
+      "description": "Runs tests on your current runtime. To validate target compatibility, use CI with the target version or tox.",
       "category": "test",
       "automatable": true,
       "automation_id": "run_pytest",

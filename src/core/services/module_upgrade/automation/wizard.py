@@ -384,15 +384,87 @@ def wizard_batch(
 
         elif findings:
             # Code scanner: findings have {file, line, feature, version}
+            # Classify: annotation features (fixable with __future__) vs runtime (unfixable)
+            _ANNOTATION_FEATURES = {"builtin generics (runtime)", "union type X | Y (runtime)"}
+            annotation_findings = [f for f in findings if f.get("feature") in _ANNOTATION_FEATURES]
+            runtime_findings = [f for f in findings if f.get("feature") not in _ANNOTATION_FEATURES]
+
             yield {"type": "log", "step": idx, "line": f"  {len(findings)} finding(s)"}
-            for f in findings[:5]:
+            for f in findings[:8]:
                 file_ref = f.get("file", "")
                 if f.get("line"):
                     file_ref += f":{f['line']}"
-                yield {"type": "log", "step": idx, "line": f"  📄 {file_ref} — {f.get('feature', '')} ({f.get('version', '')}+)"}
-            if len(findings) > 5:
-                yield {"type": "log", "step": idx, "line": f"  ...and {len(findings) - 5} more"}
-            incompat = 0  # code scan findings don't block the step
+                fixable = "🔧" if f.get("feature") in _ANNOTATION_FEATURES else "⚠️"
+                yield {"type": "log", "step": idx, "line": f"  {fixable} {file_ref} — {f.get('feature', '')} ({f.get('version', '')}+)"}
+            if len(findings) > 8:
+                yield {"type": "log", "step": idx, "line": f"  ...and {len(findings) - 8} more"}
+
+            # Check if any findings are above the target version
+            from .dep_checker import _parse_version
+            target_parts = _parse_version(ctx.target_floor)
+            above_target = [
+                f for f in findings
+                if target_parts and _parse_version(f.get("version", "")) and
+                _parse_version(f["version"]) > target_parts
+            ]
+
+            if above_target and annotation_findings:
+                # There are fixable annotation issues — offer remediation
+                annotation_above = [f for f in annotation_findings
+                                    if target_parts and _parse_version(f.get("version", ""))
+                                    and _parse_version(f["version"]) > target_parts]
+                runtime_above = [f for f in runtime_findings
+                                 if target_parts and _parse_version(f.get("version", ""))
+                                 and _parse_version(f["version"]) > target_parts]
+
+                if annotation_above:
+                    # Collect unique files that need __future__
+                    files_needing_future = list(set(f.get("file", "") for f in annotation_above))
+                    yield {"type": "log", "step": idx,
+                           "line": f"  🔧 {len(files_needing_future)} file(s) can be fixed with __future__ annotations"}
+
+                if runtime_above:
+                    highest_runtime = max(f.get("version", "") for f in runtime_above)
+                    yield {"type": "log", "step": idx,
+                           "line": f"  ⚠️ {len(runtime_above)} runtime feature(s) require Python {highest_runtime}+ — cannot be fixed with __future__"}
+
+                yield {"type": "step_failed", "step": idx,
+                       "error": f"{len(above_target)} code feature(s) above target Python {ctx.target_floor}",
+                       "elapsed_ms": elapsed}
+
+                # Build remediation options
+                rem_options = []
+                if annotation_above and not runtime_above:
+                    rem_options.append({
+                        "id": "add_future", "label": f"Add __future__ annotations to {len(files_needing_future)} file(s)",
+                        "description": "Adds `from __future__ import annotations` to make annotation syntax compatible"})
+                elif annotation_above and runtime_above:
+                    rem_options.append({
+                        "id": "add_future", "label": f"Fix {len(annotation_above)} annotation issue(s) with __future__",
+                        "description": "Fixes annotation features but runtime features will still require a higher Python"})
+                if runtime_above:
+                    highest_runtime = max(f.get("version", "") for f in runtime_above)
+                    rem_options.append({
+                        "id": "raise_target", "label": f"Raise target to {highest_runtime}",
+                        "description": f"Runtime features require Python {highest_runtime}+"})
+                rem_options.append({
+                    "id": "skip", "label": "Skip — handle manually",
+                    "description": "Review the findings and fix the code yourself"})
+
+                yield {"type": "done", "ok": False,
+                       "summary": f"{len(above_target)} code feature(s) incompatible with Python {ctx.target_floor}",
+                       "completed": completed, "total": total,
+                       "failed_step_id": step_id, "failed_step_idx": idx,
+                       "remediation": {
+                           "packages": [{"package": f.get("file", ""), "constraint": f.get("feature", ""),
+                                         "current_version": f.get("version", "")+"+ required",
+                                         "alternatives": []} for f in above_target[:10]],
+                           "options": rem_options,
+                           "code_files": files_needing_future if annotation_above else [],
+                       }}
+                return
+
+            incompat = 0  # findings exist but none above target — step passes
 
         else:
             incompat = 0

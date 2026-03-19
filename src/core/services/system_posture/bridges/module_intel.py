@@ -386,7 +386,7 @@ def _parse_requirements_txt(path: Path, pins: dict[str, str]) -> None:
         if not line or line.startswith("#") or line.startswith("-"):
             continue
 
-        # Match: package==version
+        # Match: package==version (exact pin)
         match = re.match(r"([a-zA-Z0-9_.-]+)\s*==\s*([^\s;#]+)", line)
         if match:
             pkg = match.group(1).lower().replace("_", "-")
@@ -394,11 +394,12 @@ def _parse_requirements_txt(path: Path, pins: dict[str, str]) -> None:
             pins[pkg] = version
             continue
 
-        # Match: package>=version (upper-bounded range — use the floor version)
+        # Match: package>=version (floor constraint — use the floor version)
         match = re.match(r"([a-zA-Z0-9_.-]+)\s*>=\s*([^\s,;#]+)", line)
         if match:
             pkg = match.group(1).lower().replace("_", "-")
-            # Don't store range constraints — we can't determine exact version
+            version = match.group(2).strip()
+            pins[pkg] = version
             continue
 
 
