@@ -1987,6 +1987,8 @@
                 if (!resultEl) return;
                 if (event.ok) {
                     resultEl.innerHTML = _adm('success', 'Batch complete', esc(event.summary || 'All steps done'));
+                    // Trigger posture rescan to update the table behind the modal
+                    if (typeof postureRescan === 'function') postureRescan();
                 } else if (event.remediation) {
                     // Track the failed step so remediation can mark it done
                     const failedBatchIdx = event.failed_step_idx;
@@ -2046,6 +2048,27 @@
         const bar = document.querySelector('.plan-progress-bar');
         if (bar && bar.nextElementSibling) {
             bar.nextElementSibling.textContent = `${doneCount}/${total} (${pct}%)`;
+        }
+
+        // ── All done? Show completion banner ────────────────────
+        const completionEl = document.getElementById('plan-completion-banner');
+        if (doneCount === total && total > 0) {
+            if (completionEl) {
+                completionEl.style.display = 'block';
+            } else {
+                // Insert banner after progress bar
+                const barParent = bar ? bar.parentElement : null;
+                if (barParent) {
+                    const banner = document.createElement('div');
+                    banner.id = 'plan-completion-banner';
+                    banner.innerHTML = '<div class="adm adm-success"><div class="adm-icon">✅</div><div class="adm-content"><div class="adm-title">All steps complete!</div><div class="adm-body">Every step in this plan has been checked off. You can clear the plan or keep it as a record.</div></div></div>';
+                    barParent.parentElement.insertBefore(banner, barParent.nextSibling);
+                }
+            }
+            // Also trigger posture rescan
+            if (typeof postureRescan === 'function') postureRescan();
+        } else if (completionEl) {
+            completionEl.style.display = 'none';
         }
 
         // ── Batch button: find next automatable chunk ───────────
@@ -2352,9 +2375,24 @@
             const data = await resp.json();
             if (data.ok) {
                 toast('📦 ' + (data.summary || 'Versions pinned'), 'success');
-                // Mark the dep check step as done
                 _wizardMarkRemDone();
-                modalClose();
+
+                // Offer to install the pinned versions
+                const resultEl = document.getElementById('wizard-result');
+                if (resultEl) {
+                    resultEl.innerHTML = _adm('success', 'Versions pinned', esc(data.summary || 'Done'))
+                        + _adm('info', 'Next step',
+                            'The version constraints have been updated in <code>' + esc(data.file || 'requirements.txt') + '</code>. '
+                            + 'Run <code>pip install -r ' + esc(data.file || 'requirements.txt') + '</code> to actually install the compatible versions, '
+                            + 'then rescan posture to see the updated dep floor.')
+                        + `<div style="margin-top:0.5rem;display:flex;gap:0.4rem">
+                            <button class="btn btn-sm btn-primary" onclick="wizardRunPipInstall('${esc(moduleName)}','${esc(data.file || '')}')">📦 Install now</button>
+                            <button class="btn btn-sm btn-ghost" onclick="modalClose()">Close</button>
+                        </div>`;
+                } else {
+                    modalClose();
+                }
+                if (typeof postureRescan === 'function') postureRescan();
             } else {
                 toast('⚠️ ' + (data.error || 'Failed to pin versions'), 'error');
             }
@@ -2407,6 +2445,66 @@
             if (btn) btn.style.display = 'none';
         }
     }
+
+    window.wizardRunPipInstall = function(moduleName, reqFile) {
+        // Run pip install via the wizard subprocess flow
+        const resultEl = document.getElementById('wizard-result');
+        const logEl = document.getElementById('wizard-log');
+        if (resultEl) resultEl.innerHTML = '';
+        if (logEl) logEl.innerHTML = '';
+
+        const stepsEl = document.getElementById('wizard-steps');
+        if (stepsEl) stepsEl.innerHTML = '';
+
+        streamSSE('/api/posture/module-wizard', {
+            module: moduleName,
+            wizard_type: 'subprocess',
+            step_id: 'run_pip_install:0000',
+        }, {
+            onLog: function(line) {
+                if (!logEl) return;
+                const el = document.createElement('div');
+                el.className = 'wizard-log-line';
+                el.textContent = line;
+                logEl.appendChild(el);
+                logEl.scrollTop = logEl.scrollHeight;
+            },
+            onStepStart: function(event) {
+                if (!stepsEl) return;
+                const el = document.createElement('div');
+                el.className = 'wizard-step running';
+                el.id = 'wizard-step-' + event.step;
+                el.innerHTML = `<span class="wizard-step-icon">⏳</span> <span class="wizard-step-label">${esc(event.label)}</span>`;
+                stepsEl.appendChild(el);
+            },
+            onStepDone: function(event) {
+                const el = document.getElementById('wizard-step-' + event.step);
+                if (el) {
+                    el.className = 'wizard-step done';
+                    el.querySelector('.wizard-step-icon').textContent = '✅';
+                }
+            },
+            onStepFailed: function(event) {
+                const el = document.getElementById('wizard-step-' + event.step);
+                if (el) {
+                    el.className = 'wizard-step failed';
+                    el.querySelector('.wizard-step-icon').textContent = '❌';
+                }
+            },
+            onDone: function(event) {
+                if (!resultEl) return;
+                if (event.ok) {
+                    resultEl.innerHTML = _adm('success', 'Packages installed', 'Rescan posture to see updated dependency floors.')
+                        + `<button class="btn btn-sm btn-primary" onclick="modalClose();if(typeof postureRescan==='function')postureRescan()">🔄 Rescan & Close</button>`;
+                } else {
+                    resultEl.innerHTML = _adm('danger', 'Install failed', esc(event.error || 'Unknown error'));
+                }
+            },
+            onError: function(msg) {
+                if (resultEl) resultEl.innerHTML = _adm('danger', 'Error', esc(msg));
+            },
+        });
+    };
 
     window.wizardRaiseTarget = async function(moduleName, newTarget) {
         try {
@@ -2588,7 +2686,10 @@
                     }
                     if (hasDeferral) {
                         const dExp = deferralExpired;
-                        html += `<tr class="posture-module-decision-row"><td colspan="9">${dExp ? '⏰ Deferral expired' : '📅 Deferred'} until ${esc(item.deferral.until)}: <em>${esc(item.deferral.reason)}</em></td></tr>`;
+                        html += `<tr class="posture-module-decision-row"><td colspan="9" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+                            <span>${dExp ? '⏰ Deferral expired' : '📅 Deferred'} until ${esc(item.deferral.until)}: <em>${esc(item.deferral.reason)}</em></span>
+                            <button class="btn btn-sm btn-danger" style="flex-shrink:0" onclick="_remConfirmClearDefer('${esc(moduleName)}')">❌ Clear</button>
+                        </td></tr>`;
                     }
                     if (hasPlan && !planMet) {
                         const pOv = item.version_plan.overdue;

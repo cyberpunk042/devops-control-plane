@@ -298,6 +298,8 @@ SUBPROCESS_COMMANDS = {
     "run_dotnet_test": (["dotnet", "test"], "dotnet test"),
     "run_composer_test": (["composer", "test", "--no-interaction"], "composer test"),
     "run_mix_test": (["mix", "test"], "mix test"),
+    # Package install (for after pinning versions)
+    "run_pip_install": (["pip", "install", "-r", "requirements.txt"], "pip install -r requirements.txt"),
 }
 
 

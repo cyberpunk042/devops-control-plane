@@ -31,11 +31,16 @@ def compute_dependency_floor(
 ) -> tuple[str | None, list[dict]]:
     """Compute the effective runtime floor from a module's actual dependencies.
 
-    Two steps:
-    1. Scan the module's .py files for import statements to find which
-       packages the module actually uses (not the whole venv).
-    2. For each used package, read its Requires-Python from .dist-info/METADATA.
-    3. Return the highest minimum — that's the real floor imposed by deps.
+    Uses TWO sources of truth:
+    1. The module's declared constraints (requirements.txt, pyproject.toml)
+       — these define what USERS of this module will install.
+    2. The installed packages in the venv (.dist-info/METADATA)
+       — fallback when no constraints file exists.
+
+    The declared constraints take priority because they represent the
+    module's compatibility promise. If requirements.txt pins pytest==8.3.5
+    (which supports >=3.8), that matters more than the dev machine having
+    pytest 9.0.2 installed (which needs >=3.10).
 
     Args:
         project_root: Project root path.
@@ -45,7 +50,7 @@ def compute_dependency_floor(
     Returns:
         (floor_version, details):
         - floor_version: highest min among module's actual deps (e.g. "3.9")
-        - details: list of {package, requires_python, floor} for deps with constraints
+        - details: list of {package, requires_python, floor, source} for deps
     """
     if language != "python":
         return None, []
@@ -70,24 +75,52 @@ def compute_dependency_floor(
     # Step 3: Map module's imports to package names
     module_packages: set[str] = set()
     for imp in module_imports:
-        # Try direct mapping first
         if imp in import_to_pkg:
             module_packages.add(import_to_pkg[imp])
         else:
-            # Fall back: import name = package name (common case)
             module_packages.add(imp)
 
-    # Step 4: Look up Requires-Python for each package
-    all_constraints = _scan_dist_info_requires_python(site_packages)
+    # Step 4: Read declared constraints from requirements.txt / pyproject.toml
+    declared_pins = _read_declared_constraints(module_dir, project_root)
+
+    # Step 5: Look up Requires-Python — prefer constrained version, fall back to installed
+    all_installed = _scan_dist_info_requires_python(site_packages)
 
     highest_floor: str | None = None
     highest_parts: list[int] = []
     details: list[dict] = []
 
     for pkg_name in module_packages:
-        # Normalize for lookup
         pkg_normalized = pkg_name.lower().replace("_", "-")
-        requires_python = all_constraints.get(pkg_normalized)
+
+        # Check if we have a declared pin for this package
+        pinned_version = declared_pins.get(pkg_normalized)
+
+        if pinned_version:
+            # Use the pinned version's Requires-Python if its dist-info exists
+            pinned_rp = _get_pinned_requires_python(
+                site_packages, pkg_normalized, pinned_version,
+            )
+            if pinned_rp:
+                floor = _parse_requires_python_floor(pinned_rp)
+                if floor:
+                    details.append({
+                        "package": pkg_normalized,
+                        "requires_python": pinned_rp,
+                        "floor": floor,
+                        "source": f"pinned {pinned_version}",
+                    })
+                    try:
+                        parts = [int(x) for x in floor.split(".")]
+                    except ValueError:
+                        continue
+                    if not highest_parts or parts > highest_parts:
+                        highest_parts = parts
+                        highest_floor = floor
+                    continue
+
+        # Fall back to installed version's metadata
+        requires_python = all_installed.get(pkg_normalized)
         if not requires_python:
             continue
 
@@ -99,6 +132,7 @@ def compute_dependency_floor(
             "package": pkg_normalized,
             "requires_python": requires_python,
             "floor": floor,
+            "source": "installed",
         })
 
         try:
@@ -309,6 +343,169 @@ def _parse_requires_python_floor(constraint: str) -> str | None:
     return None
 
 
+def _read_declared_constraints(module_dir: Path, project_root: Path) -> dict[str, str]:
+    """Read version pins from requirements.txt or pyproject.toml.
+
+    Returns {normalized_package_name: pinned_version} for packages with
+    exact version pins (==X.Y.Z). Range constraints are ignored since
+    we can't determine the exact version that would be installed.
+    """
+    pins: dict[str, str] = {}
+
+    # Try requirements.txt variants
+    for candidate in [
+        module_dir / "requirements.txt",
+        module_dir / "requirements" / "base.txt",
+        module_dir / "requirements" / "main.txt",
+        project_root / "requirements.txt",  # project root fallback
+    ]:
+        if candidate.is_file():
+            _parse_requirements_txt(candidate, pins)
+            if pins:
+                return pins
+
+    # Try pyproject.toml [project.dependencies]
+    pyproject = module_dir / "pyproject.toml"
+    if not pyproject.is_file():
+        pyproject = project_root / "pyproject.toml"
+    if pyproject.is_file():
+        _parse_pyproject_deps(pyproject, pins)
+
+    return pins
+
+
+def _parse_requirements_txt(path: Path, pins: dict[str, str]) -> None:
+    """Parse requirements.txt for exact version pins."""
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("-"):
+            continue
+
+        # Match: package==version
+        match = re.match(r"([a-zA-Z0-9_.-]+)\s*==\s*([^\s;#]+)", line)
+        if match:
+            pkg = match.group(1).lower().replace("_", "-")
+            version = match.group(2).strip()
+            pins[pkg] = version
+            continue
+
+        # Match: package>=version (upper-bounded range — use the floor version)
+        match = re.match(r"([a-zA-Z0-9_.-]+)\s*>=\s*([^\s,;#]+)", line)
+        if match:
+            pkg = match.group(1).lower().replace("_", "-")
+            # Don't store range constraints — we can't determine exact version
+            continue
+
+
+def _parse_pyproject_deps(path: Path, pins: dict[str, str]) -> None:
+    """Parse pyproject.toml [project.dependencies] for exact version pins."""
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+
+    # Simple regex for dependencies = ["pkg==ver", ...]
+    # Full TOML parsing would be better but we avoid external deps
+    in_deps = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("dependencies"):
+            in_deps = True
+            continue
+        if in_deps:
+            if stripped.startswith("]"):
+                in_deps = False
+                continue
+            # Match "package==version" inside the array
+            match = re.search(r'"([a-zA-Z0-9_.-]+)\s*==\s*([^"]+)"', stripped)
+            if match:
+                pkg = match.group(1).lower().replace("_", "-")
+                version = match.group(2).strip()
+                pins[pkg] = version
+
+
+def _get_pinned_requires_python(
+    site_packages: Path,
+    package: str,
+    pinned_version: str,
+) -> str | None:
+    """Get Requires-Python for a specific pinned version of a package.
+
+    First checks if that exact version is installed (its dist-info exists).
+    If the installed version matches the pin, uses its metadata directly.
+    If not, checks the registry cache for previously queried data.
+    """
+    # Check if the pinned version is what's installed
+    for dist_info in site_packages.glob(f"*.dist-info"):
+        pkg_name = _dist_info_to_pkg_name(dist_info.name)
+        if pkg_name != package:
+            continue
+
+        # Check version
+        metadata = dist_info / "METADATA"
+        if not metadata.is_file():
+            continue
+
+        try:
+            text = metadata.read_text(encoding="utf-8", errors="replace")
+            installed_version = ""
+            requires_python = ""
+
+            for mline in text.splitlines():
+                if not mline.strip():
+                    break
+                if mline.lower().startswith("version:"):
+                    installed_version = mline.split(":", 1)[1].strip()
+                if mline.lower().startswith("requires-python:"):
+                    requires_python = mline.split(":", 1)[1].strip()
+
+            if installed_version == pinned_version:
+                return requires_python or None
+        except OSError:
+            continue
+
+    # Pinned version is NOT what's installed — try registry cache
+    try:
+        import hashlib
+        import json
+
+        cache_dir = Path(".state/registry_cache")
+        cache_key = hashlib.md5(f"pypi_{package}".encode()).hexdigest()
+        cache_file = cache_dir / f"{cache_key}.json"
+
+        if cache_file.is_file():
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+            releases = data.get("releases", {})
+            files = releases.get(pinned_version, [])
+            for f in files:
+                rp = f.get("requires_python")
+                if rp:
+                    return rp
+    except Exception:
+        pass
+
+    # Last resort: query PyPI for this specific version
+    try:
+        import json
+        import urllib.request
+
+        url = f"https://pypi.org/pypi/{package}/{pinned_version}/json"
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/json",
+            "User-Agent": "devops-control-plane/1.0",
+        })
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+        return data.get("info", {}).get("requires_python") or None
+    except Exception:
+        return None
+
+
 # ══════════════════════════════════════════════════════════════════
 # CODE FLOOR — what language features does the module's code use?
 # ══════════════════════════════════════════════════════════════════
@@ -412,11 +609,15 @@ def compute_code_floor(
         rel_path = str(py_file.relative_to(project_root))
         has_future = bool(_FUTURE_IMPORT_RE.search(content))
 
-        # Always check runtime features
+        # Strip docstrings and comments to avoid false positives.
+        # list[dict] in a docstring is a string, not runtime code.
+        code_content = _strip_strings_and_comments(content)
+
+        # Always check runtime features (against stripped content)
         for ver, name, pattern in runtime_compiled:
-            matches = list(pattern.finditer(content))
+            matches = list(pattern.finditer(code_content))
             if matches:
-                line_no = content[:matches[0].start()].count("\n") + 1
+                line_no = code_content[:matches[0].start()].count("\n") + 1
                 features_found.append({
                     "version": ver,
                     "feature": name,
@@ -429,9 +630,9 @@ def compute_code_floor(
         # Check annotation features ONLY if __future__ is NOT present
         if not has_future:
             for ver, name, pattern in annotation_compiled:
-                matches = list(pattern.finditer(content))
+                matches = list(pattern.finditer(code_content))
                 if matches:
-                    line_no = content[:matches[0].start()].count("\n") + 1
+                    line_no = code_content[:matches[0].start()].count("\n") + 1
                     features_found.append({
                         "version": ver,
                         "feature": name,
@@ -559,6 +760,35 @@ def compute_effective_floor(
         return None
 
     return max(floors, key=lambda x: x[0])[1]
+
+
+def _strip_strings_and_comments(source: str) -> str:
+    """Replace string literals and comments with whitespace-preserving blanks.
+
+    This prevents false positives from detecting `list[dict]` inside
+    docstrings or `# list[something]` in comments as runtime code features.
+
+    Preserves line count so line numbers remain accurate.
+    """
+    # Replace triple-quoted strings (docstrings) with newlines of same length
+    result = re.sub(
+        r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'',
+        lambda m: "\n" * m.group().count("\n"),
+        source,
+    )
+    # Replace single-quoted strings with spaces
+    result = re.sub(
+        r'"[^"\n]*"|\'[^\'\n]*\'',
+        lambda m: " " * len(m.group()),
+        result,
+    )
+    # Replace # comments (but not inside strings — already stripped above)
+    result = re.sub(
+        r"#[^\n]*",
+        lambda m: " " * len(m.group()),
+        result,
+    )
+    return result
 
 
 def _ver_tuple(v: str) -> list[int] | None:

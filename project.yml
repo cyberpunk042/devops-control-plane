@@ -54,9 +54,11 @@ modules:
     - label: Run test suite against Python 3.8
       description: Verify all tests pass on the target Python version
       id: run_pytest:1e40a633
+      done: true
     - label: Re-scan module and verify new floor
       description: Confirm the platform detects the updated floor after all changes
       id: rescan_module:ad4347dc
+      done: true
 - description: Tool bindings for git, docker, etc.
   domain: library
   name: adapters
