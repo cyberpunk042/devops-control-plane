@@ -22,40 +22,6 @@ modules:
   name: core
   path: src/core
   stack: python-lib
-  version_plan:
-    target: '3.8'
-    date: Now
-    checklist:
-    - label: Review stack baseline version
-      description: The floor comes from the stack definition, not module config. Check
-        if the stack baseline should also be updated.
-      id: manual:583a339e
-      done: true
-    - label: Check dependency compatibility with Python 3.8
-      description: Query Requires-Python metadata for each dependency to verify they
-        support 3.8
-      id: check_dep_compat_pypi:ed9ca300
-      done: true
-    - label: Update incompatible dependencies
-      description: Find and update dependency versions that don't support Python 3.8
-      id: update_deps_interactive:7f92494e
-      done: true
-    - label: Audit code for Python 3.8 to 3.8 breaking changes
-      description: Scan source files for patterns that changed behavior between versions
-      id: scan_breaking_changes:1eff318c
-      done: true
-    - label: Update CI pipeline Python version matrix
-      description: Add or require Python 3.8 in CI configuration
-      id: update_ci_matrix:fb4d55b6
-      done: true
-    - label: Run test suite against Python 3.8
-      description: Verify all tests pass on the target Python version
-      id: run_pytest:1e40a633
-      done: true
-    - label: Re-scan module and verify new floor
-      description: Confirm the platform detects the updated floor after all changes
-      id: rescan_module:ad4347dc
-      done: true
 - description: Tool bindings for git, docker, etc.
   domain: library
   name: adapters
