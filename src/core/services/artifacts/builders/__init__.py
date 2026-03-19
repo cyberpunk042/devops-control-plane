@@ -1,5 +1,6 @@
 """Artifact builders package."""
 
+from __future__ import annotations
 from .base import ArtifactBuilder, ArtifactStageInfo  # noqa: F401
 from .cargo import CargoBuilder  # noqa: F401
 from .docker import DockerBuilder  # noqa: F401

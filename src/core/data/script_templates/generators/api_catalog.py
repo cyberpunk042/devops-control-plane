@@ -28,6 +28,7 @@ description: Generates a complete API catalog from Flask route definitions.
 @output MODULES_FOUND: integer | Total number of modules with routes
 """
 
+from __future__ import annotations
 import argparse
 import json
 import os

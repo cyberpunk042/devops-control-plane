@@ -31,6 +31,7 @@ description: Audits code hygiene across the project. Two sub-audits:
 @output CLEAN_FILES: integer | Number of clean init files (sub-audit: init)
 """
 
+from __future__ import annotations
 import argparse
 import json
 import os

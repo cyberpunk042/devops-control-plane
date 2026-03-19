@@ -602,6 +602,206 @@ def _scan_ci_file(
         })
 
 
+def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
+    """Rich guide for incompatible syntax patterns.
+
+    Scans the module for code features above the target version,
+    shows each finding with the actual code line, explains what it is,
+    and provides the specific rewrite pattern to make it compatible.
+
+    Both preview and execute return the same guide (read-only).
+    """
+    module_dir = ctx.project_root / ctx.module_path
+    if not module_dir.is_dir():
+        return {"ok": False, "error": f"Module directory not found: {ctx.module_path}"}
+
+    if ctx.language != "python":
+        return {"ok": True, "can_apply": False, "preview_type": "info",
+                "summary": "Syntax guide only available for Python"}
+
+    target_parts = _parse_ver(ctx.target_floor)
+    if not target_parts:
+        return {"ok": False, "error": f"Cannot parse target version: {ctx.target_floor}"}
+
+    # Scan for all features above target
+    try:
+        from src.core.services.system_posture.bridges.module_intel import (
+            _ANNOTATION_FEATURES,
+            _RUNTIME_FEATURES,
+            _strip_strings_and_comments,
+        )
+    except ImportError:
+        return {"ok": False, "error": "Cannot import feature patterns"}
+
+    findings = []
+
+    for py_file in sorted(module_dir.rglob("*.py"))[:500]:
+        try:
+            content = py_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+
+        code_content = _strip_strings_and_comments(content)
+        rel_path = str(py_file.relative_to(ctx.project_root))
+        lines = content.split("\n")
+
+        # Check all features (both runtime and annotation)
+        all_features = list(_RUNTIME_FEATURES) + list(_ANNOTATION_FEATURES)
+
+        for ver_str, feature_name, pattern_str in all_features:
+            ver_parts = _parse_ver(ver_str)
+            if not ver_parts or ver_parts <= target_parts:
+                continue  # feature is compatible with target
+
+            compiled = re.compile(pattern_str, re.MULTILINE)
+            for match in compiled.finditer(code_content):
+                line_no = code_content[:match.start()].count("\n") + 1
+                # Get the actual source line (from original content, not stripped)
+                source_line = lines[line_no - 1].rstrip() if line_no <= len(lines) else ""
+
+                guide = _REWRITE_GUIDES.get(feature_name, {})
+
+                findings.append({
+                    "file": rel_path,
+                    "line": line_no,
+                    "source": source_line,
+                    "feature": feature_name,
+                    "version": ver_str,
+                    "fixable": guide.get("fixable", False),
+                    "rewrite_hint": guide.get("hint", "Manual rewrite required"),
+                    "example_before": guide.get("before", ""),
+                    "example_after": guide.get("after", ""),
+                    "explanation": guide.get("explanation", ""),
+                })
+
+    if not findings:
+        return {
+            "ok": True,
+            "can_apply": False,
+            "preview_type": "info",
+            "summary": f"No incompatible syntax found for Python {ctx.target_floor}",
+        }
+
+    # Group by feature type for a clean summary
+    by_feature: dict[str, list] = {}
+    for f in findings:
+        by_feature.setdefault(f["feature"], []).append(f)
+
+    return {
+        "ok": True,
+        "can_apply": False,  # guide only
+        "preview_type": "guide",
+        "summary": f"{len(findings)} incompatible pattern(s) in {len(set(f['file'] for f in findings))} file(s)",
+        "findings": findings,
+        "by_feature": {
+            feat: {
+                "count": len(items),
+                "fixable": items[0]["fixable"],
+                "rewrite_hint": items[0]["rewrite_hint"],
+                "example_before": items[0]["example_before"],
+                "example_after": items[0]["example_after"],
+                "explanation": items[0]["explanation"],
+            }
+            for feat, items in by_feature.items()
+        },
+    }
+
+
+# Rewrite guides per feature — what each pattern is, whether it can be
+# mechanically rewritten, and the before/after example.
+_REWRITE_GUIDES: dict[str, dict] = {
+    "match/case": {
+        "fixable": False,
+        "hint": "Replace with if/elif chain",
+        "explanation": (
+            "Structural pattern matching (match/case) was introduced in Python 3.10. "
+            "It cannot be mechanically rewritten because patterns can destructure objects, "
+            "bind variables, and use guards. Each case must be manually converted to "
+            "equivalent if/elif conditions."
+        ),
+        "before": "match command:\n    case 'quit':\n        quit()\n    case 'hello':\n        greet()",
+        "after": "if command == 'quit':\n    quit()\nelif command == 'hello':\n    greet()",
+    },
+    "except* (exception groups)": {
+        "fixable": False,
+        "hint": "Replace with nested try/except blocks",
+        "explanation": (
+            "Exception groups (except*) were introduced in Python 3.11. "
+            "They allow catching multiple exception types from a single operation. "
+            "Rewriting requires restructuring error handling to use separate try/except "
+            "blocks or the exceptiongroup backport package."
+        ),
+        "before": "try:\n    ...\nexcept* ValueError as eg:\n    handle(eg)",
+        "after": "try:\n    ...\nexcept ValueError as e:\n    handle(e)\n# Or: pip install exceptiongroup",
+    },
+    "walrus operator :=": {
+        "fixable": True,
+        "hint": "Split into separate assignment + condition",
+        "explanation": (
+            "The walrus operator (:=) assigns a value inside an expression. "
+            "Introduced in Python 3.8. To backport, split into a separate "
+            "assignment statement before the condition."
+        ),
+        "before": "if (n := len(data)) > 10:\n    print(n)",
+        "after": "n = len(data)\nif n > 10:\n    print(n)",
+    },
+    "positional-only /": {
+        "fixable": True,
+        "hint": "Remove the / separator from function parameters",
+        "explanation": (
+            "Positional-only parameters (/) were formalized in Python 3.8. "
+            "Removing the / means the parameters can also be passed as keywords, "
+            "which is usually acceptable."
+        ),
+        "before": "def func(a, b, /, c):",
+        "after": "def func(a, b, c):  # a,b can now be keyword args too",
+    },
+    "f-strings": {
+        "fixable": True,
+        "hint": "Replace with str.format() or % formatting",
+        "explanation": (
+            "f-strings were introduced in Python 3.6. They can be mechanically "
+            "rewritten to .format() calls, though the result is less readable."
+        ),
+        "before": 'msg = f"Hello {name}, you are {age} years old"',
+        "after": 'msg = "Hello {}, you are {} years old".format(name, age)',
+    },
+    "type statement": {
+        "fixable": False,
+        "hint": "Replace with TypeAlias from typing",
+        "explanation": (
+            "The type statement (type X = ...) was introduced in Python 3.12. "
+            "Use typing.TypeAlias instead for older versions."
+        ),
+        "before": "type Vector = list[float]",
+        "after": "from typing import TypeAlias\nVector: TypeAlias = list[float]",
+    },
+    "builtin generics (runtime)": {
+        "fixable": True,
+        "hint": "Add from __future__ import annotations, or use typing.List/Dict",
+        "explanation": (
+            "Using list[], dict[], set[] etc. as generic types in runtime positions "
+            "(not just annotations) requires Python 3.9+. Adding "
+            "'from __future__ import annotations' defers evaluation and makes "
+            "this syntax work on 3.7+. Alternatively, use typing.List, typing.Dict."
+        ),
+        "before": "x: list[int] = []\nd: dict[str, str] = {}",
+        "after": "from __future__ import annotations\n\nx: list[int] = []\nd: dict[str, str] = {}",
+    },
+    "union type X | Y (runtime)": {
+        "fixable": True,
+        "hint": "Add from __future__ import annotations, or use typing.Union",
+        "explanation": (
+            "The X | Y union syntax in type hints requires Python 3.10+ at runtime. "
+            "Adding 'from __future__ import annotations' defers evaluation and makes "
+            "this work on 3.7+. Alternatively, use typing.Union[X, Y] or typing.Optional[X]."
+        ),
+        "before": "def greet(name: str | None) -> str:",
+        "after": "from __future__ import annotations\n\ndef greet(name: str | None) -> str:\n# Or: from typing import Optional\ndef greet(name: Optional[str]) -> str:",
+    },
+}
+
+
 def _parse_ver(v: str) -> list[int] | None:
     """Parse version string to integer list."""
     try:

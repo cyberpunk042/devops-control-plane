@@ -18,6 +18,7 @@ def get_handler_registry() -> dict:
     """
     from .code_scanner import (
         handle_add_future_annotations,
+        handle_guide_incompatible_syntax,
         handle_modernize_type_hints,
         handle_remove_future_annotations,
         handle_scan_breaking_changes,
@@ -118,6 +119,7 @@ def get_handler_registry() -> dict:
         "remove_future_annotations": handle_remove_future_annotations,
         "add_future_annotations": handle_add_future_annotations,
         "modernize_type_hints": handle_modernize_type_hints,
+        "guide_incompatible_syntax": handle_guide_incompatible_syntax,
         # ── CI (language-agnostic) ───────────────────────────────
         "update_ci_matrix": handle_update_ci_matrix,
         # ── Subprocess operations (package managers) ─────────────

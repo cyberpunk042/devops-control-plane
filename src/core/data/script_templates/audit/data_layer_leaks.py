@@ -31,6 +31,7 @@ description: Audits architectural layer boundaries for data leaks.
 @output TIER3_COUNT: integer | Number of import direction violations (Tier 3)
 """
 
+from __future__ import annotations
 import argparse
 import json
 import os

@@ -27,6 +27,7 @@ description: Generates Mermaid class diagrams from Python source code.
 @output FILES_ANALYZED: integer | Total number of Python files analyzed
 """
 
+from __future__ import annotations
 import argparse
 import os
 import sys

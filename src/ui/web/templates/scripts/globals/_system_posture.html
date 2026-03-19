@@ -1873,6 +1873,45 @@
                 html += '</div>';
             }
 
+            // Guide preview (incompatible syntax guide)
+            if (ptype === 'guide' && data.findings && data.findings.length) {
+                // Show per-feature summary with rewrite examples
+                const byFeature = data.by_feature || {};
+                for (const [feat, info] of Object.entries(byFeature)) {
+                    const fixIcon = info.fixable ? '🔧' : '⚠️';
+                    html += `<div class="plan-guide-feature">`;
+                    html += `<div class="plan-guide-header">${fixIcon} <strong>${esc(feat)}</strong> <span class="plan-preview-tag">${info.count} occurrence(s)</span></div>`;
+                    if (info.explanation) {
+                        html += `<div class="plan-guide-explanation">${esc(info.explanation)}</div>`;
+                    }
+                    html += `<div class="plan-guide-hint">${esc(info.rewrite_hint)}</div>`;
+                    if (info.example_before && info.example_after) {
+                        html += `<div class="plan-guide-example">`;
+                        html += `<div class="plan-preview-old"><pre>${esc(info.example_before)}</pre></div>`;
+                        html += `<div class="plan-preview-new"><pre>${esc(info.example_after)}</pre></div>`;
+                        html += `</div>`;
+                    }
+                    html += `</div>`;
+                }
+
+                // Show individual findings with source code
+                html += '<div class="plan-guide-findings">';
+                html += `<div style="font-weight:600;font-size:0.82rem;margin:0.5rem 0 0.3rem">Locations:</div>`;
+                for (const f of data.findings.slice(0, 15)) {
+                    html += `<div class="plan-preview-finding">`;
+                    html += `<code>${esc(f.file)}:${f.line}</code> `;
+                    html += `<span class="plan-preview-tag">${esc(f.feature)}</span>`;
+                    if (f.source) {
+                        html += `<div class="plan-guide-source"><code>${esc(f.source)}</code></div>`;
+                    }
+                    html += `</div>`;
+                }
+                if (data.findings.length > 15) {
+                    html += `<div class="plan-preview-detail">...and ${data.findings.length - 15} more</div>`;
+                }
+                html += '</div>';
+            }
+
             // Apply button (only for steps that can be applied)
             if (data.can_apply) {
                 html += `<div class="plan-preview-actions">

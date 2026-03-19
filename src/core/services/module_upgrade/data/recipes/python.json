@@ -235,11 +235,11 @@
       }
     },
     {
-      "label": "Replace incompatible syntax with backport patterns",
-      "description": "Rewrite match/case, except*, walrus operator and other syntax not available in Python {target}",
+      "label": "Review and fix incompatible syntax patterns",
+      "description": "Shows each incompatible code pattern with its location, explanation, and rewrite guide. Fixable patterns marked with 🔧, manual rewrites with ⚠️.",
       "category": "code",
-      "automatable": false,
-      "automation_id": "",
+      "automatable": true,
+      "automation_id": "guide_incompatible_syntax",
       "risk": "high",
       "condition": {
         "has_code_floor": true

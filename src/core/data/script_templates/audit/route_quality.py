@@ -27,6 +27,7 @@ description: Audits HTTP route quality across the project. Detects framework
 @output FRAMEWORK: string | Detected web framework name
 """
 
+from __future__ import annotations
 import argparse
 import json
 import os

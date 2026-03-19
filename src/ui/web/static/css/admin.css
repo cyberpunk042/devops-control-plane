@@ -9521,6 +9521,25 @@ select option {
 /* Preview: action buttons */
 .plan-preview-actions                  { margin-top: 0.5rem; display: flex; gap: 0.4rem; }
 
+/* Preview: syntax guide */
+.plan-guide-feature                    { margin: 0.5rem 0; padding: 0.5rem 0.75rem;
+                                         border: 1px solid var(--border); border-radius: var(--radius-sm);
+                                         background: var(--bg-primary); }
+.plan-guide-header                     { font-size: 0.85rem; margin-bottom: 0.3rem; }
+.plan-guide-explanation                { font-size: 0.8rem; color: var(--text-secondary);
+                                         line-height: 1.5; margin-bottom: 0.3rem; }
+.plan-guide-hint                       { font-size: 0.8rem; font-weight: 600; color: var(--accent);
+                                         margin-bottom: 0.3rem; }
+.plan-guide-example                    { font-size: 0.75rem; margin: 0.3rem 0; }
+.plan-guide-example pre                { margin: 0.15rem 0; padding: 0.3rem 0.5rem;
+                                         border-radius: 3px; white-space: pre-wrap;
+                                         font-family: var(--font-mono, monospace); }
+.plan-guide-findings                   { margin-top: 0.5rem; }
+.plan-guide-source                     { font-size: 0.75rem; margin-top: 0.15rem;
+                                         padding: 0.2rem 0.4rem; background: var(--bg-inset);
+                                         border-radius: 3px; overflow-x: auto; }
+.plan-guide-source code                { white-space: pre; color: var(--text-secondary); }
+
 /* ── Wizard modal ─────────────────────────────────────────────── */
 .wizard-step                           { display: flex; align-items: center; gap: 0.5rem;
                                          padding: 0.4rem 0; font-size: 0.85rem;

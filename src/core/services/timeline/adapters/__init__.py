@@ -13,6 +13,7 @@ Adapters:
     GitHubAdapter        — mediator github.* nodes (PRs, workflows)
 """
 
+from __future__ import annotations
 from src.core.services.timeline.adapters.git_log import GitLogAdapter
 from src.core.services.timeline.adapters.ledger_runs import LedgerRunsAdapter
 from src.core.services.timeline.adapters.ledger_audits import LedgerAuditsAdapter
