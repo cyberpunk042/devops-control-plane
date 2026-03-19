@@ -323,17 +323,17 @@ def _poll_loop(
 
             # ── Phase 1: Fast index nodes (sequential, ~45ms) ──
             # Skipped on warm start — index nodes already cached from disk.
+            import datetime as _dt
+            _cycle_id = f"cycle-{_dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+            _cycle_start_t = time.time()
+            _cycle_op = None
             if not _warm:
                 _slow_index = _get_slow_index()
                 _all_index = _FAST_INDEX + _slow_index
 
                 # Start a tracked index cycle
-                import datetime as _dt
-                _cycle_id = f"cycle-{_dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-                _cycle_start_t = time.time()
                 from src.core.observability.console import console_cycle_start
                 console_cycle_start(_cycle_id)
-                _cycle_op = None
                 try:
                     tracker = mediator._tracker
                     if tracker:
