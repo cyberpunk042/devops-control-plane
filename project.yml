@@ -48,14 +48,16 @@ modules:
       description: Enable PEP 604 (X | Y) and PEP 585 (builtin generics) syntax on
         older Python via deferred evaluation
       id: add_future_annotations:7135c841
-      done: true
+      done: false
     - label: Review and fix incompatible syntax patterns
       description: Shows each incompatible code pattern with its location, explanation,
         and rewrite guide. Fixable patterns marked with 🔧, manual rewrites with ⚠️.
       id: guide_incompatible_syntax:8605570c
+      done: false
     - label: Check all dependencies support Python 3.8
       description: Verify Requires-Python of all dependencies includes 3.8
       id: check_dep_compat_pypi:8dc1652e
+      done: false
     - label: Install pinned dependency versions
       description: Run pip install to apply the version constraints from requirements.txt
       id: run_pip_install:a0b91f99
