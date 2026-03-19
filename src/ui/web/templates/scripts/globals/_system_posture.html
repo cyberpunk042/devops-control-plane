@@ -709,6 +709,29 @@
             h += '<div class="mp-title">— No analysis available</div>';
             h += '<div class="mp-row">This module doesn\'t have enough data for a compatibility verdict.</div>';
         }
+
+        // Test status section
+        const ts = item.test_status || {};
+        if (ts.status) {
+            h += '<div class="mp-divider"></div>';
+            if (ts.status === 'own') {
+                h += `<div class="mp-row">🧪 <strong>Has own tests</strong>: ${ts.own_count || 0} test function(s) in ${(ts.own_files || []).length} file(s)</div>`;
+                if (ts.parent_count) {
+                    h += `<div class="mp-muted">Also ${ts.parent_count} test(s) in parent tests/ directory</div>`;
+                }
+            } else if (ts.status === 'parent') {
+                h += `<div class="mp-row">🧪 <strong>Tested via parent</strong>: ${ts.parent_count || 0} test function(s) in root tests/</div>`;
+                h += '<div class="mp-muted">No tests at module level — consider scaffolding module tests for isolation.</div>';
+            } else if (ts.status === 'none') {
+                h += '<div class="mp-row">🧪 <strong>No tests found</strong></div>';
+                h += '<div class="mp-muted">This module has no test files at module level or in the root tests/ directory.</div>';
+            }
+            if (ts.status !== 'own') {
+                const mn = item._moduleName || name;
+                h += `<div class="mp-actions"><button class="posture-btn posture-btn-update" onclick="_moduleHidePeek();moduleScaffoldTests('${esc(mn)}')">🧪 Scaffold tests</button></div>`;
+            }
+        }
+
         return h;
     }
 
@@ -2655,6 +2678,83 @@
         });
     };
 
+    window.moduleScaffoldTests = async function(moduleName) {
+        try {
+            const resp = await fetch('/api/posture/module-scaffold-tests', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, mode: 'preview', include_parent: true }),
+            });
+            const data = await resp.json();
+            if (!data.ok) { toast('⚠️ ' + (data.error || 'Failed'), 'error'); return; }
+
+            const files = data.files || [];
+
+            let body = '';
+            body += _adm('info', 'Scaffold test structure',
+                `Generate test files for <strong>${esc(moduleName)}</strong>. Review the files below and save when ready.`);
+
+            // Parent test checkbox
+            body += `<div style="margin:0.5rem 0">
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;cursor:pointer">
+                    <input type="checkbox" id="scaffold-include-parent" checked>
+                    <span>Also add integration test to parent <code>tests/</code> directory</span>
+                </label>
+                <div style="font-size:0.75rem;color:var(--text-muted);margin-left:1.5rem">
+                    Checked: creates a test file in the root tests/ that verifies the module works at project level.<br>
+                    Unchecked: only creates tests inside the module directory.
+                </div>
+            </div>`;
+
+            // File previews
+            for (const f of files) {
+                const isParent = f.path.startsWith('tests/');
+                body += `<div class="scaffold-file ${isParent ? 'scaffold-parent' : ''}" style="margin:0.5rem 0">`;
+                body += `<div style="font-size:0.78rem;font-weight:600;color:var(--text-muted);margin-bottom:0.2rem">📄 ${esc(f.path)}</div>`;
+                if (f.description) {
+                    body += `<div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.2rem">${esc(f.description)}</div>`;
+                }
+                if (f.content) {
+                    body += `<pre style="max-height:150px;overflow-y:auto;padding:0.4rem 0.6rem;background:var(--bg-inset);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.72rem;white-space:pre-wrap">${esc(f.content)}</pre>`;
+                }
+                body += '</div>';
+            }
+
+            modalOpen({
+                title: '🧪 Scaffold Tests: ' + moduleName,
+                replace: false,
+                body: body,
+                size: 'lg',
+                footerButtons: [
+                    { label: '🧪 Create files', cls: 'btn-primary', onclick: "_scaffoldSave('" + esc(moduleName) + "')" },
+                    { label: 'Cancel', onclick: 'modalClose()' },
+                ],
+            });
+
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
+    window._scaffoldSave = async function(moduleName) {
+        const includeParent = document.getElementById('scaffold-include-parent');
+        const withParent = includeParent ? includeParent.checked : true;
+
+        try {
+            const resp = await fetch('/api/posture/module-scaffold-tests', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, mode: 'save', include_parent: withParent }),
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                toast('🧪 ' + (data.summary || 'Tests created'), 'success');
+                modalClose();
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
+    };
+
     window.moduleGenerateToml = async function(moduleName) {
         // Fetch prefill data from backend
         try {
@@ -2950,6 +3050,14 @@
                 if (hasPlan && !planMet) floorDisplay += ' 📋';
                 if (planMet) floorDisplay += ' ✅';
 
+                // Test status
+                const testStatus = item.test_status || {};
+                const testSt = testStatus.status || 'unknown';
+                let testIcon = '';
+                if (testSt === 'own') testIcon = '🧪';
+                else if (testSt === 'parent') testIcon = '🧪';
+                else if (testSt === 'none') testIcon = '<span style="opacity:0.4">🧪</span>';
+
                 // Verdict icon
                 let verdictDisplay = '—';
                 if (verdict === 'consistent') verdictDisplay = '✅';
@@ -2989,7 +3097,7 @@
                             <td class="posture-module-cell-effective" ${pk('effective')}><code>${esc(effective)}</code></td>
                             <td class="posture-module-cell-compat" ${pk('compat')}>${compatDisplay}</td>
                             <td class="posture-module-cell-health" ${pk('floor')}>${floorDisplay}</td>
-                            <td class="posture-module-cell-verdict" ${pk('status')}>${verdictDisplay}</td>
+                            <td class="posture-module-cell-verdict" ${pk('status')}>${verdictDisplay} ${testIcon}</td>
                         </tr>
                     `;
 
@@ -3149,6 +3257,31 @@
                     <button class="posture-btn posture-btn-update" style="flex-shrink:0" onclick="moduleOpenPlan('${esc(n)}')">📋 View plan</button>
                 </div>`;
             }
+            html += '</div>';
+        }
+
+        // ── Test coverage ─────────────────────────────────────
+        const testedOwn = stratItems.filter(i => (i.test_status || {}).status === 'own');
+        const testedParent = stratItems.filter(i => (i.test_status || {}).status === 'parent');
+        const untested = stratItems.filter(i => (i.test_status || {}).status === 'none');
+
+        if (stratItems.length > 0) {
+            html += '<div class="posture-module-status-section">';
+            html += '<div class="posture-recs-title">🧪 Test coverage</div>';
+
+            if (testedOwn.length) {
+                html += `<div class="posture-module-status-line ok">✅ ${testedOwn.length} module(s) with own tests: ${testedOwn.map(i => '<strong>' + esc((i.name||'').split(' (')[0]) + '</strong> (' + ((i.test_status||{}).own_count||0) + ')').join(', ')}</div>`;
+            }
+            if (testedParent.length) {
+                html += `<div class="posture-module-status-line info">🔗 ${testedParent.length} module(s) tested via parent: ${testedParent.map(i => '<strong>' + esc((i.name||'').split(' (')[0]) + '</strong> (' + ((i.test_status||{}).parent_count||0) + ')').join(', ')}</div>`;
+            }
+            if (untested.length) {
+                html += `<div class="posture-module-status-line gap">⚠️ ${untested.length} module(s) with no tests: ${untested.map(i => {
+                    const n = (i.name||'').split(' (')[0];
+                    return '<strong>' + esc(n) + '</strong> <button class="posture-btn posture-btn-update" style="font-size:0.7rem;padding:0.1rem 0.3rem" onclick="moduleScaffoldTests(\'' + esc(n) + '\')">🧪 Scaffold</button>';
+                }).join(', ')}</div>`;
+            }
+
             html += '</div>';
         }
 

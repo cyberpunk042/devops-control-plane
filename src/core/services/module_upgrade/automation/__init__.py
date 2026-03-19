@@ -53,7 +53,12 @@ def get_handler_registry() -> dict:
         handle_update_deps_packagist,
         handle_update_deps_rubygems,
     )
-    from .executor import handle_rescan_module
+    from .executor import (
+        handle_generate_smart_tests,
+        handle_rescan_module,
+        handle_scaffold_module_tests,
+    )
+    from .test_env import handle_run_isolated_tests, handle_setup_test_env
     from .subprocess_ops import (
         handle_run_bundle_exec_rspec,
         handle_run_bundle_update,
@@ -145,4 +150,9 @@ def get_handler_registry() -> dict:
         "run_mix_test": handle_run_mix_test,
         # ── Verification (language-agnostic) ─────────────────────
         "rescan_module": handle_rescan_module,
+        # ── Test scaffolding & isolation ──────────────────────────
+        "scaffold_module_tests": handle_scaffold_module_tests,
+        "generate_smart_tests": handle_generate_smart_tests,
+        "setup_test_env": handle_setup_test_env,
+        "run_isolated_tests": handle_run_isolated_tests,
     }

@@ -401,6 +401,27 @@ def _enrich_posture_actions(posture_dict: dict) -> None:
             else:
                 item["version_plan"] = None
 
+            # ── Per-module test detection ─────────────────────────
+            item["test_status"] = _detect_module_tests(
+                module_path, _project_root,
+            ) if module_path and _project_root else {"status": "unknown", "count": 0}
+
+    # ── Module test warnings ──────────────────────────────────
+    mod_warnings = modules_pillar.get("warnings", [])
+    mod_recs = modules_pillar.get("recommendations", [])
+    for item in mod_items:
+        ts = item.get("test_status", {})
+        mod_name = (item.get("name", "").split(" (")[0])
+        if ts.get("status") == "none":
+            mod_recs.append(
+                f"{mod_name}: 🧪 No tests — scaffold module tests for compatibility verification"
+            )
+        elif ts.get("status") == "parent" and ts.get("parent_count", 0) < 3:
+            mod_recs.append(
+                f"{mod_name}: 🧪 Low test coverage — only {ts['parent_count']} test(s) via parent"
+            )
+    modules_pillar["recommendations"] = mod_recs
+
     # ── Platform — guide flags ─────────────────────────────────
     platform = pillars.get("platform", {})
     for item in platform.get("items", []):
@@ -541,6 +562,77 @@ def posture_rescan_tool():  # type: ignore[no-untyped-def]
         return jsonify(r["data"])
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+def _detect_module_tests(module_path: str, project_root: str) -> dict:
+    """Detect test status for a specific module.
+
+    Scans for:
+    1. Test files inside the module directory (own tests)
+    2. Test files in root tests/ that import from this module (parent tests)
+
+    Returns:
+        {status: "own"|"parent"|"none", count: int, own_files: [...], parent_files: [...]}
+    """
+    import re as _re
+    from pathlib import Path as _Path
+
+    root = _Path(project_root)
+    mod_dir = root / module_path
+    test_pattern = _re.compile(r"^test_.*\.py$|^.*_test\.py$")
+
+    own_files: list[str] = []
+    parent_files: list[str] = []
+    own_count = 0
+    parent_count = 0
+
+    # 1. Scan module directory for test files
+    if mod_dir.is_dir():
+        for py_file in mod_dir.rglob("*.py"):
+            if test_pattern.match(py_file.name):
+                rel = str(py_file.relative_to(root))
+                own_files.append(rel)
+                try:
+                    content = py_file.read_text(encoding="utf-8", errors="ignore")
+                    own_count += len(_re.findall(r"^\s*def\s+test_\w+", content, _re.MULTILINE))
+                except OSError:
+                    pass
+
+    # 2. Scan root tests/ for files importing from this module
+    # Module package: src/core → src.core
+    mod_package = module_path.replace("/", ".").replace("\\", ".")
+    tests_dir = root / "tests"
+    if tests_dir.is_dir():
+        import_pattern = _re.compile(
+            rf"(?:from\s+{_re.escape(mod_package)}|import\s+{_re.escape(mod_package)})",
+        )
+        for py_file in tests_dir.rglob("*.py"):
+            if not test_pattern.match(py_file.name):
+                continue
+            try:
+                content = py_file.read_text(encoding="utf-8", errors="ignore")
+                if import_pattern.search(content):
+                    rel = str(py_file.relative_to(root))
+                    parent_files.append(rel)
+                    parent_count += len(_re.findall(r"^\s*def\s+test_\w+", content, _re.MULTILINE))
+            except OSError:
+                continue
+
+    if own_files:
+        status = "own"
+    elif parent_files:
+        status = "parent"
+    else:
+        status = "none"
+
+    return {
+        "status": status,
+        "count": own_count + parent_count,
+        "own_files": own_files,
+        "own_count": own_count,
+        "parent_files": parent_files,
+        "parent_count": parent_count,
+    }
 
 
 def _build_automation_meta(ref):
@@ -1589,6 +1681,236 @@ def posture_module_generate_toml():  # type: ignore[no-untyped-def]
             "ok": True,
             "summary": f"{'Created' if not toml_path.is_file() else 'Updated'} {rel_path}",
             "path": rel_path,
+        })
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@posture_bp.route("/posture/module-scaffold-tests", methods=["POST"])
+@tracked("posture.module.tests_scaffolded")
+def posture_module_scaffold_tests():  # type: ignore[no-untyped-def]
+    """Scaffold test files for a module.
+
+    Body: {module, mode: "preview"|"save", include_parent: bool}
+
+    Preview: returns the files that would be generated.
+    Save: writes the files to disk.
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    mode = body.get("mode", "preview")
+    include_parent = body.get("include_parent", True)
+
+    if not module_name:
+        return jsonify({"error": "module required"}), 400
+
+    try:
+        from pathlib import Path as _Path
+
+        from src.core.config.loader import load_project
+
+        project = load_project()
+        ref = project.get_module(module_name)
+        if not ref:
+            return jsonify({"error": f"module '{module_name}' not found"}), 404
+
+        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
+        module_dir = project_root / ref.path
+
+        # Module package path for imports
+        mod_package = ref.path.replace("/", ".").replace("\\", ".")
+        mod_safe = module_name.replace("-", "_")
+        target_floor = ""
+        if ref.version_plan and ref.version_plan.target:
+            target_floor = ref.version_plan.target
+
+        # Generate file contents
+        files = []
+
+        # 1. Module tests/__init__.py
+        tests_init = f"{ref.path}/tests/__init__.py"
+        files.append({
+            "path": tests_init,
+            "content": "",
+            "description": "Test package init",
+        })
+
+        # 2. Module tests/conftest.py
+        tests_conftest = f"{ref.path}/tests/conftest.py"
+        conftest_content = f'''"""Module-level test fixtures for {module_name}."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture
+def module_root():
+    """Path to the {module_name} module directory."""
+    return Path(__file__).parent.parent
+
+
+@pytest.fixture
+def project_root():
+    """Path to the project root."""
+    return Path(__file__).parent.parent.parent.parent
+'''
+        files.append({
+            "path": tests_conftest,
+            "content": conftest_content,
+            "description": "Module test fixtures",
+        })
+
+        # 3. Module tests/test_smoke.py
+        tests_smoke = f"{ref.path}/tests/test_smoke.py"
+
+        # Scan module __init__.py for exported names
+        init_path = module_dir / "__init__.py"
+        exports = []
+        if init_path.is_file():
+            import re as _re
+            init_content = init_path.read_text(encoding="utf-8", errors="ignore")
+            # Find __all__ = [...]
+            all_match = _re.search(r"__all__\s*=\s*\[([^\]]*)\]", init_content)
+            if all_match:
+                exports = [
+                    s.strip().strip("'\"")
+                    for s in all_match.group(1).split(",")
+                    if s.strip().strip("'\"")
+                ]
+            # Find top-level imports
+            for m in _re.finditer(r"^from\s+\.\w+\s+import\s+(\w+)", init_content, _re.MULTILINE):
+                name = m.group(1)
+                if name not in exports:
+                    exports.append(name)
+
+        # Scan module for .py files (for import verification)
+        py_files = []
+        if module_dir.is_dir():
+            for pf in sorted(module_dir.rglob("*.py")):
+                if "__pycache__" in str(pf) or "/tests/" in str(pf):
+                    continue
+                rel = str(pf.relative_to(project_root))
+                py_files.append(rel)
+
+        smoke_content = f'''"""Smoke tests for {module_name}.
+
+Auto-generated by DevOps Control Plane.
+Verifies basic imports, public API, and version compatibility.
+"""
+from __future__ import annotations
+
+
+def test_module_imports():
+    """Verify the module package can be imported."""
+    import {mod_package}  # noqa: F401
+
+'''
+        # Add public API tests
+        if exports:
+            smoke_content += f'''
+def test_public_api():
+    """Verify declared public API is accessible."""
+    from {mod_package} import {", ".join(exports)}
+'''
+            for exp in exports[:10]:
+                smoke_content += f'    assert {exp} is not None\n'
+            smoke_content += '\n'
+
+        # Add version floor test
+        if target_floor:
+            parts = target_floor.split(".")
+            major = parts[0] if parts else "3"
+            minor = parts[1] if len(parts) > 1 else "8"
+            smoke_content += f'''
+def test_version_floor():
+    """Verify we are running on the expected minimum Python version."""
+    import sys
+    assert sys.version_info >= ({major}, {minor}), (
+        f"Expected Python >={target_floor}, got {{sys.version_info}}"
+    )
+'''
+
+        # Add submodule import tests
+        if len(py_files) > 1:
+            smoke_content += '''
+
+def test_submodules_importable():
+    """Verify key submodules can be imported without errors."""
+'''
+            # Pick up to 10 representative files
+            for pf in py_files[:10]:
+                mod_import = pf.replace("/", ".").replace(".py", "")
+                if mod_import.endswith(".__init__"):
+                    mod_import = mod_import[:-9]
+                smoke_content += f'    import {mod_import}  # noqa: F401\n'
+            smoke_content += '\n'
+
+        files.append({
+            "path": tests_smoke,
+            "content": smoke_content,
+            "description": f"Smoke tests: imports, API, version check ({len(exports)} exports, {len(py_files)} modules)",
+        })
+
+        # 4. Parent integration test (optional)
+        if include_parent:
+            parent_test = f"tests/test_{mod_safe}_integration.py"
+            parent_content = f'''"""Integration tests for {module_name}.
+
+Tests that verify {module_name} works correctly within the larger project.
+Auto-generated by DevOps Control Plane.
+"""
+from __future__ import annotations
+
+
+def test_{mod_safe}_importable():
+    """Verify {module_name} is importable from the project root."""
+    import {mod_package}  # noqa: F401
+
+'''
+            if exports:
+                parent_content += f'''
+def test_{mod_safe}_public_api():
+    """Verify {module_name} public API is accessible from project level."""
+    from {mod_package} import {", ".join(exports[:5])}
+'''
+                for exp in exports[:5]:
+                    parent_content += f'    assert callable({exp}) or {exp} is not None\n'
+
+            files.append({
+                "path": parent_test,
+                "content": parent_content,
+                "description": f"Parent-level integration test for {module_name}",
+            })
+
+        if mode == "preview":
+            return jsonify({
+                "ok": True,
+                "files": [
+                    {"path": f["path"], "content": f["content"], "description": f["description"]}
+                    for f in files
+                ],
+                "module": module_name,
+            })
+
+        # Save
+        written = []
+        for f in files:
+            file_path = project_root / f["path"]
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            if not file_path.exists() or f["content"]:  # don't overwrite with empty
+                file_path.write_text(f["content"], encoding="utf-8")
+                written.append(f["path"])
+
+        from src.core.services.mediator import get_mediator
+        get_mediator().put("posture.modules", cascade=True)
+
+        return jsonify({
+            "ok": True,
+            "summary": f"Scaffolded {len(written)} test file(s) for {module_name}",
+            "files": written,
         })
 
     except Exception as exc:

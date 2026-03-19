@@ -141,6 +141,287 @@ def handle_rescan_module(ctx, mode: str) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def handle_scaffold_module_tests(ctx, mode: str) -> dict:
+    """Scaffold test files for the module.
+
+    Preview: shows what files would be generated.
+    Execute: creates the test files.
+    """
+    module_dir = ctx.project_root / ctx.module_path
+
+    # Check if tests already exist
+    import re as _re
+    test_pattern = _re.compile(r"^test_.*\.py$|^.*_test\.py$")
+    has_tests = any(
+        test_pattern.match(f.name)
+        for f in module_dir.rglob("*.py")
+        if "__pycache__" not in str(f)
+    ) if module_dir.is_dir() else False
+
+    if has_tests and mode == "preview":
+        return {
+            "ok": True,
+            "can_apply": False,
+            "preview_type": "info",
+            "summary": "Module already has test files",
+            "detail": "Test files already exist in the module directory.",
+        }
+
+    if mode == "preview":
+        return {
+            "ok": True,
+            "can_apply": True,
+            "preview_type": "action",
+            "summary": f"Scaffold test structure for {ctx.module_name}",
+            "detail": (
+                "Creates tests/__init__.py, tests/conftest.py, and tests/test_smoke.py "
+                "in the module directory with import verification and version checks."
+            ),
+        }
+
+    # Execute — create files via the scaffold logic
+    try:
+        # Build minimal test files directly
+        tests_dir = module_dir / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+
+        # __init__.py
+        (tests_dir / "__init__.py").write_text("", encoding="utf-8")
+
+        # conftest.py
+        conftest = f'''"""Module-level test fixtures for {ctx.module_name}."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture
+def module_root():
+    return Path(__file__).parent.parent
+'''
+        (tests_dir / "conftest.py").write_text(conftest, encoding="utf-8")
+
+        # test_smoke.py
+        mod_package = ctx.module_path.replace("/", ".")
+        smoke = f'''"""Smoke tests for {ctx.module_name}."""
+from __future__ import annotations
+
+
+def test_module_imports():
+    """Verify the module can be imported."""
+    import {mod_package}  # noqa: F401
+'''
+        if ctx.target_floor:
+            parts = ctx.target_floor.split(".")
+            smoke += f'''
+
+def test_version_floor():
+    """Verify minimum Python version."""
+    import sys
+    assert sys.version_info >= ({parts[0]}, {parts[1] if len(parts) > 1 else "0"})
+'''
+        (tests_dir / "test_smoke.py").write_text(smoke, encoding="utf-8")
+
+        return {
+            "ok": True,
+            "summary": f"Scaffolded 3 test files in {ctx.module_path}/tests/",
+        }
+
+    except Exception as exc:
+        return {"ok": False, "error": f"Failed to scaffold tests: {exc}"}
+
+
+def handle_generate_smart_tests(ctx, mode: str) -> dict:
+    """Generate comprehensive compatibility tests based on module analysis.
+
+    Creates test_compatibility.py with:
+    1. Import verification — every .py file in module can be imported
+    2. Public API tests — every export in __init__.py is accessible
+    3. Version compatibility — no runtime features above declared floor
+    4. Dependency imports — all declared deps are importable
+    """
+    import re as _re
+
+    module_dir = ctx.project_root / ctx.module_path
+    tests_dir = module_dir / "tests"
+    test_file = tests_dir / "test_compatibility.py"
+
+    if test_file.is_file() and mode == "preview":
+        return {
+            "ok": True,
+            "can_apply": True,
+            "preview_type": "info",
+            "summary": "test_compatibility.py already exists — will be overwritten",
+            "detail": "Regenerates compatibility tests based on current module state.",
+        }
+
+    if not module_dir.is_dir():
+        return {"ok": False, "error": f"Module directory not found: {ctx.module_path}"}
+
+    mod_package = ctx.module_path.replace("/", ".")
+
+    # ── Gather module data ───────────────────────────────────
+    # 1. Find all .py files for import verification
+    py_modules = []
+    for pf in sorted(module_dir.rglob("*.py")):
+        if "__pycache__" in str(pf) or "/tests/" in str(pf):
+            continue
+        rel = str(pf.relative_to(ctx.project_root))
+        import_path = rel.replace("/", ".").replace(".py", "")
+        if import_path.endswith(".__init__"):
+            import_path = import_path[:-9]
+        py_modules.append(import_path)
+
+    # 2. Find exports from __init__.py
+    exports = []
+    init_path = module_dir / "__init__.py"
+    if init_path.is_file():
+        init_content = init_path.read_text(encoding="utf-8", errors="ignore")
+        all_match = _re.search(r"__all__\s*=\s*\[([^\]]*)\]", init_content)
+        if all_match:
+            exports = [
+                s.strip().strip("'\"")
+                for s in all_match.group(1).split(",")
+                if s.strip().strip("'\"")
+            ]
+        for m in _re.finditer(r"^from\s+\.\w+\s+import\s+(\w+)", init_content, _re.MULTILINE):
+            name = m.group(1)
+            if name not in exports:
+                exports.append(name)
+
+    # 3. Find declared deps from requirements.txt
+    deps = []
+    req_file = module_dir / "requirements.txt"
+    if req_file.is_file():
+        for line in req_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("-"):
+                continue
+            pkg_match = _re.match(r"([a-zA-Z0-9_-]+)", line)
+            if pkg_match:
+                dep_name = pkg_match.group(1).replace("-", "_")
+                deps.append(dep_name)
+
+    # 4. Target floor for version check
+    target = ctx.target_floor
+    target_parts = target.split(".") if target else []
+
+    # ── Build test content ───────────────────────────────────
+    content = f'''"""Compatibility tests for {ctx.module_name}.
+
+Auto-generated by DevOps Control Plane.
+Verifies imports, public API, version compatibility, and dependency availability.
+Regenerate with: module upgrade → "Generate compatibility tests"
+"""
+from __future__ import annotations
+
+import importlib
+import sys
+
+import pytest
+
+
+# ── 1. Import Verification ──────────────────────────────────────
+# Every .py file in the module should be importable without errors.
+
+_MODULE_PATHS = [
+'''
+    for mp in py_modules[:50]:
+        content += f'    "{mp}",\n'
+    content += ']\n\n'
+
+    content += '''
+@pytest.mark.parametrize("module_path", _MODULE_PATHS)
+def test_module_importable(module_path):
+    """Verify each module file can be imported."""
+    importlib.import_module(module_path)
+
+'''
+
+    # 2. Public API tests
+    if exports:
+        content += f'''
+# ── 2. Public API ────────────────────────────────────────────────
+# Every name exported from {mod_package} should be accessible.
+
+def test_public_api():
+    """Verify all declared exports are accessible."""
+    import {mod_package}
+
+'''
+        for exp in exports[:20]:
+            content += f'    assert hasattr({mod_package}, "{exp}"), "Missing export: {exp}"\n'
+        content += '\n'
+
+    # 3. Version compatibility
+    if target and len(target_parts) >= 2:
+        content += f'''
+# ── 3. Version Compatibility ────────────────────────────────────
+# The module claims Python >={target} support.
+
+def test_python_version_floor():
+    """Verify we are running on at least the declared minimum."""
+    assert sys.version_info >= ({target_parts[0]}, {target_parts[1]}), (
+        f"Module requires Python >={target}, running on {{sys.version_info}}"
+    )
+
+'''
+
+    # 4. Dependency imports
+    if deps:
+        content += '''
+# ── 4. Dependency Imports ────────────────────────────────────────
+# All declared dependencies should be importable.
+
+_DECLARED_DEPS = [
+'''
+        for dep in deps[:30]:
+            content += f'    "{dep}",\n'
+        content += ']\n\n'
+
+        content += '''
+@pytest.mark.parametrize("dep", _DECLARED_DEPS)
+def test_dependency_importable(dep):
+    """Verify each declared dependency can be imported."""
+    try:
+        importlib.import_module(dep)
+    except ImportError:
+        pytest.skip(f"{dep} not installed in this environment")
+'''
+
+    # ── Stats for summary ────────────────────────────────────
+    test_count = len(py_modules) + (1 if exports else 0) + (1 if target else 0) + len(deps)
+
+    if mode == "preview":
+        return {
+            "ok": True,
+            "can_apply": True,
+            "preview_type": "guide",
+            "summary": f"Generate {test_count} compatibility tests for {ctx.module_name}",
+            "findings": [
+                {"feature": f"Import verification: {len(py_modules)} modules"},
+                {"feature": f"Public API: {len(exports)} exports"} if exports else None,
+                {"feature": f"Version floor: Python >={target}"} if target else None,
+                {"feature": f"Dependency imports: {len(deps)} packages"} if deps else None,
+            ],
+        }
+
+    # Execute
+    try:
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        test_file.write_text(content, encoding="utf-8")
+
+        return {
+            "ok": True,
+            "summary": f"Generated test_compatibility.py ({test_count} tests) in {ctx.module_path}/tests/",
+        }
+
+    except Exception as exc:
+        return {"ok": False, "error": f"Failed to generate tests: {exc}"}
+
+
 # ── Internal helpers ─────────────────────────────────────────────
 
 

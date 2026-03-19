@@ -166,11 +166,44 @@
       }
     },
     {
-      "label": "Run test suite (current Python)",
-      "description": "Runs tests on your current runtime. To validate target compatibility, use CI with the target version or tox.",
+      "label": "Scaffold module test structure",
+      "description": "Generate test files (smoke tests, import checks, conftest) if none exist",
       "category": "test",
       "automatable": true,
-      "automation_id": "run_pytest",
+      "automation_id": "scaffold_module_tests",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Generate compatibility tests",
+      "description": "Auto-generate import verification, API, version floor, and dependency tests",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "generate_smart_tests",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Set up test environment for Python {target}",
+      "description": "Create a venv with the target Python version and install dependencies",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "setup_test_env",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run isolated tests on Python {target}",
+      "description": "Execute the module test suite using the target Python venv",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_isolated_tests",
       "risk": "low",
       "condition": {
         "always": true
@@ -290,11 +323,44 @@
       }
     },
     {
-      "label": "Run test suite (current Python)",
-      "description": "Runs tests on your current runtime. To validate target compatibility, use CI with the target version or tox.",
+      "label": "Scaffold module test structure",
+      "description": "Generate test files (smoke tests, import checks, conftest) if none exist",
       "category": "test",
       "automatable": true,
-      "automation_id": "run_pytest",
+      "automation_id": "scaffold_module_tests",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Generate compatibility tests",
+      "description": "Auto-generate import verification, API, version floor, and dependency tests",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "generate_smart_tests",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Set up test environment for Python {target}",
+      "description": "Create a venv with the target Python version and install dependencies",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "setup_test_env",
+      "risk": "low",
+      "condition": {
+        "always": true
+      }
+    },
+    {
+      "label": "Run isolated tests on Python {target}",
+      "description": "Execute the module test suite using the target Python venv",
+      "category": "test",
+      "automatable": true,
+      "automation_id": "run_isolated_tests",
       "risk": "low",
       "condition": {
         "always": true
