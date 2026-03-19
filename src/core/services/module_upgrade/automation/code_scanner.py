@@ -821,6 +821,57 @@ _REWRITE_GUIDES: dict[str, dict] = {
         "before": "def greet(name: str | None) -> str:",
         "after": "from __future__ import annotations\n\ndef greet(name: str | None) -> str:\n# Or: from typing import Optional\ndef greet(name: Optional[str]) -> str:",
     },
+    "datetime.UTC": {
+        "fixable": True,
+        "hint": "Replace datetime.UTC with datetime.timezone.utc",
+        "explanation": (
+            "datetime.UTC was added in Python 3.11 as a shorthand for "
+            "datetime.timezone.utc. The longer form has been available since "
+            "Python 3.2 and is functionally identical."
+        ),
+        "before": "from datetime import UTC\nnow = datetime.now(UTC)",
+        "after": "from datetime import timezone\nnow = datetime.now(timezone.utc)",
+    },
+    "enum.StrEnum": {
+        "fixable": False,
+        "hint": "Use (str, Enum) base classes or the strenum backport",
+        "explanation": (
+            "enum.StrEnum was added in Python 3.11. For older versions, "
+            "inherit from both str and Enum, or install the strenum backport."
+        ),
+        "before": "class Color(StrEnum):\n    RED = 'red'",
+        "after": "class Color(str, Enum):\n    RED = 'red'",
+    },
+    "tomllib": {
+        "fixable": False,
+        "hint": "Use the tomli backport package",
+        "explanation": (
+            "tomllib was added to the stdlib in Python 3.11. For older "
+            "versions, use the tomli package: pip install tomli"
+        ),
+        "before": "import tomllib",
+        "after": "try:\n    import tomllib\nexcept ImportError:\n    import tomli as tomllib",
+    },
+    "str.removeprefix": {
+        "fixable": True,
+        "hint": "Replace with slicing: s[len(p):] if s.startswith(p) else s",
+        "explanation": (
+            "str.removeprefix() was added in Python 3.9. The equivalent "
+            "operation can be done with startswith() + slicing."
+        ),
+        "before": "path.removeprefix('/api/')",
+        "after": "path[len('/api/'):] if path.startswith('/api/') else path",
+    },
+    "str.removesuffix": {
+        "fixable": True,
+        "hint": "Replace with slicing: s[:-len(p)] if s.endswith(p) else s",
+        "explanation": (
+            "str.removesuffix() was added in Python 3.9. The equivalent "
+            "operation can be done with endswith() + slicing."
+        ),
+        "before": "name.removesuffix('.py')",
+        "after": "name[:-len('.py')] if name.endswith('.py') else name",
+    },
 }
 
 

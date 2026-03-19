@@ -525,7 +525,12 @@ _RUNTIME_FEATURES: list[tuple[str, str, str]] = [
     # These always require their version — can't be deferred by __future__
     ("3.12", "type statement", r"^\s*type\s+\w+\s*[\[=]"),
     ("3.11", "except* (exception groups)", r"\bexcept\s*\*"),
+    ("3.11", "datetime.UTC", r"\bdatetime\.UTC\b"),
+    ("3.11", "enum.StrEnum", r"\bStrEnum\b"),
+    ("3.11", "tomllib", r"\btomllib\b"),
     ("3.10", "match/case", r"^\s*match\s+\w+.*:\s*$"),
+    ("3.9", "str.removeprefix", r"\.removeprefix\("),
+    ("3.9", "str.removesuffix", r"\.removesuffix\("),
     ("3.8", "walrus operator :=", r"(?<!['\"])\b\w+\s*:=\s"),
     ("3.8", "positional-only /", r"def\s+\w+\([^)]*,\s*/\s*[,)]"),
     ("3.6", "f-strings", r"""f['\"]"""),

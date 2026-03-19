@@ -291,16 +291,21 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
         stderr = result.stderr or ""
         output = stdout + stderr
 
-        # Parse pytest summary
+        # Parse pytest summary line (order varies: "39 failed, 16 passed" or "16 passed, 39 failed")
         import re
-        summary_match = re.search(
-            r"(\d+) passed(?:.*?(\d+) failed)?(?:.*?(\d+) error)?(?:.*?(\d+) skipped)?",
-            output,
-        )
-        passed = int(summary_match.group(1)) if summary_match else 0
-        failed = int(summary_match.group(2) or 0) if summary_match else 0
-        errors = int(summary_match.group(3) or 0) if summary_match else 0
-        skipped = int(summary_match.group(4) or 0) if summary_match else 0
+        passed = 0
+        failed = 0
+        errors = 0
+        skipped = 0
+        pm = re.search(r"(\d+) passed", output)
+        fm = re.search(r"(\d+) failed", output)
+        em = re.search(r"(\d+) error", output)
+        sm = re.search(r"(\d+) skipped", output)
+        if pm: passed = int(pm.group(1))
+        if fm: failed = int(fm.group(1))
+        if em: errors = int(em.group(1))
+        if sm: skipped = int(sm.group(1))
+        summary_match = pm or fm  # at least one must exist for a valid summary
 
         # Show last 30 lines
         output_lines = output.strip().split("\n")
@@ -324,7 +329,7 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
         }
 
         # Detect common compat failures and suggest fixes
-        if not ok and (failed > 0 or errors > 0):
+        if not ok:
             compat_hints = _detect_compat_failures(output, target)
             if compat_hints:
                 res["compat_hints"] = compat_hints
