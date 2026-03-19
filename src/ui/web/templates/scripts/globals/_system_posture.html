@@ -633,6 +633,8 @@
         const name = item._moduleName || '';
         const effClean = (item.effective_floor || '').replace('≥', '');
         const declared = (item.value || '').replace('≥', '');
+        const rank = item.rank || '';
+        const eol = item.eol_date || '';
 
         let h = '';
         if (verdict === 'consistent') {
