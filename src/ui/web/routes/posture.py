@@ -1687,6 +1687,68 @@ def posture_module_generate_toml():  # type: ignore[no-untyped-def]
         return jsonify({"error": str(exc)}), 500
 
 
+@posture_bp.route("/posture/module-compat-fix", methods=["POST"])
+@tracked("posture.module.compat_fix")
+def posture_module_compat_fix():  # type: ignore[no-untyped-def]
+    """Search-and-replace a compat pattern across module Python files.
+
+    Body: {module, search, replace}
+    """
+    body = request.get_json(silent=True) or {}
+    module_name = body.get("module", "")
+    search = body.get("search", "")
+    replace_with = body.get("replace", "")
+
+    if not module_name or not search or not replace_with:
+        return jsonify({"error": "module, search, and replace required"}), 400
+
+    try:
+        from pathlib import Path as _Path
+
+        project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
+
+        # Resolve module path
+        from src.core.models.project import load_project
+
+        proj = load_project(project_root)
+        mod = next((m for m in (proj.modules or []) if m.name == module_name), None)
+        if not mod:
+            return jsonify({"error": f"Module '{module_name}' not found"}), 404
+
+        module_dir = project_root / mod.path
+        if not module_dir.is_dir():
+            return jsonify({"error": f"Module directory not found: {mod.path}"}), 404
+
+        fixed_files = []
+        for py_file in module_dir.rglob("*.py"):
+            if "__pycache__" in str(py_file):
+                continue
+            try:
+                content = py_file.read_text(encoding="utf-8")
+                if search in content:
+                    new_content = content.replace(search, replace_with)
+                    py_file.write_text(new_content, encoding="utf-8")
+                    fixed_files.append(str(py_file.relative_to(project_root)))
+            except (OSError, UnicodeDecodeError):
+                continue
+
+        if fixed_files:
+            return jsonify({
+                "ok": True,
+                "summary": f"Replaced '{search}' → '{replace_with}' in {len(fixed_files)} file(s)",
+                "files": fixed_files,
+            })
+        else:
+            return jsonify({
+                "ok": True,
+                "summary": f"No occurrences of '{search}' found in module files",
+                "files": [],
+            })
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @posture_bp.route("/posture/module-scaffold-tests", methods=["POST"])
 @tracked("posture.module.tests_scaffolded")
 def posture_module_scaffold_tests():  # type: ignore[no-untyped-def]

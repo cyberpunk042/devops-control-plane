@@ -1815,7 +1815,8 @@
         }
 
         // Streaming steps — use wizard modal with SSE
-        if (aid.startsWith('run_')) {
+        // (but NOT run_isolated_tests / setup_test_env — those are handlers, not subprocesses)
+        if (aid.startsWith('run_') && aid !== 'run_isolated_tests') {
             return _openStepModal(moduleName, stepId, stepIndex, 'subprocess');
         }
         if (aid.startsWith('check_dep_compat_') || aid.startsWith('update_deps_')) {
@@ -1961,7 +1962,8 @@
         }
     };
 
-    // Apply a step from within the modal, then close + update plan state
+    // Apply a step from within the modal, then update plan state.
+    // On success: toast + close. On failure: show result in modal with remediation.
     window._modalApplyStep = async function(moduleName, stepId, stepIndex) {
         try {
             const resp = await fetch('/api/posture/module-step-execute', {
@@ -1975,12 +1977,77 @@
                 toast('✅ ' + (data.summary || 'Step completed'), 'success');
                 _wizardMarkDone(moduleName, stepId, stepIndex);
                 modalClose();
-            } else {
-                toast('❌ ' + (data.error || 'Failed'), 'error');
+                return;
             }
+
+            // Failure — show result in modal instead of just a toast
+            let html = '';
+
+            // Test output
+            if (data.output) {
+                html += `<div class="plan-preview-summary">${esc(data.summary || 'Step failed')}</div>`;
+                html += `<pre class="wizard-log" style="max-height:200px;overflow-y:auto;font-size:0.75rem;padding:0.5rem">${esc(data.output)}</pre>`;
+            } else {
+                html += _adm('danger', 'Failed', esc(data.error || data.summary || 'Unknown error'));
+            }
+
+            // Compat hints (from test failures)
+            if (data.compat_hints && data.compat_hints.length) {
+                html += '<div style="margin-top:0.75rem">';
+                html += `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.4rem">🔍 Detected compatibility issues:</div>`;
+                for (const hint of data.compat_hints) {
+                    html += `<div class="plan-guide-feature" style="margin-bottom:0.5rem">`;
+                    html += `<div class="plan-guide-header">⚠️ <strong>${esc(hint.feature)}</strong> <span class="plan-preview-tag">Python ${esc(hint.since)}+</span></div>`;
+                    html += `<div class="plan-guide-hint">${esc(hint.fix)}</div>`;
+                    if (hint.auto_fixable && hint.search && hint.replace) {
+                        html += `<button class="btn btn-sm btn-primary" style="margin-top:0.3rem"
+                            onclick="_autoFixCompat('${esc(moduleName)}','${esc(hint.search)}','${esc(hint.replace)}')">
+                            🔧 Auto-fix: ${esc(hint.search)} → ${esc(hint.replace)}</button>`;
+                    }
+                    html += `</div>`;
+                }
+                html += '</div>';
+            }
+
+            // Action buttons
+            html += `<div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.4rem">`;
+            html += `<button class="btn btn-sm btn-ghost" onclick="_wizardMarkDone_close('${esc(moduleName)}','${esc(stepId)}',${stepIndex})">✅ Mark as done</button>`;
+            html += `<button class="btn btn-sm btn-ghost" onclick="modalClose()">Close</button>`;
+            html += `</div>`;
+
+            modalOpen({
+                title: '❌ ' + (data.summary || 'Step Failed'),
+                replace: true,
+                body: html,
+                size: 'lg',
+                footerButtons: [{ label: 'Close', onclick: 'modalClose()' }],
+            });
+
         } catch (e) {
             toast('❌ ' + e.message, 'error');
         }
+    };
+
+    window._wizardMarkDone_close = function(moduleName, stepId, stepIndex) {
+        _wizardMarkDone(moduleName, stepId, stepIndex);
+        modalClose();
+    };
+
+    window._autoFixCompat = async function(moduleName, search, replace) {
+        try {
+            const resp = await fetch('/api/posture/module-compat-fix', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, search: search, replace: replace }),
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                toast('🔧 ' + (data.summary || 'Fixed'), 'success');
+                modalClose();
+            } else {
+                toast('⚠️ ' + (data.error || 'Failed'), 'error');
+            }
+        } catch (e) { toast('❌ ' + e.message, 'error'); }
     };
 
     window.modulePlanRunBatch = function(moduleName, fromIdx, toIdx) {
@@ -2368,8 +2435,32 @@
 
     function _renderRemediation(rem, moduleName) {
         let html = '';
-        html += _adm('warning', 'Incompatible dependencies found',
-            'Some dependencies don\'t support your target version. Choose how to proceed:');
+        const hasCompat = rem.compat_hints && rem.compat_hints.length;
+        const hasDeps = rem.packages && rem.packages.length;
+
+        if (hasCompat) {
+            html += _adm('warning', 'Compatibility issues detected',
+                'Test failures indicate code patterns incompatible with your target Python version:');
+
+            html += '<div style="margin:0.5rem 0">';
+            for (const hint of rem.compat_hints) {
+                html += `<div class="plan-guide-feature" style="margin-bottom:0.5rem">`;
+                html += `<div class="plan-guide-header">⚠️ <strong>${esc(hint.feature)}</strong> <span class="plan-preview-tag">Python ${esc(hint.since)}+</span></div>`;
+                html += `<div class="plan-guide-hint">${esc(hint.fix)}</div>`;
+                if (hint.auto_fixable && hint.search && hint.replace) {
+                    html += `<button class="btn btn-sm btn-primary" style="margin-top:0.3rem"
+                        onclick="_autoFixCompat('${esc(moduleName)}','${esc(hint.search)}','${esc(hint.replace)}')">
+                        🔧 Auto-fix: ${esc(hint.search)} → ${esc(hint.replace)}</button>`;
+                }
+                html += `</div>`;
+            }
+            html += '</div>';
+        } else if (hasDeps) {
+            html += _adm('warning', 'Incompatible dependencies found',
+                'Some dependencies don\'t support your target version. Choose how to proceed:');
+        } else {
+            html += _adm('warning', 'Step failed', 'Choose how to proceed:');
+        }
 
         // Show each incompatible package with alternatives
         if (rem.packages && rem.packages.length) {

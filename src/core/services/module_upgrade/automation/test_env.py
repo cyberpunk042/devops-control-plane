@@ -308,7 +308,7 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
 
         ok = result.returncode == 0 or result.returncode == 5  # 5 = no tests collected
 
-        return {
+        res = {
             "ok": ok,
             "summary": (
                 f"Python {target}: {passed} passed, {failed} failed, {skipped} skipped"
@@ -323,7 +323,89 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
             "exit_code": result.returncode,
         }
 
+        # Detect common compat failures and suggest fixes
+        if not ok and (failed > 0 or errors > 0):
+            compat_hints = _detect_compat_failures(output, target)
+            if compat_hints:
+                res["compat_hints"] = compat_hints
+
+        return res
+
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "Test execution timed out (300s)"}
     except Exception as exc:
         return {"ok": False, "error": f"Failed to run tests: {exc}"}
+
+
+# ── Known compatibility patterns ────────────────────────────────
+
+_COMPAT_PATTERNS = [
+    {
+        "pattern": r"cannot import name 'UTC' from 'datetime'",
+        "feature": "datetime.UTC",
+        "since": "3.11",
+        "fix": "Replace `datetime.UTC` with `datetime.timezone.utc` (available since Python 3.2)",
+        "search": "datetime.UTC",
+        "replace": "datetime.timezone.utc",
+    },
+    {
+        "pattern": r"cannot import name 'StrEnum' from 'enum'",
+        "feature": "enum.StrEnum",
+        "since": "3.11",
+        "fix": "Use a backport: `pip install backports.strenum` or define a simple base class",
+        "search": None,
+        "replace": None,
+    },
+    {
+        "pattern": r"cannot import name 'tomllib'|No module named 'tomllib'",
+        "feature": "tomllib",
+        "since": "3.11",
+        "fix": "Use the backport: `pip install tomli` and `import tomli as tomllib`",
+        "search": None,
+        "replace": None,
+    },
+    {
+        "pattern": r"'str' object has no attribute 'removeprefix'",
+        "feature": "str.removeprefix",
+        "since": "3.9",
+        "fix": "Replace `s.removeprefix(p)` with `s[len(p):] if s.startswith(p) else s`",
+        "search": None,
+        "replace": None,
+    },
+    {
+        "pattern": r"'str' object has no attribute 'removesuffix'",
+        "feature": "str.removesuffix",
+        "since": "3.9",
+        "fix": "Replace `s.removesuffix(p)` with `s[:-len(p)] if s.endswith(p) else s`",
+        "search": None,
+        "replace": None,
+    },
+    {
+        "pattern": r"'dict' object has no attribute '\|'|unsupported operand type.*for \|.*'dict'",
+        "feature": "dict merge operator (|)",
+        "since": "3.9",
+        "fix": "Replace `a | b` with `{**a, **b}`",
+        "search": None,
+        "replace": None,
+    },
+]
+
+
+def _detect_compat_failures(output: str, target: str) -> list[dict]:
+    """Scan test output for known Python version compat failures."""
+    import re
+
+    hints = []
+    for pat in _COMPAT_PATTERNS:
+        if re.search(pat["pattern"], output):
+            hint = {
+                "feature": pat["feature"],
+                "since": pat["since"],
+                "fix": pat["fix"],
+            }
+            if pat.get("search") and pat.get("replace"):
+                hint["search"] = pat["search"]
+                hint["replace"] = pat["replace"]
+                hint["auto_fixable"] = True
+            hints.append(hint)
+    return hints

@@ -580,14 +580,35 @@ def wizard_batch(
 
         remediation = None
         if is_test:
+            # Check if the handler returned compat hints
+            compat_hints = result.get("compat_hints", []) if result else []
+            rem_options = []
+            if compat_hints:
+                for hint in compat_hints:
+                    if hint.get("auto_fixable"):
+                        rem_options.append({
+                            "id": "compat_fix",
+                            "label": f"🔧 Fix: {hint['search']} → {hint['replace']}",
+                            "description": hint["fix"],
+                            "search": hint["search"],
+                            "replace": hint["replace"],
+                        })
+                    else:
+                        rem_options.append({
+                            "id": "info",
+                            "label": f"⚠️ {hint['feature']} (Python {hint['since']}+)",
+                            "description": hint["fix"],
+                        })
+            rem_options.append(
+                {"id": "skip", "label": "Mark as done anyway",
+                 "description": "Mark this step complete and move on"})
+            rem_options.append(
+                {"id": "skip", "label": "Skip — fix tests later",
+                 "description": "Continue and revisit test failures separately"})
             remediation = {
                 "packages": [],
-                "options": [
-                    {"id": "skip", "label": "Mark as done anyway",
-                     "description": "The test output shows no failures — mark this step complete"},
-                    {"id": "skip", "label": "Skip — fix tests later",
-                     "description": "Continue and revisit test failures separately"},
-                ],
+                "options": rem_options,
+                "compat_hints": compat_hints,
             }
         elif is_subprocess:
             remediation = {
