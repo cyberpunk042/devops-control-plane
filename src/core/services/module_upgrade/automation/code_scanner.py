@@ -647,8 +647,12 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
         return {"ok": False, "error": "Cannot import feature patterns"}
 
     findings = []
+    _future_check_re = re.compile(r"^from\s+__future__\s+import\s+annotations", re.MULTILINE)
+    _annotation_feature_names = {name for _, name, _ in _ANNOTATION_FEATURES}
 
     for py_file in sorted(module_dir.rglob("*.py"))[:500]:
+        if "__pycache__" in str(py_file):
+            continue
         try:
             content = py_file.read_text(encoding="utf-8", errors="ignore")
         except OSError:
@@ -657,6 +661,7 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
         code_content = _strip_strings_and_comments(content)
         rel_path = str(py_file.relative_to(ctx.project_root))
         lines = content.split("\n")
+        has_future = bool(_future_check_re.search(content))
 
         # Check all features (both runtime and annotation)
         all_features = list(_RUNTIME_FEATURES) + list(_ANNOTATION_FEATURES)
@@ -666,10 +671,14 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
             if not ver_parts or ver_parts <= target_parts:
                 continue  # feature is compatible with target
 
+            # Annotation features in files WITH __future__ are HANDLED — not a problem
+            is_annotation = feature_name in _annotation_feature_names
+            if is_annotation and has_future:
+                continue  # __future__ makes this compatible
+
             compiled = re.compile(pattern_str, re.MULTILINE)
             for match in compiled.finditer(code_content):
                 line_no = code_content[:match.start()].count("\n") + 1
-                # Get the actual source line (from original content, not stripped)
                 source_line = lines[line_no - 1].rstrip() if line_no <= len(lines) else ""
 
                 guide = _REWRITE_GUIDES.get(feature_name, {})

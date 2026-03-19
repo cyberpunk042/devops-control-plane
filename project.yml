@@ -39,13 +39,16 @@ modules:
     - label: Update requires-python in pyproject.toml
       description: Change >=3.8 to >=3.8 to widen compatibility range
       id: edit_pyproject_requires_python:db166491
+      done: true
     - label: Scan for features not available in Python 3.8
       description: Find code patterns that require a newer Python than 3.8
       id: scan_incompatible_features:40877a0f
+      done: true
     - label: Add __future__ annotations import where needed
       description: Enable PEP 604 (X | Y) and PEP 585 (builtin generics) syntax on
         older Python via deferred evaluation
       id: add_future_annotations:7135c841
+      done: true
     - label: Review and fix incompatible syntax patterns
       description: Shows each incompatible code pattern with its location, explanation,
         and rewrite guide. Fixable patterns marked with 🔧, manual rewrites with ⚠️.

@@ -1941,6 +1941,19 @@
                     html += `<div class="plan-preview-detail">...and ${data.findings.length - 15} more</div>`;
                 }
                 html += '</div>';
+
+                // Action buttons for fixable findings
+                const hasFixable = Object.values(byFeature).some(info => info.fixable);
+                if (hasFixable) {
+                    html += `<div class="plan-preview-actions" style="margin-top:0.5rem">
+                        <button class="btn btn-sm btn-primary" onclick="wizardAddFuture('${esc(moduleName)}')">🔧 Add __future__ annotations to fix ${Object.values(byFeature).filter(i => i.fixable).reduce((s,i) => s + i.count, 0)} pattern(s)</button>
+                        <button class="btn btn-sm btn-ghost" onclick="modulePlanApplyStep('${esc(moduleName)}','${esc(stepId)}',${stepIndex})">✅ Mark reviewed</button>
+                    </div>`;
+                } else {
+                    html += `<div class="plan-preview-actions" style="margin-top:0.5rem">
+                        <button class="btn btn-sm btn-ghost" onclick="modulePlanApplyStep('${esc(moduleName)}','${esc(stepId)}',${stepIndex})">✅ Mark reviewed</button>
+                    </div>`;
+                }
             }
 
             // Apply button (only for steps that can be applied)
