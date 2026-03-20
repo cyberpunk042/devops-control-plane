@@ -862,10 +862,57 @@ class FixEngine:
         return "\n".join(lines)
 
     def _transform_rewrite_binary_op(self, source: str, transform: Transform) -> str | None:
-        """Rewrite a binary operation: a | b → {**a, **b}."""
-        # This is a placeholder — proper dict | detection needs type info
-        # For now, skip to avoid false positives with int | int
-        return None
+        """Rewrite a binary operation: a | b → {**a, **b}.
+
+        Uses AST to find BinOp nodes with BitOr operator.
+        Only rewrites when the detection engine already confirmed this is
+        a dict merge (not int bitwise or, not type union).
+        """
+        template = transform.replace.get("template", "{**{left}, **{right}}")
+
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return None
+
+        lines = source.split("\n")
+        replacements: list[tuple[int, int, int, int, str]] = []
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.BinOp):
+                continue
+            if not isinstance(node.op, ast.BitOr):
+                continue
+
+            # Get source segments for left and right operands
+            left_src = ast.get_source_segment(source, node.left)
+            right_src = ast.get_source_segment(source, node.right)
+            if not left_src or not right_src:
+                continue
+
+            # Build replacement from template
+            new_expr = template.replace("{left}", left_src).replace("{right}", right_src)
+
+            replacements.append((
+                node.lineno, node.col_offset,
+                node.end_lineno or node.lineno,
+                node.end_col_offset or (node.col_offset + len(left_src) + 3 + len(right_src)),
+                new_expr,
+            ))
+
+        if not replacements:
+            return None
+
+        # Apply replacements bottom-up to preserve positions
+        for lineno, col_start, end_lineno, col_end, new_text in sorted(
+            replacements, reverse=True
+        ):
+            if lineno == end_lineno:
+                line_idx = lineno - 1
+                line = lines[line_idx]
+                lines[line_idx] = line[:col_start] + new_text + line[col_end:]
+
+        return "\n".join(lines)
 
     def _transform_replace_identifier(self, source: str, transform: Transform) -> str | None:
         """Replace an identifier: any → interface{}."""
