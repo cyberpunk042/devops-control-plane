@@ -1798,7 +1798,8 @@
         const date = typeof mfVal === 'function' ? mfVal('rem_plan_date') : (document.getElementById('mf-rem_plan_date') || {}).value || '';
         if (!target) { toast('⚠️ Please enter a target floor', 'warning'); return; }
 
-        // ── Create the plan (no pre-assess — plan endpoint handles it) ──
+        // ── Create the plan ──
+        toast('🔍 Analyzing ' + moduleName + ' for Python ' + target + '...', 'info', 10000);
         try {
             const resp = await fetch('/api/posture/module-plan', {
                 method: 'POST',
@@ -2126,8 +2127,8 @@
                     // Before/after preview
                     if (group.before && group.after) {
                         html += `<div style="display:flex;gap:0.5rem;margin:0.3rem 0;font-size:0.75rem">`;
-                        html += `<div style="flex:1;padding:0.3rem;background:var(--danger-bg,#fee);border-radius:var(--radius-sm)"><div style="color:var(--danger);font-weight:600;font-size:0.7rem">BEFORE</div><pre style="margin:0;white-space:pre-wrap">${esc(group.before)}</pre></div>`;
-                        html += `<div style="flex:1;padding:0.3rem;background:var(--success-bg,#efe);border-radius:var(--radius-sm)"><div style="color:var(--success);font-weight:600;font-size:0.7rem">AFTER</div><pre style="margin:0;white-space:pre-wrap">${esc(group.after)}</pre></div>`;
+                        html += `<div style="flex:1;padding:0.4rem;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:var(--radius-sm)"><div style="color:#e55;font-weight:600;font-size:0.7rem;margin-bottom:0.2rem">BEFORE</div><pre style="margin:0;white-space:pre-wrap;color:var(--text-primary)">${esc(group.before)}</pre></div>`;
+                        html += `<div style="flex:1;padding:0.4rem;background:rgba(80,200,80,0.1);border:1px solid rgba(80,200,80,0.3);border-radius:var(--radius-sm)"><div style="color:#5a5;font-weight:600;font-size:0.7rem;margin-bottom:0.2rem">AFTER</div><pre style="margin:0;white-space:pre-wrap;color:var(--text-primary)">${esc(group.after)}</pre></div>`;
                         html += `</div>`;
                     }
 
