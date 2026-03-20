@@ -18,6 +18,7 @@ def get_handler_registry() -> dict:
     """
     from .code_scanner import (
         handle_add_future_annotations,
+        handle_fix_compat_auto,
         handle_guide_incompatible_syntax,
         handle_modernize_type_hints,
         handle_remove_future_annotations,
@@ -122,6 +123,7 @@ def get_handler_registry() -> dict:
         # ── Code scanning & modification (Python-specific) ───────
         "scan_breaking_changes": handle_scan_breaking_changes,
         "scan_incompatible_features": handle_scan_incompatible_features,
+        "fix_compat_auto": handle_fix_compat_auto,
         "remove_future_annotations": handle_remove_future_annotations,
         "add_future_annotations": handle_add_future_annotations,
         "modernize_type_hints": handle_modernize_type_hints,

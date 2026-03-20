@@ -151,10 +151,10 @@ class FeatureRegistry:
         results = []
         for entry in self._entries.values():
             if (
-                query_lower in entry.feature_name.lower()
-                or query_lower in entry.description.lower()
-                or query_lower in entry.id.lower()
-                or any(query_lower in tag.lower() for tag in entry.tags)
+                query_lower in (entry.feature_name or "").lower()
+                or query_lower in (entry.description or "").lower()
+                or query_lower in (entry.id or "").lower()
+                or any(query_lower in (tag or "").lower() for tag in (entry.tags or []))
             ):
                 results.append(entry)
         return results

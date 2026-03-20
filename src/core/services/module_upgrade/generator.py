@@ -162,14 +162,206 @@ def generate_checklist(
             step = _materialize_step(template, ctx)
             steps.append(step)
 
+    # ── Enrich with compat v2 analysis (replaces generic scan/fix steps) ──
+    steps = _enrich_with_compat_analysis(
+        steps, module_name, target, ctx.direction, project_root,
+    )
+
     # ── Generate IDs ─────────────────────────────────────────────
     for step in steps:
         automation_id = step.pop("_automation_id", "")
+        compat_state = step.pop("_compat_state", None)
         suffix = uuid.uuid4().hex[:8]
         if automation_id:
             step["id"] = f"{automation_id}:{suffix}"
         else:
             step["id"] = f"manual:{suffix}"
+        if compat_state:
+            step["state"] = compat_state
+
+    return steps
+
+
+# ── Compat v2 integration ────────────────────────────────────────
+
+
+# Steps that are REPLACED by compat-generated steps when analysis is available.
+# These are the generic recipe steps that the compat engine does better.
+_COMPAT_REPLACED_AUTOMATIONS = {
+    "scan_incompatible_features",
+    "scan_breaking_changes",
+    "add_future_annotations",
+    "guide_incompatible_syntax",
+    "rescan_module",
+}
+
+
+def _enrich_with_compat_analysis(
+    steps: list[dict],
+    module_name: str,
+    target: str,
+    direction: str,
+    project_root: Path,
+) -> list[dict]:
+    """Enrich plan steps with compat v2 analysis results.
+
+    Replaces generic scan/fix/guide steps with analysis-driven steps
+    that show exact findings, counts, and fix strategies.
+
+    Falls back to the original recipe steps if compat is not available.
+    """
+    try:
+        from src.core.services.mediator import get_mediator
+
+        m = get_mediator()
+
+        # Get analysis (cached or compute)
+        analysis_data = m.get(f"compat.analysis.{module_name}")
+        if not analysis_data or not analysis_data.get("data"):
+            return steps  # No analysis — keep recipe steps
+        analysis = analysis_data["data"]
+
+        if not analysis.findings:
+            # No findings — simplify plan: remove fix/guide steps, keep infrastructure
+            enriched = []
+            for step in steps:
+                aid = step.get("_automation_id", "")
+                if aid in _COMPAT_REPLACED_AUTOMATIONS:
+                    continue  # Skip — no findings means no scan/fix/guide needed
+                enriched.append(step)
+
+            # Add a single "Scan — clean" step at the beginning
+            enriched.insert(0, {
+                "label": f"Scan complete — no incompatibilities for Python {target}",
+                "description": "AST analysis found 0 features incompatible with the target version",
+                "_automation_id": "scan_incompatible_features",
+                "_compat_state": "passed",
+            })
+            return enriched
+
+        # Separate compat-replaced steps from infrastructure steps
+        infra_steps = []
+        insert_point = 0
+        found_first_compat = False
+
+        for i, step in enumerate(steps):
+            aid = step.get("_automation_id", "")
+            if aid in _COMPAT_REPLACED_AUTOMATIONS:
+                if not found_first_compat:
+                    insert_point = len(infra_steps)
+                    found_first_compat = True
+                # Skip — will be replaced by compat steps
+            else:
+                infra_steps.append(step)
+
+        # Generate compat-specific steps from analysis
+        compat_steps = _generate_compat_steps(analysis, target, direction)
+
+        # Merge: infra steps before insert point + compat steps + infra steps after
+        result = infra_steps[:insert_point] + compat_steps + infra_steps[insert_point:]
+        return result
+
+    except Exception as exc:
+        logger.warning("Compat enrichment failed, using recipe steps: %s", exc)
+        return steps
+
+
+def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
+    """Generate plan steps from compat analysis results."""
+    steps = []
+
+    # Filter to actionable findings (error/warning, not info/no_fix_needed)
+    actionable = [
+        f for f in analysis.findings
+        if f.severity in ("error", "warning") and f.fix_strategy != "no_fix_needed"
+    ]
+
+    direct = [f for f in actionable if not f.is_transitive]
+    transitive = [f for f in actionable if f.is_transitive]
+    auto_fixable = [f for f in direct if f.fix_available]
+    manual = [f for f in direct if not f.fix_available]
+
+    total_files = len(set(f.file for f in actionable))
+
+    # Step: Scan summary
+    steps.append({
+        "label": f"Scan — {len(actionable)} finding(s) in {total_files} file(s)",
+        "description": (
+            f"{len(auto_fixable)} auto-fixable, {len(manual)} manual"
+            + (f", {len(transitive)} transitive" if transitive else "")
+        ),
+        "_automation_id": "scan_incompatible_features",
+    })
+
+    # Step: Blocked by transitive (if any)
+    if transitive:
+        blocking_modules = sorted(set(
+            f.source_module for f in transitive if f.source_module
+        ))
+        if blocking_modules:
+            steps.append({
+                "label": f"Blocked by: {', '.join(blocking_modules)} ({len(transitive)} finding(s))",
+                "description": "Fix these modules first to resolve transitive incompatibilities",
+                "_automation_id": "blocked",
+                "_compat_state": "blocked",
+            })
+
+    # Group auto-fixable by fix strategy
+    future_fixable = [f for f in auto_fixable if f.fix_strategy == "add_future_import"]
+    import_fixable = [f for f in auto_fixable if f.fix_strategy in (
+        "replace_import", "replace_import_and_usages", "add_backport_import",
+    )]
+    other_fixable = [f for f in auto_fixable if f not in future_fixable + import_fixable]
+
+    # Step: Add __future__ annotations
+    if future_fixable:
+        files = sorted(set(f.file for f in future_fixable))
+        steps.append({
+            "label": f"Add __future__ annotations ({len(files)} file(s))",
+            "description": "Enable PEP 604/585 syntax on older Python via deferred evaluation",
+            "_automation_id": "add_future_annotations",
+        })
+
+    # Steps: Fix by feature (grouped)
+    by_feature: dict[str, list] = {}
+    for f in import_fixable + other_fixable:
+        by_feature.setdefault(f.feature_name, []).append(f)
+
+    for feature_name, findings in sorted(by_feature.items()):
+        files = sorted(set(f.file for f in findings))
+        steps.append({
+            "label": f"Fix {feature_name} ({len(files)} file(s))",
+            "description": f"Auto-fix: {findings[0].fix_strategy}",
+            "_automation_id": "fix_compat_auto",
+        })
+
+    # Step: Manual fixes
+    if manual:
+        by_feat_manual: dict[str, list] = {}
+        for f in manual:
+            by_feat_manual.setdefault(f.feature_name, []).append(f)
+
+        for feature_name, findings in sorted(by_feat_manual.items()):
+            steps.append({
+                "label": f"Manual fix: {feature_name} ({len(findings)} occurrence(s))",
+                "description": "Requires manual rewrite — cannot be auto-fixed",
+                "_automation_id": "manual",
+            })
+
+    # Step: Guide (only if there are findings)
+    if actionable:
+        steps.append({
+            "label": "Review incompatible syntax guide",
+            "description": "Shows rewrite patterns and before/after examples",
+            "_automation_id": "guide_incompatible_syntax",
+        })
+
+    # Step: Re-scan and verify
+    steps.append({
+        "label": "Re-scan and verify",
+        "description": "Confirm all incompatibilities are resolved",
+        "_automation_id": "rescan_module",
+    })
 
     return steps
 

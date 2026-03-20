@@ -54,6 +54,89 @@ def handle_scan_incompatible_features(ctx: UpgradeContext, mode: str) -> dict:
     return _scan_features(ctx, direction="downgrade")
 
 
+def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
+    """Fix all auto-fixable compat findings in the module.
+
+    Uses the compat v2 fix engine with verification and rollback.
+
+    Preview: shows what would be fixed.
+    Execute: applies fixes, verifies, reports results.
+    """
+    try:
+        from src.core.services.mediator import get_mediator
+
+        _m = get_mediator()
+        analysis_data = _m.get(f"compat.analysis.{ctx.module_name}")
+        result = analysis_data["data"]
+        if result is None:
+            return {"ok": False, "error": "No analysis results available"}
+
+        # Filter to auto-fixable, actionable findings
+        fixable = [
+            f for f in result.findings
+            if f.fix_available
+            and f.severity in ("error", "warning")
+            and f.fix_strategy != "no_fix_needed"
+            and not f.is_transitive
+        ]
+
+        if not fixable:
+            return {
+                "ok": True,
+                "can_apply": False,
+                "preview_type": "info",
+                "summary": "No auto-fixable findings",
+            }
+
+        files = sorted(set(f.file for f in fixable))
+
+        if mode == "preview":
+            by_feature: dict[str, int] = {}
+            for f in fixable:
+                by_feature[f.feature_name] = by_feature.get(f.feature_name, 0) + 1
+
+            return {
+                "ok": True,
+                "can_apply": True,
+                "preview_type": "info",
+                "summary": f"Will fix {len(fixable)} finding(s) in {len(files)} file(s)",
+                "detail": "\n".join(
+                    f"  {name}: {count} occurrence(s)"
+                    for name, count in sorted(by_feature.items())
+                ),
+            }
+
+        # Execute — use compat fix engine
+        compat = _m.get("compat.orchestrator")["data"]
+        module_dir = ctx.project_root / ctx.module_path
+
+        fix_result = compat.fix.fix_module(
+            module_dir=module_dir,
+            findings=fixable,
+            module_name=ctx.module_name,
+            project_root=ctx.project_root,
+            verify=True,
+        )
+
+        summary_parts = [f"Fixed {fix_result.verified_fixes}/{len(fixable)} finding(s)"]
+        summary_parts.append(f"in {fix_result.files_fixed} file(s)")
+        if fix_result.files_rolled_back > 0:
+            summary_parts.append(f"({fix_result.files_rolled_back} rolled back)")
+
+        return {
+            "ok": True,
+            "summary": " ".join(summary_parts),
+            "fixed_count": fix_result.verified_fixes,
+            "failed_count": fix_result.failed_fixes,
+            "files_fixed": fix_result.files_fixed,
+            "files_rolled_back": fix_result.files_rolled_back,
+            "duration_ms": fix_result.duration_ms,
+        }
+
+    except Exception as exc:
+        return {"ok": False, "error": f"Auto-fix failed: {exc}"}
+
+
 def handle_remove_future_annotations(ctx: UpgradeContext, mode: str) -> dict:
     """Remove __future__ annotations imports when target >= 3.10.
 
@@ -232,46 +315,91 @@ def _scan_features(ctx: UpgradeContext, direction: str) -> dict:
         if result is None:
             raise RuntimeError("compat analysis returned None")
 
-        if not result.findings:
+        # Filter to actionable findings (error/warning, not info/no_fix_needed)
+        actionable = [
+            f for f in result.findings
+            if f.severity in ("error", "warning") and f.fix_strategy != "no_fix_needed"
+        ]
+
+        if not actionable:
             return {
                 "ok": True,
                 "can_apply": False,
                 "preview_type": "info",
-                "summary": f"No features incompatible with Python {ctx.target_floor}",
+                "summary": f"No actionable incompatibilities for Python {ctx.target_floor}",
             }
 
-        # Convert compat findings to the format the existing UI expects
-        findings = []
-        for f in result.findings:
-            findings.append({
-                "file": f.file,
-                "line": f.line,
-                "feature": f.feature_name,
-                "version": f.version,
-                "fix_available": f.fix_available,
-                "fix_strategy": f.fix_strategy,
-                "severity": f.severity,
-            })
+        # Group by feature
+        by_feature: dict[str, list] = {}
+        for f in actionable:
+            by_feature.setdefault(f.feature_name, []).append(f)
 
-        # Compute code floor from findings
+        # Stats
+        auto_fixable = [f for f in actionable if f.fix_available]
+        manual_only = [f for f in actionable if not f.fix_available]
+        errors = [f for f in actionable if f.severity == "error"]
+        warnings = [f for f in actionable if f.severity == "warning"]
+        total_files = len(set(f.file for f in actionable))
+
         code_floor = max(
-            (f.version for f in result.findings),
+            (f.version for f in actionable),
             default=ctx.target_floor,
         )
 
-        summary = (
-            f"Found {len(findings)} version-specific feature(s) in code"
-            if direction == "upgrade"
-            else f"Found {len(findings)} feature(s) requiring Python > {ctx.target_floor}"
-        )
+        # Build grouped output
+        feature_groups = []
+        for feature_name in sorted(by_feature.keys()):
+            findings = by_feature[feature_name]
+            files = sorted(set(f.file for f in findings))
+            feature_groups.append({
+                "feature": feature_name,
+                "feature_id": findings[0].feature_id,
+                "version": findings[0].version,
+                "severity": findings[0].severity,
+                "count": len(findings),
+                "fix_available": findings[0].fix_available,
+                "fix_strategy": findings[0].fix_strategy,
+                "files": [f"{f.file}:{f.line}" for f in findings[:5]],
+                "more": max(0, len(findings) - 5),
+            })
+
+        # Sort: errors first, then by count descending
+        feature_groups.sort(key=lambda g: (0 if g["severity"] == "error" else 1, -g["count"]))
+
+        summary_parts = []
+        if errors:
+            summary_parts.append(f"{len(errors)} error(s)")
+        if warnings:
+            summary_parts.append(f"{len(warnings)} warning(s)")
+        summary_parts.append(f"in {total_files} file(s)")
+        if auto_fixable:
+            summary_parts.append(f"({len(auto_fixable)} auto-fixable)")
 
         return {
             "ok": True,
-            "can_apply": False,  # read-only scan
-            "preview_type": "findings",
-            "summary": summary,
+            "can_apply": bool(auto_fixable),
+            "preview_type": "compat_scan",
+            "summary": ", ".join(summary_parts),
             "code_floor": code_floor,
-            "findings": findings,
+            "total_findings": len(actionable),
+            "auto_fixable_count": len(auto_fixable),
+            "manual_count": len(manual_only),
+            "error_count": len(errors),
+            "warning_count": len(warnings),
+            "file_count": total_files,
+            "by_feature": feature_groups,
+            "findings": [
+                {
+                    "file": f.file,
+                    "line": f.line,
+                    "feature": f.feature_name,
+                    "version": f.version,
+                    "severity": f.severity,
+                    "fix_available": f.fix_available,
+                    "fix_strategy": f.fix_strategy,
+                }
+                for f in actionable[:100]  # Cap at 100 for UI performance
+            ],
         }
 
     except Exception as exc:

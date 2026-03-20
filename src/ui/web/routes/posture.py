@@ -1749,13 +1749,11 @@ def posture_module_compat_fix():  # type: ignore[no-untyped-def]
                 except Exception:
                     pass
 
-                # Read cached analysis — never run fresh analysis in request handler
-                _analysis_data = _m.peek(f"compat.analysis.{module_name}")
-                if _analysis_data is not None and _analysis_data["data"] is not None:
-                    result = _analysis_data["data"]
-                else:
-                    # No cached analysis — skip compat path, use fallback below
-                    raise RuntimeError("compat analysis not cached")
+                # Get compat analysis (cached or computed on demand)
+                _analysis_data = _m.get(f"compat.analysis.{module_name}")
+                result = _analysis_data["data"]
+                if result is None:
+                    raise RuntimeError("compat analysis returned None")
 
                 # Filter to findings matching the search
                 matching_ids = {e.id for e in matching_entries}

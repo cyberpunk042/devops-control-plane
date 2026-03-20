@@ -311,7 +311,7 @@ def _parse_entry(raw: dict, language: str) -> FeatureEntry:
         removed=raw.get("removed"),
         deprecated=raw.get("deprecated"),
         category=raw.get("category", ""),
-        description=raw.get("description", ""),
+        description=raw.get("description") or "",
         direction=direction,
         severity=severity,
         error_type=error_type,

@@ -2108,6 +2108,30 @@
                 html += '</div>';
             }
 
+            // Compat scan preview (rich grouped findings with fix actions)
+            if (ptype === 'compat_scan' && data.by_feature) {
+                // Stats bar
+                html += `<div style="display:flex;gap:1rem;margin:0.5rem 0;font-size:0.82rem">`;
+                if (data.error_count) html += `<span style="color:var(--danger)">❌ ${data.error_count} error(s)</span>`;
+                if (data.warning_count) html += `<span style="color:var(--warning)">⚠️ ${data.warning_count} warning(s)</span>`;
+                html += `<span>📁 ${data.file_count || 0} file(s)</span>`;
+                html += `<span>🔧 ${data.auto_fixable_count || 0} auto-fixable</span>`;
+                html += `</div>`;
+
+                // Feature groups
+                for (const group of data.by_feature) {
+                    const sevIcon = group.severity === 'error' ? '❌' : '⚠️';
+                    const fixBadge = group.fix_available ? '🔧' : '📝';
+                    html += `<div style="margin:0.4rem 0;padding:0.4rem 0.6rem;background:var(--bg-inset);border-radius:var(--radius-sm)">`;
+                    html += `<div style="font-weight:600;font-size:0.82rem">${sevIcon} ${esc(group.feature)} <span style="color:var(--text-muted)">${esc(group.version)}+</span> <span style="font-weight:400;font-size:0.78rem">${group.count} occurrence(s) ${fixBadge}</span></div>`;
+                    for (const loc of group.files || []) {
+                        html += `<div style="font-size:0.75rem;padding-left:0.5rem;color:var(--text-muted)">${esc(loc)}</div>`;
+                    }
+                    if (group.more > 0) html += `<div style="font-size:0.75rem;padding-left:0.5rem;color:var(--text-muted)">... +${group.more} more</div>`;
+                    html += `</div>`;
+                }
+            }
+
             // Guide preview (incompatible syntax guide)
             if (ptype === 'guide' && data.findings && data.findings.length) {
                 const byFeature = data.by_feature || {};
@@ -2158,6 +2182,12 @@
                 }
                 footerBtns.push({ label: '✅ Mark reviewed', cls: 'btn-primary',
                     onclick: "_modalApplyStep('" + esc(moduleName) + "','" + esc(stepId) + "'," + stepIndex + ")" });
+            } else if (ptype === 'compat_scan' && data.auto_fixable_count > 0) {
+                // Compat scan with auto-fixable findings → offer Fix All
+                footerBtns.push({ label: '🔧 Fix All Auto-fixable (' + data.auto_fixable_count + ')', cls: 'btn-primary',
+                    onclick: "_modalApplyStep('" + esc(moduleName) + "','fix_compat_auto:" + esc(stepId.split(':')[1] || 'auto') + "'," + stepIndex + ")" });
+                footerBtns.push({ label: '✅ Mark as reviewed', cls: 'btn-ghost',
+                    onclick: "_wizardMarkDone_close('" + esc(moduleName) + "','" + esc(stepId) + "'," + stepIndex + ")" });
             } else if (data.can_apply) {
                 footerBtns.push({ label: '✅ Apply', cls: 'btn-primary',
                     onclick: "_modalApplyStep('" + esc(moduleName) + "','" + esc(stepId) + "'," + stepIndex + ")" });
