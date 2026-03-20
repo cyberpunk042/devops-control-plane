@@ -515,7 +515,7 @@ def wizard_batch(
         from .executor import should_mark_done
 
         if ok and should_mark_done(result):
-            _mark_step_done(ctx.module_name, step_id)
+            _mark_step_done(ctx.module_name, step_id, summary=result.get("summary"))
             yield {"type": "step_done", "step": idx, "elapsed_ms": elapsed,
                    "step_id": step_id}
             completed += 1

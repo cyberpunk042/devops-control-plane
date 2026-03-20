@@ -152,6 +152,13 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
             verify=True,
         )
 
+        # Always bust analysis cache after fix attempt so subsequent
+        # steps (rescan, other fix steps) see fresh state
+        try:
+            _m.bust_path(f"compat.analysis.{ctx.module_name}", cascade=True)
+        except Exception:
+            pass
+
         summary_parts = [f"Fixed {fix_result.verified_fixes}/{len(fixable)} finding(s)"]
         summary_parts.append(f"in {fix_result.files_fixed} file(s)")
         if fix_result.files_rolled_back > 0:

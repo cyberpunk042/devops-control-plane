@@ -276,6 +276,24 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
             ),
         }
 
+    # Check if compat fix steps are done before running tests
+    try:
+        from src.core.config.loader import load_project
+        proj = load_project(ctx.project_root)
+        for mod in (proj.get("modules") or []):
+            if mod.get("name") == ctx.module_name:
+                plan = mod.get("version_plan") or {}
+                for step in (plan.get("checklist") or []):
+                    aid = (step.get("automation_id") or "").split("__")[0]
+                    if aid == "fix_compat_auto" and not step.get("done"):
+                        return {
+                            "ok": False,
+                            "error": "Code fixes haven't been applied yet. Apply compat fixes first, then re-run tests.",
+                        }
+                break
+    except Exception:
+        pass  # best effort — don't block tests if project.yml read fails
+
     # Execute
     if not venv_python.is_file():
         return {"ok": False, "error": f"Venv not found at {venv_dir}. Set up test environment first."}
@@ -283,10 +301,18 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
     test_target = str(tests_dir) if tests_dir.is_dir() else str(module_dir)
 
     try:
+        # Set PYTHONPATH so the module (and project root) are importable
+        # in the isolated venv without needing `pip install -e .`
+        import os as _os
+        env = _os.environ.copy()
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = str(ctx.project_root) + (_os.pathsep + existing if existing else "")
+
         result = subprocess.run(
             [str(venv_python), "-m", "pytest", test_target, "-v", "--tb=short"],
             capture_output=True, text=True, timeout=300,
             cwd=str(ctx.project_root),
+            env=env,
         )
 
         stdout = result.stdout or ""

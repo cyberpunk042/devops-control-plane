@@ -71,11 +71,35 @@ def handle_check_dep_compat_pypi(ctx: UpgradeContext, mode: str) -> dict:
 
         import_to_pkg = _build_import_mapping(site_packages)
 
+        # Well-known import→package mappings for packages where
+        # the import name differs from the pip package name
+        _KNOWN_IMPORT_TO_PKG = {
+            "yaml": "pyyaml",
+            "cv2": "opencv-python",
+            "PIL": "pillow",
+            "bs4": "beautifulsoup4",
+            "sklearn": "scikit-learn",
+            "gi": "pygobject",
+            "attr": "attrs",
+            "dotenv": "python-dotenv",
+            "dateutil": "python-dateutil",
+            "google": "googleapis-common-protos",
+            "jose": "python-jose",
+            "jwt": "pyjwt",
+            "magic": "python-magic",
+            "serial": "pyserial",
+            "usb": "pyusb",
+            "wx": "wxpython",
+            "lxml": "lxml",
+        }
+
         # Map imports to package names
         packages: set[str] = set()
         for imp in module_imports:
             if imp in import_to_pkg:
                 packages.add(import_to_pkg[imp])
+            elif imp in _KNOWN_IMPORT_TO_PKG:
+                packages.add(_KNOWN_IMPORT_TO_PKG[imp])
             else:
                 packages.add(imp)
 
@@ -168,10 +192,10 @@ def _check_package_compat(
         logger.debug("PyPI query failed for %s: %s", package, exc)
         return {
             "package": package,
-            "compatible": True,  # assume compatible if we can't check
+            "compatible": False,
             "unknown": True,
             "requires_python": "?",
-            "note": "Could not query PyPI",
+            "note": "Could not query PyPI — verify manually",
         }
 
     info = data.get("info", {})
@@ -420,8 +444,8 @@ def _generic_dep_check(
         result = query_fn(pkg)
         if not result:
             findings.append({
-                "package": pkg, "compatible": True, "unknown": True,
-                "requires_python": "?", "note": "Could not query registry",
+                "package": pkg, "compatible": False, "unknown": True,
+                "requires_python": "?", "note": "Could not query registry — verify manually",
             })
             continue
 

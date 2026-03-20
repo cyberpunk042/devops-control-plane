@@ -1128,11 +1128,34 @@ def posture_module_plan_detail():  # type: ignore[no-untyped-def]
                 or (aid and aid not in ("manual", "custom", "blocked", ""))
             )
 
+            # Re-evaluate blocked steps — check if blocking modules were fixed
+            step_state = getattr(s, "state", "") or ""
+            if aid == "blocked" and not s.done and step_state == "blocked":
+                try:
+                    from src.core.services.mediator import get_mediator as _gm_block
+                    _m_block = _gm_block()
+                    # Check if all blocking modules' analyses are now clean
+                    blocking_text = s.label.replace("Blocked by: ", "").split(" (")[0]
+                    blocking_mods = [m.strip() for m in blocking_text.split(",")]
+                    all_resolved = True
+                    for bmod in blocking_mods:
+                        bdata = _m_block.peek(f"compat.analysis.{bmod}")
+                        if bdata and bdata.get("data"):
+                            remaining = [f for f in bdata["data"].findings
+                                         if f.is_transitive and f.severity in ("error", "warning")]
+                            if remaining:
+                                all_resolved = False
+                                break
+                    if all_resolved:
+                        step_state = "resolved"
+                except Exception:
+                    pass
+
             checklist.append({
                 "id": s.id,
                 "label": s.label,
                 "description": s.description,
-                "done": s.done,
+                "done": s.done or step_state == "resolved",
                 "automatable": is_automatable,
                 "automation_id": aid if aid not in ("manual", "custom", "") else "",
                 "risk": meta.get("risk", "low"),

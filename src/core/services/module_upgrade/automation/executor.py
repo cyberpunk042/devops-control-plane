@@ -21,7 +21,7 @@ def should_mark_done(result: dict) -> bool:
 
     Rules:
     - ok=False → never done
-    - auto_fix_required → not done (fix step that needs the toggle)
+    - can_apply=False with findings → needs manual attention, not done
     - dep check with incompatible deps → not done
     - Everything else → done (including scan steps with findings — scans are read-only)
     """
@@ -29,6 +29,11 @@ def should_mark_done(result: dict) -> bool:
         return False
 
     findings = result.get("findings", [])
+
+    # Read-only step with findings (e.g., CI matrix) → needs manual attention
+    if findings and result.get("can_apply") is False:
+        return False
+
     if not findings:
         return True
 
@@ -136,7 +141,7 @@ def execute_step(
     # ── Mark done on successful execute ──────────────────────────
     if mode == "execute" and result.get("ok"):
         if should_mark_done(result):
-            _mark_step_done(module_name, step_id)
+            _mark_step_done(module_name, step_id, summary=result.get("summary"))
         else:
             result["step_not_done"] = True
 
@@ -618,8 +623,12 @@ def _get_plan_target(module_name: str) -> str | None:
     return None
 
 
-def _mark_step_done(module_name: str, step_id: str) -> None:
-    """Mark a step as done in project.yml by matching step_id."""
+def _mark_step_done(module_name: str, step_id: str, summary: str | None = None) -> None:
+    """Mark a step as done in project.yml by matching step_id.
+
+    If summary is provided, also update the step label to reflect
+    the latest result (e.g., updated finding counts after rescan).
+    """
     try:
         import yaml
         from src.core.config.loader import find_project_file
@@ -641,6 +650,8 @@ def _mark_step_done(module_name: str, step_id: str) -> None:
             for step in plan.get("checklist", []):
                 if step.get("id") == step_id:
                     step["done"] = True
+                    if summary:
+                        step["label"] = summary
                     break
             break
 

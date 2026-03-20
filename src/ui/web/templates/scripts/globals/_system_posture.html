@@ -2028,8 +2028,8 @@
         }
 
         // Streaming steps — use wizard modal with SSE
-        // (but NOT run_isolated_tests / setup_test_env — those are handlers, not subprocesses)
-        if (aid.startsWith('run_') && aid !== 'run_isolated_tests' && aid !== 'setup_test_env') {
+        // (but NOT run_isolated_tests / setup_test_env / run_pip_install — those use handlers)
+        if (aid.startsWith('run_') && aid !== 'run_isolated_tests' && aid !== 'setup_test_env' && aid !== 'run_pip_install') {
             return _openStepModal(moduleName, stepId, stepIndex, 'subprocess');
         }
 
@@ -2268,18 +2268,15 @@
 
             if (data.ok) {
                 toast('✅ ' + (data.summary || 'Step completed'), 'success');
-                // Close fix preview modal + wizard modal underneath
-                modalClose();
-                modalClose();
-                // Mark the step done in the plan checklist UI (no server call — already executed above)
-                const planSteps = document.querySelectorAll('#plan-checklist .plan-step');
-                if (planSteps[stepIndex]) {
-                    planSteps[stepIndex].classList.add('done');
-                    const cb = planSteps[stepIndex].querySelector('.plan-step-check');
-                    if (cb) cb.checked = true;
-                    const btn = planSteps[stepIndex].querySelector('.plan-step-auto');
-                    if (btn) btn.style.display = 'none';
+                // Close modals above the plan modal (preview, wizard, etc.)
+                // Plan modal contains #plan-checklist — close until it's visible
+                while (modalDepth() > 0) {
+                    const topOverlay = document.getElementById('active-modal-overlay');
+                    if (topOverlay && topOverlay.querySelector('#plan-checklist')) break;
+                    modalClose();
                 }
+                // Mark the step done in the plan checklist UI + server
+                _wizardMarkDone(moduleName, stepId, stepIndex);
                 _refreshPlanState();
                 return;
             }
@@ -3252,12 +3249,12 @@
     };
 
     async function _wizardMarkDone(moduleName, stepId, stepIndex) {
-        // Mark the step done via the execute endpoint
+        // Mark the step done via the progress toggle endpoint (NOT execute)
         try {
-            await fetch('/api/posture/module-step-execute', {
-                method: 'POST',
+            await fetch('/api/posture/module-plan-progress', {
+                method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute', auto_fix: _autoFixEnabled }),
+                body: JSON.stringify({ module: moduleName, step_index: stepIndex, done: true }),
             });
         } catch (e) { /* best effort */ }
 

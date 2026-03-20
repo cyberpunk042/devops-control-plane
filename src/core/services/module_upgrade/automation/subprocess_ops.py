@@ -117,18 +117,23 @@ def handle_run_pip_install(ctx: UpgradeContext, mode: str) -> dict:
     """
     from pathlib import Path as _P
 
-    # Check for target version venv
+    # Require target version venv — never fall back to system pip
     venv_pip = ctx.project_root / ".venvs" / f"{ctx.module_name}-{ctx.target_floor}" / "bin" / "pip"
-    if venv_pip.is_file():
-        pip_cmd = str(venv_pip)
-        label = f"{venv_pip.parent.parent.name}/bin/pip install -r requirements.txt"
-    else:
-        pip_cmd = "pip"
-        label = "pip install -r requirements.txt"
+    if not venv_pip.is_file():
+        return {
+            "ok": True,
+            "can_apply": False,
+            "preview_type": "info",
+            "summary": f"No venv found for Python {ctx.target_floor}",
+            "detail": "Run 'Set up test environment' first to create the venv.",
+        }
+
+    pip_cmd = str(venv_pip)
+    label = f"{venv_pip.parent.parent.name}/bin/pip install -r requirements.txt"
 
     return _run_pkg_cmd(
         ctx, mode,
-        binary=pip_cmd if pip_cmd != "pip" else "pip",
+        binary=pip_cmd,
         cmd=[pip_cmd, "install", "-r", "requirements.txt"],
         label=label,
         description="Install pinned dependency versions into the target version environment",
