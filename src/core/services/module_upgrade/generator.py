@@ -290,6 +290,16 @@ def _enrich_with_compat_analysis(
             else:
                 other_steps.append(step)
 
+        # Add dependency discovery step for Python (after dep compat check)
+        if ctx.language == "python":
+            deps_steps.append({
+                "label": "Discover missing dependencies",
+                "description": "Scan code imports and add any missing packages to requirements.txt",
+                "_automation_id": "discover_missing_deps",
+                "automatable": True,
+                "category": "dependency",
+            })
+
         # Final order: compat → deps → config → venv+install → test → CI → other
         result = (
             compat_steps

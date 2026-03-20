@@ -47,6 +47,7 @@ def get_handler_registry() -> dict:
         handle_check_dep_compat_packagist,
         handle_check_dep_compat_pypi,
         handle_check_dep_compat_rubygems,
+        handle_discover_missing_deps,
         handle_update_deps_crates,
         handle_update_deps_hex,
         handle_update_deps_interactive,
@@ -104,6 +105,7 @@ def get_handler_registry() -> dict:
         "edit_mix_elixir_version": handle_edit_mix_elixir_version,
         # ── Python dep checking ──────────────────────────────────
         "check_dep_compat_pypi": handle_check_dep_compat_pypi,
+        "discover_missing_deps": handle_discover_missing_deps,
         "update_deps_interactive": handle_update_deps_interactive,
         # ── Node.js dep checking ─────────────────────────────────
         "check_dep_compat_npm": handle_check_dep_compat_npm,

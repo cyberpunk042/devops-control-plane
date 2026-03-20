@@ -29,6 +29,46 @@ logger = logging.getLogger(__name__)
 _PYPI_TIMEOUT = 10  # seconds per package query
 
 
+def _build_host_import_mapping() -> dict[str, str]:
+    """Build import-name → package-name mapping from the HOST Python.
+
+    Uses importlib.metadata to inspect all installed distributions and
+    their top-level import names. This covers every installed package
+    accurately — no hardcoded list needed.
+    """
+    mapping: dict[str, str] = {}
+    try:
+        from importlib.metadata import distributions
+
+        for dist in distributions():
+            dist_name = dist.metadata["Name"]
+            # top_level.txt lists the importable package names
+            top_level = dist.read_text("top_level.txt")
+            if top_level:
+                for line in top_level.strip().split("\n"):
+                    name = line.strip()
+                    if name and not name.startswith("#"):
+                        mapping[name] = dist_name
+            else:
+                # Fallback: use the distribution name itself as import name
+                mapping[dist_name.replace("-", "_").lower()] = dist_name
+    except Exception:
+        pass
+    return mapping
+
+
+# Cached at module load — built once from the host environment
+_HOST_IMPORT_TO_PKG: dict[str, str] | None = None
+
+
+def _get_import_to_pkg() -> dict[str, str]:
+    """Get the cached host import→package mapping."""
+    global _HOST_IMPORT_TO_PKG
+    if _HOST_IMPORT_TO_PKG is None:
+        _HOST_IMPORT_TO_PKG = _build_host_import_mapping()
+    return _HOST_IMPORT_TO_PKG
+
+
 def handle_check_dep_compat_pypi(ctx: UpgradeContext, mode: str) -> dict:
     """Check if the module's dependencies support the target Python version.
 
@@ -65,41 +105,26 @@ def handle_check_dep_compat_pypi(ctx: UpgradeContext, mode: str) -> dict:
                 "findings": [],
             }
 
-        site_packages = _find_site_packages(ctx.project_root)
-        if not site_packages:
-            return {"ok": False, "error": "Could not find site-packages directory"}
+        # Map import names to pip package names using the host environment
+        host_mapping = _get_import_to_pkg()
 
-        import_to_pkg = _build_import_mapping(site_packages)
-
-        # Well-known import→package mappings for packages where
-        # the import name differs from the pip package name
-        _KNOWN_IMPORT_TO_PKG = {
-            "yaml": "pyyaml",
-            "cv2": "opencv-python",
-            "PIL": "pillow",
-            "bs4": "beautifulsoup4",
-            "sklearn": "scikit-learn",
-            "gi": "pygobject",
-            "attr": "attrs",
-            "dotenv": "python-dotenv",
-            "dateutil": "python-dateutil",
-            "google": "googleapis-common-protos",
-            "jose": "python-jose",
-            "jwt": "pyjwt",
-            "magic": "python-magic",
-            "serial": "pyserial",
-            "usb": "pyusb",
-            "wx": "wxpython",
-            "lxml": "lxml",
-        }
+        # Also try site-packages mapping as fallback
+        try:
+            site_packages = _find_site_packages(ctx.project_root)
+            if site_packages:
+                sp_mapping = _build_import_mapping(site_packages)
+                # Host mapping takes precedence, site-packages fills gaps
+                combined = {**sp_mapping, **host_mapping}
+            else:
+                combined = host_mapping
+        except Exception:
+            combined = host_mapping
 
         # Map imports to package names
         packages: set[str] = set()
         for imp in module_imports:
-            if imp in import_to_pkg:
-                packages.add(import_to_pkg[imp])
-            elif imp in _KNOWN_IMPORT_TO_PKG:
-                packages.add(_KNOWN_IMPORT_TO_PKG[imp])
+            if imp in combined:
+                packages.add(combined[imp])
             else:
                 packages.add(imp)
 
@@ -511,6 +536,123 @@ def _check_constraint_compat(constraint: str, target_parts: list[int]) -> bool:
             return False
 
     return True
+
+
+# ── Dependency discovery — detect missing deps ──────────────────
+
+
+def handle_discover_missing_deps(ctx: UpgradeContext, mode: str) -> dict:
+    """Discover imports that aren't listed in requirements.txt.
+
+    Scans module code for import statements, maps import names to pip
+    package names using the host Python's importlib.metadata, and reports
+    any that are missing from requirements.txt.
+
+    Preview: shows what's missing.
+    Execute: adds missing packages to requirements.txt.
+    """
+    if ctx.language != "python":
+        return {"ok": True, "can_apply": False, "preview_type": "info",
+                "summary": "Dependency discovery only available for Python"}
+
+    try:
+        from src.core.services.system_posture.bridges.module_intel import (
+            _scan_module_imports,
+        )
+
+        module_dir = ctx.project_root / ctx.module_path
+        if not module_dir.is_dir():
+            return {"ok": False, "error": f"Module directory not found: {ctx.module_path}"}
+
+        module_imports = _scan_module_imports(module_dir)
+        if not module_imports:
+            return {"ok": True, "can_apply": False, "preview_type": "info",
+                    "summary": "No third-party imports found", "findings": []}
+
+        # Map imports to package names
+        host_mapping = _get_import_to_pkg()
+        packages: dict[str, str] = {}  # import_name → package_name
+        for imp in module_imports:
+            pkg = host_mapping.get(imp, imp)
+            packages[imp] = pkg
+
+        # Read current requirements.txt
+        req_file = module_dir / "requirements.txt"
+        existing_pkgs: set[str] = set()
+        if req_file.is_file():
+            for line in req_file.read_text(encoding="utf-8").split("\n"):
+                line = line.strip()
+                if not line or line.startswith("#") or line.startswith("-"):
+                    continue
+                # Extract package name (before any version specifier)
+                pkg_match = re.match(r"^([a-zA-Z0-9_.-]+)", line)
+                if pkg_match:
+                    existing_pkgs.add(pkg_match.group(1).lower().replace("_", "-"))
+
+        # Find missing
+        missing: list[dict] = []
+        for imp, pkg in sorted(packages.items()):
+            pkg_normalized = pkg.lower().replace("_", "-")
+            if pkg_normalized not in existing_pkgs:
+                # Get installed version from host for pinning
+                version = ""
+                try:
+                    from importlib.metadata import version as _get_ver
+                    version = _get_ver(pkg)
+                except Exception:
+                    pass
+
+                missing.append({
+                    "import_name": imp,
+                    "package": pkg,
+                    "version": version,
+                    "line": f"{pkg}>={version}" if version else pkg,
+                })
+
+        if not missing:
+            return {"ok": True, "can_apply": False, "preview_type": "info",
+                    "summary": "All imports are covered by requirements.txt",
+                    "findings": []}
+
+        # Preview
+        findings = []
+        for m in missing:
+            findings.append({
+                "feature": f"{m['import_name']} → {m['package']}",
+                "file": f"requirements.txt (add: {m['line']})",
+                "version": m["version"] or "latest",
+            })
+
+        if mode == "preview":
+            return {
+                "ok": True,
+                "can_apply": True,
+                "preview_type": "findings",
+                "summary": f"{len(missing)} package(s) imported but not in requirements.txt",
+                "findings": findings,
+                "missing_packages": missing,
+            }
+
+        # Execute — append missing packages to requirements.txt
+        if not req_file.is_file():
+            req_file.write_text("", encoding="utf-8")
+
+        lines = req_file.read_text(encoding="utf-8").rstrip("\n")
+        added = []
+        for m in missing:
+            lines += "\n" + m["line"]
+            added.append(m["line"])
+
+        req_file.write_text(lines + "\n", encoding="utf-8")
+
+        return {
+            "ok": True,
+            "summary": f"Added {len(added)} package(s) to requirements.txt: {', '.join(added)}",
+            "added": added,
+        }
+
+    except Exception as exc:
+        return {"ok": False, "error": f"Dependency discovery failed: {exc}"}
 
 
 # ── Node.js ──────────────────────────────────────────────────────
