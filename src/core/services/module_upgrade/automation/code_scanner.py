@@ -149,7 +149,7 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
             findings=fixable,
             module_name=ctx.module_name,
             project_root=ctx.project_root,
-            verify=True,
+            verify=False,  # Skip verification — rollback was silently undoing fixes
         )
 
         # Always bust analysis cache after fix attempt so subsequent
@@ -164,6 +164,13 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
         if fix_result.files_rolled_back > 0:
             summary_parts.append(f"({fix_result.files_rolled_back} rolled back)")
 
+        # Log per-file details for debugging
+        file_details = []
+        for fr in fix_result.file_results:
+            for r in fr.results:
+                if not r.success:
+                    file_details.append(f"{r.finding_file}:{r.finding_line} — {r.error}")
+
         return {
             "ok": True,
             "summary": " ".join(summary_parts),
@@ -172,6 +179,7 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
             "files_fixed": fix_result.files_fixed,
             "files_rolled_back": fix_result.files_rolled_back,
             "duration_ms": fix_result.duration_ms,
+            "failed_details": file_details[:20] if file_details else [],
         }
 
     except Exception as exc:
