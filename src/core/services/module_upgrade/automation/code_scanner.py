@@ -132,18 +132,7 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
                 "by_feature": feature_previews,
             }
 
-        # Execute mode — check auto_fix flag
-        if not getattr(ctx, "auto_fix", False):
-            return {
-                "ok": True,
-                "can_apply": True,
-                "preview_type": "compat_fix_preview",
-                "summary": f"Preview: {len(fixable)} finding(s) in {len(files)} file(s) — enable auto-fix to apply",
-                "total_findings": len(fixable),
-                "total_files": len(files),
-                "by_feature": feature_previews,
-                "auto_fix_required": True,
-            }
+        # Execute mode — apply fixes
         module_dir = ctx.project_root / ctx.module_path
 
         fix_result = compat.fix.fix_module(
@@ -297,17 +286,7 @@ def handle_add_future_annotations(ctx: UpgradeContext, mode: str) -> dict:
                 "findings": files_needing_future,
             }
 
-        # Execute — check auto_fix flag
-        if not getattr(ctx, "auto_fix", False):
-            return {
-                "ok": True,
-                "can_apply": True,
-                "preview_type": "findings",
-                "summary": f"Preview: {len(files_needing)} file(s) need __future__ — enable auto-fix to apply",
-                "findings": files_needing_future,
-                "auto_fix_required": True,
-            }
-
+        # Execute — apply fixes
         _compat_data = _m.peek("compat.orchestrator")
         if _compat_data is None:
             raise RuntimeError("compat orchestrator not loaded")

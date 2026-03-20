@@ -345,8 +345,15 @@ def wizard_batch(
             failed_step = idx
             break
 
+        # Determine mode: fix steps use preview when auto_fix is OFF
+        _FIX_AUTOMATIONS = {"fix_compat_auto", "add_future_annotations"}
+        is_fix_step = automation_id in _FIX_AUTOMATIONS
+        mode = "execute"
+        if is_fix_step and not auto_fix:
+            mode = "preview"
+
         try:
-            result = handler(ctx, "execute")
+            result = handler(ctx, mode)
         except Exception as exc:
             elapsed = int((time.time() - t0) * 1000)
             yield {"type": "log", "step": idx, "line": f"❌ Error: {exc}"}
@@ -357,15 +364,15 @@ def wizard_batch(
         elapsed = int((time.time() - t0) * 1000)
         ok = result.get("ok", False)
 
-        # Auto-fix required but disabled — stop batch and notify
-        if result.get("auto_fix_required"):
+        # Fix step in preview mode — show what would change, needs user confirmation
+        if is_fix_step and not auto_fix and ok:
+            summary = result.get("summary", "")
             yield {"type": "log", "step": idx,
-                   "line": "⚠️ Auto-fix is disabled — enable the checkbox to apply code changes"}
+                   "line": f"👁️ Preview: {summary} — click Automate individually to apply"}
             yield {"type": "step_done", "step": idx, "elapsed_ms": elapsed,
                    "step_id": step_id, "needs_attention": True}
             completed += 1
-            # Stop the batch — remaining fix steps would also need auto-fix
-            break
+            continue  # Continue to next step (non-fix steps still run)
 
         # Log result details
         if result.get("summary"):

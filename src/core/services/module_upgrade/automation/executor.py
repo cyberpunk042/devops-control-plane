@@ -21,8 +21,9 @@ def should_mark_done(result: dict) -> bool:
 
     Rules:
     - ok=False → never done
-    - findings with incompatible deps → not done
-    - Everything else → done
+    - auto_fix_required → not done (fix step that needs the toggle)
+    - dep check with incompatible deps → not done
+    - Everything else → done (including scan steps with findings — scans are read-only)
     """
     if not result.get("ok"):
         return False
@@ -31,11 +32,15 @@ def should_mark_done(result: dict) -> bool:
     if not findings:
         return True
 
-    # Check for incompatible findings (dep check results have "compatible" field)
+    # Only dep checker findings have the "compatible" field.
+    # Code scan findings don't have it — they're informational, step is done.
+    dep_findings = [f for f in findings if isinstance(f, dict) and "compatible" in f]
+    if not dep_findings:
+        return True  # Code scan findings — step is done (read-only)
+
     has_incompatible = any(
         not f.get("compatible") and not f.get("unknown")
-        for f in findings
-        if isinstance(f, dict)
+        for f in dep_findings
     )
     return not has_incompatible
 

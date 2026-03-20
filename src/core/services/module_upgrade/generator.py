@@ -359,28 +359,36 @@ def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
                 "category": "dependency",
             })
 
-    # ── Step 3: Fix ALL auto-fixable (one step) ──────────────
+    # ── Step 3: Fix steps — one per feature, each automatable ──
     if auto_fixable:
-        # Build feature summary for the description
         by_feature: dict[str, list] = {}
         for f in auto_fixable:
             by_feature.setdefault(f.feature_name, []).append(f)
 
-        feature_summary = ", ".join(
-            f"{name} ({len(findings)})"
-            for name, findings in sorted(by_feature.items())[:5]
-        )
-        if len(by_feature) > 5:
-            feature_summary += f", +{len(by_feature) - 5} more"
+        for feature_name, findings in sorted(by_feature.items()):
+            files = sorted(set(f.file for f in findings))
+            # Get human-readable description from the database entry
+            desc = f"Auto-fix: {findings[0].fix_strategy}"
+            try:
+                from src.core.services.mediator import get_mediator as _gm2
+                _orch = _gm2().peek("compat.orchestrator")
+                if _orch and _orch.get("data"):
+                    _entry = _orch["data"].registry.get(findings[0].feature_id)
+                    if _entry:
+                        if _entry.test and _entry.test.before and _entry.test.after:
+                            desc = f"{_entry.test.before.strip()[:40]} → {_entry.test.after.strip()[:40]}"
+                        elif _entry.description:
+                            desc = _entry.description[:80]
+            except Exception:
+                pass
 
-        auto_files = len(set(f.file for f in auto_fixable))
-        steps.append({
-            "label": f"Fix {len(auto_fixable)} auto-fixable finding(s) in {auto_files} file(s)",
-            "description": feature_summary,
-            "_automation_id": "fix_compat_auto",
-            "automatable": True,
-            "category": "code",
-        })
+            steps.append({
+                "label": f"Fix {feature_name} ({len(files)} file(s))",
+                "description": desc,
+                "_automation_id": "fix_compat_auto",
+                "automatable": True,
+                "category": "code",
+            })
 
     # ── Step 4: Manual review (if any manual findings) ────────
     if manual:
