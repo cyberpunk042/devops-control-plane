@@ -2268,10 +2268,9 @@
 
             if (data.ok) {
                 toast('✅ ' + (data.summary || 'Step completed'), 'success');
-                // Close stacked modals back to the plan modal
-                // Stack can be: plan → wizard → fix preview
-                // Pop until only the plan modal remains
-                while (modalDepth() > 1) modalClose();
+                // Close fix preview modal + wizard modal underneath
+                modalClose();
+                modalClose();
                 // Mark the step done in the plan checklist UI (no server call — already executed above)
                 const planSteps = document.querySelectorAll('#plan-checklist .plan-step');
                 if (planSteps[stepIndex]) {
