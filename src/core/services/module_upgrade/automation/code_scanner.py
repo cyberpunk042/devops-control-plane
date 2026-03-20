@@ -164,12 +164,20 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
         if fix_result.files_rolled_back > 0:
             summary_parts.append(f"({fix_result.files_rolled_back} rolled back)")
 
-        # Log per-file details for debugging
+        # Collect per-finding failure details
         file_details = []
+        fail_by_feature: dict[str, int] = {}
         for fr in fix_result.file_results:
             for r in fr.results:
                 if not r.success:
                     file_details.append(f"{r.finding_file}:{r.finding_line} — {r.error}")
+                    fid = r.finding_feature_id or "unknown"
+                    fail_by_feature[fid] = fail_by_feature.get(fid, 0) + 1
+
+        if fix_result.failed_fixes > 0:
+            summary_parts.append(f"| {fix_result.failed_fixes} failed:")
+            for fid, cnt in sorted(fail_by_feature.items()):
+                summary_parts.append(f"{fid}({cnt})")
 
         return {
             "ok": True,
