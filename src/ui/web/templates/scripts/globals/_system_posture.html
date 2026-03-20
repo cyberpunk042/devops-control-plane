@@ -2269,14 +2269,35 @@
             if (data.ok) {
                 toast('✅ ' + (data.summary || 'Step completed'), 'success');
                 // Close modals above the plan modal (preview, wizard, etc.)
-                // Plan modal contains #plan-checklist — close until it's visible
                 while (modalDepth() > 0) {
                     const topOverlay = document.getElementById('active-modal-overlay');
                     if (topOverlay && topOverlay.querySelector('#plan-checklist')) break;
                     modalClose();
                 }
-                // Mark the step done in the plan checklist UI + server
-                _wizardMarkDone(moduleName, stepId, stepIndex);
+                // Server already marked step done via execute endpoint.
+                // Update DOM: find step by data-step-id or by index
+                const allSteps = document.querySelectorAll('#plan-checklist .plan-step');
+                for (let i = 0; i < allSteps.length; i++) {
+                    const sid = allSteps[i].getAttribute('data-step-id') || '';
+                    // Match by step ID prefix (handles fix_compat_auto:from_test → fix_compat_auto__hash)
+                    const baseId = stepId.split(':')[0].split('__')[0];
+                    const stepBaseId = sid.split(':')[0].split('__')[0];
+                    if (baseId && stepBaseId === baseId) {
+                        allSteps[i].classList.add('done');
+                        const cb = allSteps[i].querySelector('.plan-step-check');
+                        if (cb) cb.checked = true;
+                        const btn = allSteps[i].querySelector('.plan-step-auto');
+                        if (btn) btn.style.display = 'none';
+                    }
+                }
+                // Also mark by exact index if valid
+                if (stepIndex >= 0 && allSteps[stepIndex]) {
+                    allSteps[stepIndex].classList.add('done');
+                    const cb = allSteps[stepIndex].querySelector('.plan-step-check');
+                    if (cb) cb.checked = true;
+                    const btn = allSteps[stepIndex].querySelector('.plan-step-auto');
+                    if (btn) btn.style.display = 'none';
+                }
                 _refreshPlanState();
                 return;
             }

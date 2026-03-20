@@ -691,20 +691,23 @@ def handle_discover_missing_deps(ctx: UpgradeContext, mode: str) -> dict:
         if pyproject.is_file():
             try:
                 toml_content = pyproject.read_text(encoding="utf-8")
-                # Find the dependencies array and append
+                new_dep_lines = []
                 for m in missing:
-                    pkg_line = f'"{m["line"]}"'
-                    # Check if already in dependencies
                     if m["package"].lower() not in toml_content.lower():
-                        # Insert before the closing ] of dependencies
-                        import re as _re
-                        toml_content = _re.sub(
-                            r'(dependencies\s*=\s*\[[^\]]*)',
-                            rf'\1\n    {pkg_line},',
-                            toml_content,
-                            count=1,
-                        )
-                pyproject.write_text(toml_content, encoding="utf-8")
+                        new_dep_lines.append(f'    "{m["line"]}",')
+
+                if new_dep_lines:
+                    # Find the closing ] of dependencies array and insert before it
+                    import re as _re
+                    insert_text = "\n".join(new_dep_lines)
+                    toml_content = _re.sub(
+                        r'(dependencies\s*=\s*\[.*?)(])',
+                        rf'\1\n{insert_text}\n\2',
+                        toml_content,
+                        count=1,
+                        flags=_re.DOTALL,
+                    )
+                    pyproject.write_text(toml_content, encoding="utf-8")
             except Exception:
                 pass  # pyproject.toml update is best-effort
 

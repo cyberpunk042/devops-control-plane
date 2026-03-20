@@ -653,8 +653,18 @@ def _mark_step_done(module_name: str, step_id: str, summary: str | None = None) 
             plan = mod.get("version_plan")
             if not plan:
                 break
+            # Match by exact ID, or by automation_id prefix for synthetic IDs
+            # (e.g., fix_compat_auto:from_test matches all fix_compat_auto__* steps)
+            base_aid = step_id.split(":")[0].split("__")[0]
+            is_synthetic = step_id.endswith(":from_test") or step_id.endswith(":from_wizard")
+
             for step in plan.get("checklist", []):
-                if step.get("id") == step_id:
+                sid = step.get("id", "")
+                match = (sid == step_id)
+                if not match and is_synthetic:
+                    step_base = sid.split(":")[0].split("__")[0]
+                    match = (step_base == base_aid)
+                if match:
                     step["done"] = True
                     if summary:
                         step["label"] = summary
