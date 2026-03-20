@@ -2635,23 +2635,34 @@
             },
             onStepDone: function(event) {
                 const el = document.getElementById('wizard-step-' + event.step);
-                if (el) {
-                    el.className = 'wizard-step done';
-                    const elapsed = event.elapsed_ms ? ` (${(event.elapsed_ms / 1000).toFixed(1)}s)` : '';
-                    el.querySelector('.wizard-step-icon').textContent = '✅';
-                    el.querySelector('.wizard-step-label').textContent += elapsed;
-                }
-                // Batch mode: mark individual plan steps done
-                if (isBatch && stepIndices) {
-                    const planIdx = stepIndices[event.step];
-                    if (planIdx !== undefined) {
-                        const planSteps = document.querySelectorAll('#plan-checklist .plan-step');
-                        if (planSteps[planIdx]) {
-                            planSteps[planIdx].classList.add('done');
-                            const cb = planSteps[planIdx].querySelector('.plan-step-check');
-                            if (cb) cb.checked = true;
-                            const btn = planSteps[planIdx].querySelector('.plan-step-auto');
-                            if (btn) btn.style.display = 'none';
+                if (event.needs_attention) {
+                    // Step needs user action (e.g., fix preview with auto_fix OFF)
+                    if (el) {
+                        el.className = 'wizard-step attention';
+                        const elapsed = event.elapsed_ms ? ` (${(event.elapsed_ms / 1000).toFixed(1)}s)` : '';
+                        el.querySelector('.wizard-step-icon').textContent = '⚠️';
+                        el.querySelector('.wizard-step-label').textContent += elapsed;
+                    }
+                    // Do NOT mark plan step as done — user must apply manually
+                } else {
+                    if (el) {
+                        el.className = 'wizard-step done';
+                        const elapsed = event.elapsed_ms ? ` (${(event.elapsed_ms / 1000).toFixed(1)}s)` : '';
+                        el.querySelector('.wizard-step-icon').textContent = '✅';
+                        el.querySelector('.wizard-step-label').textContent += elapsed;
+                    }
+                    // Batch mode: mark individual plan steps done
+                    if (isBatch && stepIndices) {
+                        const planIdx = stepIndices[event.step];
+                        if (planIdx !== undefined) {
+                            const planSteps = document.querySelectorAll('#plan-checklist .plan-step');
+                            if (planSteps[planIdx]) {
+                                planSteps[planIdx].classList.add('done');
+                                const cb = planSteps[planIdx].querySelector('.plan-step-check');
+                                if (cb) cb.checked = true;
+                                const btn = planSteps[planIdx].querySelector('.plan-step-auto');
+                                if (btn) btn.style.display = 'none';
+                            }
                         }
                     }
                 }

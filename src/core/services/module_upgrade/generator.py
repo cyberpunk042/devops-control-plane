@@ -120,6 +120,13 @@ def generate_checklist(
         if not evaluate_condition(condition, ctx):
             continue
 
+        # Skip generate_module_toml when pyproject.toml already exists
+        # (discover_missing_deps handles updating both requirements.txt and pyproject.toml)
+        aid = template.get("automation_id", "")
+        if aid == "generate_module_toml":
+            if (ctx.project_root / ctx.module_path / "pyproject.toml").is_file():
+                continue
+
         step = _materialize_step(template, ctx)
         steps.append(step)
 
