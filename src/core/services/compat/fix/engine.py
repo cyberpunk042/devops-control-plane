@@ -301,15 +301,39 @@ class FixEngine:
                         strategy=entry.fix.strategy.value,
                     ))
                 else:
-                    result.results.append(FixResult(
-                        finding_feature_id=finding.feature_id,
-                        finding_file=finding.file,
-                        finding_line=finding.line,
-                        success=False,
-                        error="Transform produced no changes",
-                        strategy=entry.fix.strategy.value,
-                    ))
-                    result.fixes_failed += 1
+                    # No changes — but if a prior finding already applied
+                    # the same transform to this file (transforms fix ALL
+                    # occurrences at once), this finding was already handled.
+                    if finding.feature_id in features_fixed:
+                        result.fixes_applied += 1
+                        result.results.append(FixResult(
+                            finding_feature_id=finding.feature_id,
+                            finding_file=finding.file,
+                            finding_line=finding.line,
+                            success=True,
+                            strategy=entry.fix.strategy.value,
+                        ))
+                    elif modified != source:
+                        # Source was modified by earlier transforms — this
+                        # pattern may have been removed as a side effect
+                        result.fixes_applied += 1
+                        result.results.append(FixResult(
+                            finding_feature_id=finding.feature_id,
+                            finding_file=finding.file,
+                            finding_line=finding.line,
+                            success=True,
+                            strategy=entry.fix.strategy.value,
+                        ))
+                    else:
+                        result.results.append(FixResult(
+                            finding_feature_id=finding.feature_id,
+                            finding_file=finding.file,
+                            finding_line=finding.line,
+                            success=False,
+                            error="Transform produced no changes",
+                            strategy=entry.fix.strategy.value,
+                        ))
+                        result.fixes_failed += 1
             except Exception as exc:
                 result.results.append(FixResult(
                     finding_feature_id=finding.feature_id,
@@ -864,16 +888,34 @@ class FixEngine:
     def _transform_rewrite_binary_op(self, source: str, transform: Transform) -> str | None:
         """Rewrite a binary operation: a | b → {**a, **b}.
 
-        Uses AST to find BinOp nodes with BitOr operator.
-        Only rewrites when the detection engine already confirmed this is
-        a dict merge (not int bitwise or, not type union).
+        Handles chained merges: a | b | c → {**a, **b, **c}.
+        Only processes top-level BitOr chains (skips nested ones).
         """
-        template = transform.replace.get("template", "{**{left}, **{right}}")
-
         try:
             tree = ast.parse(source)
         except SyntaxError:
             return None
+
+        # Build parent map to identify top-level BitOr nodes
+        parent_map: dict[int, ast.AST] = {}
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parent_map[id(child)] = parent
+
+        def _is_nested_bitor(node: ast.BinOp) -> bool:
+            """Check if this BitOr is inside another BitOr (left operand)."""
+            p = parent_map.get(id(node))
+            return isinstance(p, ast.BinOp) and isinstance(p.op, ast.BitOr)
+
+        def _flatten_bitor(node: ast.BinOp) -> list[ast.expr]:
+            """Flatten a | b | c chain into [a, b, c]."""
+            operands: list[ast.expr] = []
+            if isinstance(node.left, ast.BinOp) and isinstance(node.left.op, ast.BitOr):
+                operands.extend(_flatten_bitor(node.left))
+            else:
+                operands.append(node.left)
+            operands.append(node.right)
+            return operands
 
         lines = source.split("\n")
         replacements: list[tuple[int, int, int, int, str]] = []
@@ -883,38 +925,44 @@ class FixEngine:
                 continue
             if not isinstance(node.op, ast.BitOr):
                 continue
-
-            # Get source segments for left and right operands
-            left_src = ast.get_source_segment(source, node.left)
-            right_src = ast.get_source_segment(source, node.right)
-            if not left_src or not right_src:
+            # Skip nested — only process the outermost chain
+            if _is_nested_bitor(node):
                 continue
 
-            # Build replacement from template
-            new_expr = template.replace("{left}", left_src).replace("{right}", right_src)
+            # Flatten the chain
+            operands = _flatten_bitor(node)
+            op_sources = []
+            for op in operands:
+                src = ast.get_source_segment(source, op)
+                if not src:
+                    break
+                op_sources.append(src)
+
+            if len(op_sources) != len(operands):
+                continue
+
+            # Build {**a, **b, **c, ...}
+            new_expr = "{" + ", ".join(f"**{s}" for s in op_sources) + "}"
 
             replacements.append((
                 node.lineno, node.col_offset,
                 node.end_lineno or node.lineno,
-                node.end_col_offset or (node.col_offset + len(left_src) + 3 + len(right_src)),
+                node.end_col_offset or 0,
                 new_expr,
             ))
 
         if not replacements:
             return None
 
-        # Apply replacements bottom-up to preserve positions
-        # Handle both single-line and multi-line spans
+        # Apply replacements bottom-up
         for lineno, col_start, end_lineno, col_end, new_text in sorted(
             replacements, reverse=True
         ):
             if lineno == end_lineno:
-                # Single line
                 line_idx = lineno - 1
                 line = lines[line_idx]
                 lines[line_idx] = line[:col_start] + new_text + line[col_end:]
             else:
-                # Multi-line: replace from start position to end position
                 start_idx = lineno - 1
                 end_idx = end_lineno - 1
                 prefix = lines[start_idx][:col_start]
