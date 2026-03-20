@@ -1,141 +1,209 @@
-# Python — last for 900
-
 - id: python.stdlib.logging_improvements_313
   language: python
-  feature_name: "logging improvements (3.13)"
-  introduced: "3.13"
+  feature_name: logging improvements (3.13)
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [logging]
-  detection: { primary: { ast_type: Import, match: { names_contains: logging } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import logging\n", after: "import logging\n" }
+  tags:
+  - logging
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: logging
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import logging
 
+      '
+    after: 'import logging
+
+      '
 - id: python.stdlib.time_improvements_312
   language: python
-  feature_name: "time module improvements (3.12)"
-  introduced: "3.12"
+  feature_name: time module improvements (3.12)
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [time]
-  detection: { primary: { ast_type: Import, match: { names_contains: time } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import time\n", after: "import time\n" }
+  tags:
+  - time
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: time
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import time
 
+      '
+    after: 'import time
+
+      '
 - id: python.stdlib.threading_improvements_313
   language: python
-  feature_name: "threading improvements (3.13)"
-  introduced: "3.13"
+  feature_name: threading improvements (3.13)
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [threading]
-  detection: { primary: { ast_type: Import, match: { names_contains: threading } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import threading\n", after: "import threading\n" }
+  tags:
+  - threading
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: threading
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import threading
 
+      '
+    after: 'import threading
+
+      '
 - id: python.stdlib.typing_improvements_313
   language: python
-  feature_name: "typing improvements (3.13)"
-  introduced: "3.13"
+  feature_name: typing improvements (3.13)
+  introduced: '3.13'
   category: typing
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [typing]
-  detection: { primary: { ast_type: Import, match: { names_contains: typing } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import typing\n", after: "import typing\n" }
+  tags:
+  - typing
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: typing
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import typing
 
+      '
+    after: 'import typing
+
+      '
 - id: python.stdlib.concurrent_improvements_312
   language: python
-  feature_name: "concurrent.futures improvements (3.12)"
-  introduced: "3.12"
+  feature_name: concurrent.futures improvements (3.12)
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [concurrent, futures]
-  detection: { primary: { ast_type: ImportFrom, match: { module: concurrent.futures } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "from concurrent.futures import ThreadPoolExecutor\n", after: "from concurrent.futures import ThreadPoolExecutor\n" }
+  tags:
+  - concurrent
+  - futures
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: concurrent.futures
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'from concurrent.futures import ThreadPoolExecutor
 
+      '
+    after: 'from concurrent.futures import ThreadPoolExecutor
+
+      '
 - id: python.stdlib.queue_improvements_312
   language: python
-  feature_name: "queue module improvements (3.12)"
-  introduced: "3.12"
+  feature_name: queue module improvements (3.12)
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [queue]
-  detection: { primary: { ast_type: Import, match: { names_contains: queue } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import queue\n", after: "import queue\n" }
+  tags:
+  - queue
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: queue
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import queue
 
-- id: python.stdlib.multiprocessing_improvements_312
-  language: python
-  feature_name: "multiprocessing improvements (3.12)"
-  introduced: "3.12"
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags: [multiprocessing]
-  detection: { primary: { ast_type: Import, match: { names_contains: multiprocessing } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import multiprocessing\n", after: "import multiprocessing\n" }
+      '
+    after: 'import queue
 
+      '
 - id: python.stdlib.signal_improvements_312
   language: python
-  feature_name: "signal improvements (3.12)"
-  introduced: "3.12"
+  feature_name: signal improvements (3.12)
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [signal]
-  detection: { primary: { ast_type: Import, match: { names_contains: signal } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import signal\n", after: "import signal\n" }
+  tags:
+  - signal
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: signal
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import signal
 
+      '
+    after: 'import signal
+
+      '
 - id: python.stdlib.ctypes_improvements_312
   language: python
-  feature_name: "ctypes improvements (3.12)"
-  introduced: "3.12"
+  feature_name: ctypes improvements (3.12)
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [ctypes]
-  detection: { primary: { ast_type: Import, match: { names_contains: ctypes } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import ctypes\n", after: "import ctypes\n" }
+  tags:
+  - ctypes
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: ctypes
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import ctypes
 
-- id: python.stdlib.socket_improvements_313
-  language: python
-  feature_name: "socket improvements (3.13)"
-  introduced: "3.13"
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags: [socket]
-  detection: { primary: { ast_type: Import, match: { names_contains: socket } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import socket\n", after: "import socket\n" }
+      '
+    after: 'import ctypes
+
+      '

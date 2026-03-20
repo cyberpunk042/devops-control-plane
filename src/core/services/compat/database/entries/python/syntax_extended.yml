@@ -1,17 +1,16 @@
-# Python syntax features — extended set
-
-# ── Python 3.12 ──────────────────────────────────────────────────
-
 - id: python.syntax.fstring_equals
   language: python
-  feature_name: "f-string = debugging"
-  introduced: "3.8"
+  feature_name: f-string = debugging
+  introduced: '3.8'
   category: syntax
-  description: "f-string with = for debugging: f'{expr=}' prints 'expr=value'"
+  description: 'f-string with = for debugging: f''{expr=}'' prints ''expr=value'''
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [fstring, debug, syntax]
+  tags:
+  - fstring
+  - debug
+  - syntax
   detection:
     primary:
       ast_type: FormattedValue
@@ -19,30 +18,31 @@
         conversion_eq: true
   fix:
     strategy: manual
-    manual_instructions: |
-      Replace f'{x=}' with explicit label:
-        f'{x=}' → f'x={x}'
-        f'{len(data)=}' → f'len(data)={len(data)}'
+    manual_instructions: "Replace f'{x=}' with explicit label:\n  f'{x=}' → f'x={x}'\n\
+      \  f'{len(data)=}' → f'len(data)={len(data)}'\n"
   verification:
     re_detect: true
   test:
-    before: |
-      print(f'{name=}, {age=}')
-    after: |
-      print(f'name={name}, age={age}')
+    before: 'print(f''{name=}, {age=}'')
 
-# ── Python 3.10 ──────────────────────────────────────────────────
+      '
+    after: 'print(f''name={name}, age={age}'')
 
+      '
 - id: python.syntax.structural_pattern_guard
   language: python
-  feature_name: "match/case with guards"
-  introduced: "3.10"
+  feature_name: match/case with guards
+  introduced: '3.10'
   category: syntax
-  description: "case pattern if guard: — conditional pattern matching"
+  description: 'case pattern if guard: — conditional pattern matching'
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [match, case, guard, syntax]
+  tags:
+  - match
+  - case
+  - guard
+  - syntax
   detection:
     primary:
       ast_type: match_case
@@ -50,77 +50,28 @@
         has_guard: true
   fix:
     strategy: manual
-    manual_instructions: |
-      Rewrite as if/elif with manual checks:
-        match point:
-            case Point(x, y) if x > 0:
-                handle_positive(x, y)
-        →
-        if isinstance(point, Point) and point.x > 0:
-            handle_positive(point.x, point.y)
+    manual_instructions: "Rewrite as if/elif with manual checks:\n  match point:\n\
+      \      case Point(x, y) if x > 0:\n          handle_positive(x, y)\n  →\n  if\
+      \ isinstance(point, Point) and point.x > 0:\n      handle_positive(point.x,\
+      \ point.y)\n"
   verification:
     re_detect: true
   test:
-    before: |
-      match point:
-          case Point(x, y) if x > 0:
-              handle(x, y)
-    after: |
-      if isinstance(point, Point) and point.x > 0:
-          handle(point.x, point.y)
-
-- id: python.syntax.star_unpacking_in_except
-  language: python
-  feature_name: "except* (star except)"
-  introduced: "3.11"
-  category: syntax
-  description: "Exception group handling with except*"
-  direction: downgrade
-  severity: error
-  error_type: syntax_error
-  tags: [except, star, exception_group, syntax]
-  detection:
-    primary:
-      ast_type: TryStar
-      match: {}
-  fix:
-    strategy: manual
-    manual_instructions: |
-      except* requires Python 3.11+. Rewrite as standard except
-      with manual type filtering.
-  verification:
-    re_detect: true
-  test:
-    before: |
-      try:
-          await gather_tasks()
-      except* ValueError as eg:
-          handle_values(eg)
-      except* TypeError as eg:
-          handle_types(eg)
-    after: |
-      try:
-          await gather_tasks()
-      except Exception as e:
-          if isinstance(e, ValueError):
-              handle_values(e)
-          elif isinstance(e, TypeError):
-              handle_types(e)
-          else:
-              raise
-
-# ── Python 3.9 ──────────────────────────────────────────────────
-
+    before: "match point:\n    case Point(x, y) if x > 0:\n        handle(x, y)\n"
+    after: "if isinstance(point, Point) and point.x > 0:\n    handle(point.x, point.y)\n"
 - id: python.syntax.decorator_expression
   language: python
-  feature_name: "relaxed decorator syntax"
-  introduced: "3.9"
+  feature_name: relaxed decorator syntax
+  introduced: '3.9'
   category: syntax
-  description: "Any valid expression allowed as decorator (not just dotted name)"
+  description: Any valid expression allowed as decorator (not just dotted name)
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [decorator, expression, syntax]
+  tags:
+  - decorator
+  - expression
+  - syntax
   detection:
     primary:
       ast_type: FunctionDef
@@ -128,104 +79,40 @@
         has_complex_decorator: true
   fix:
     strategy: manual
-    manual_instructions: |
-      Assign the complex expression to a variable first:
-        @buttons[0].clicked.connect
-        →
-        _deco = buttons[0].clicked.connect
-        @_deco
+    manual_instructions: "Assign the complex expression to a variable first:\n  @buttons[0].clicked.connect\n\
+      \  →\n  _deco = buttons[0].clicked.connect\n  @_deco\n"
   verification:
     re_detect: true
   test:
-    before: |
-      @buttons[0].clicked.connect
-      def on_click():
-          pass
-    after: |
-      _deco = buttons[0].clicked.connect
-      @_deco
-      def on_click():
-          pass
-
-# ── Python 3.8 ──────────────────────────────────────────────────
-
-- id: python.syntax.assignment_expression_while
-  language: python
-  feature_name: "walrus in while loop"
-  introduced: "3.8"
-  category: syntax
-  description: "while (chunk := f.read()): pattern"
-  direction: downgrade
-  severity: error
-  error_type: syntax_error
-  tags: [walrus, while, loop]
-  detection:
-    primary:
-      ast_type: NamedExpr
-      match: {}
-  fix:
-    strategy: rewrite_expression
-    transforms:
-      - type: rewrite_walrus
-        find:
-          ast_type: NamedExpr
-        replace:
-          style: split
-  verification:
-    re_detect: true
-  test:
-    before: |
-      while chunk := f.read(8192):
-          process(chunk)
-    after: |
-      chunk = f.read(8192)
-      while chunk:
-          process(chunk)
-          chunk = f.read(8192)
-
+    before: "@buttons[0].clicked.connect\ndef on_click():\n    pass\n"
+    after: "_deco = buttons[0].clicked.connect\n@_deco\ndef on_click():\n    pass\n"
 - id: python.syntax.continue_in_finally
   language: python
-  feature_name: "continue in finally"
-  introduced: "3.8"
+  feature_name: continue in finally
+  introduced: '3.8'
   category: syntax
-  description: "continue statement allowed in finally blocks"
+  description: continue statement allowed in finally blocks
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [finally, continue, syntax]
+  tags:
+  - finally
+  - continue
+  - syntax
   detection:
     primary:
       ast_type: Continue
       context: finally_block
   fix:
     strategy: manual
-    manual_instructions: |
-      Move the continue logic out of the finally block:
-        try: ...
-        finally:
-            if condition:
-                continue
-        →
-        try: ...
-        finally:
-            should_continue = condition
-        if should_continue:
-            continue
+    manual_instructions: "Move the continue logic out of the finally block:\n  try:\
+      \ ...\n  finally:\n      if condition:\n          continue\n  →\n  try: ...\n\
+      \  finally:\n      should_continue = condition\n  if should_continue:\n    \
+      \  continue\n"
   verification:
     re_detect: true
   test:
-    before: |
-      for item in items:
-          try:
-              process(item)
-          finally:
-              if should_skip:
-                  continue
-    after: |
-      for item in items:
-          try:
-              process(item)
-          finally:
-              _continue = should_skip
-          if _continue:
-              continue
+    before: "for item in items:\n    try:\n        process(item)\n    finally:\n \
+      \       if should_skip:\n            continue\n"
+    after: "for item in items:\n    try:\n        process(item)\n    finally:\n  \
+      \      _continue = should_skip\n    if _continue:\n        continue\n"

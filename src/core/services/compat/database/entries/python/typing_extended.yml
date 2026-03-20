@@ -1,187 +1,17 @@
-# Python typing features — extended set (ParamSpec, TypeGuard, Self, Never, etc.)
-
-# ── Python 3.12 ──────────────────────────────────────────────────
-
-- id: python.typing.type_alias_statement
-  language: python
-  feature_name: "type alias (PEP 695)"
-  introduced: "3.12"
-  category: typing
-  description: "type X = ... syntax for type aliases"
-  direction: downgrade
-  severity: error
-  error_type: syntax_error
-  tags: [typing, alias, syntax]
-  detection:
-    primary:
-      ast_type: TypeAlias
-      match: {}
-  fix:
-    strategy: rewrite_expression
-    transforms:
-      - type: rewrite_type_alias
-        find:
-          ast_type: TypeAlias
-        replace:
-          template: "{name}: TypeAlias = {value}"
-          add_import: "from typing import TypeAlias"
-  verification:
-    re_detect: true
-    syntax_check: true
-  test:
-    before: |
-      type Vector = list[float]
-    after: |
-      from typing import TypeAlias
-      Vector: TypeAlias = list[float]
-
-# ── Python 3.11 ──────────────────────────────────────────────────
-
-- id: python.typing.self_type
-  language: python
-  feature_name: "typing.Self"
-  introduced: "3.11"
-  category: typing
-  description: "Self type for methods returning the same class"
-  direction: downgrade
-  severity: warning
-  error_type: import_error
-  error_subtype: missing_name
-  tags: [typing, self]
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: typing
-        names_contains: Self
-    exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
-  fix:
-    strategy: replace_import
-    transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: Self
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import Self"
-        condition: not_already_present
-    backport:
-      package: typing-extensions
-      min_version: "4.0.0"
-  verification:
-    re_detect: true
-  test:
-    before: |
-      from typing import Self
-      class Builder:
-          def set_name(self, name: str) -> Self: ...
-    after: |
-      from typing_extensions import Self
-      class Builder:
-          def set_name(self, name: str) -> Self: ...
-
-- id: python.typing.never_type
-  language: python
-  feature_name: "typing.Never"
-  introduced: "3.11"
-  category: typing
-  description: "Never type (bottom type) — function never returns"
-  direction: downgrade
-  severity: warning
-  error_type: import_error
-  error_subtype: missing_name
-  tags: [typing, never, noreturn]
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: typing
-        names_contains: Never
-    exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
-  fix:
-    strategy: replace_import
-    transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: Never
-        replace:
-          import_name: NoReturn
-    backport: null
-  verification:
-    re_detect: true
-  test:
-    before: |
-      from typing import Never
-      def fail() -> Never:
-          raise RuntimeError
-    after: |
-      from typing import NoReturn
-      def fail() -> NoReturn:
-          raise RuntimeError
-
-- id: python.typing.typevar_tuple
-  language: python
-  feature_name: "typing.TypeVarTuple"
-  introduced: "3.11"
-  category: typing
-  description: "TypeVarTuple for variadic generics"
-  direction: downgrade
-  severity: warning
-  error_type: import_error
-  error_subtype: missing_name
-  tags: [typing, generics, variadic]
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: typing
-        names_contains: TypeVarTuple
-    exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
-  fix:
-    strategy: replace_import
-    transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: TypeVarTuple
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import TypeVarTuple"
-        condition: not_already_present
-    backport:
-      package: typing-extensions
-      min_version: "4.0.0"
-  verification:
-    re_detect: true
-  test:
-    before: |
-      from typing import TypeVarTuple
-      Ts = TypeVarTuple("Ts")
-    after: |
-      from typing_extensions import TypeVarTuple
-      Ts = TypeVarTuple("Ts")
-
 - id: python.typing.literal_string
   language: python
-  feature_name: "typing.LiteralString"
-  introduced: "3.11"
+  feature_name: typing.LiteralString
+  introduced: '3.11'
   category: typing
-  description: "LiteralString type for SQL injection prevention"
+  description: LiteralString type for SQL injection prevention
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, literal, security]
+  tags:
+  - typing
+  - literal
+  - security
   detection:
     primary:
       ast_type: ImportFrom
@@ -189,46 +19,50 @@
         module: typing
         names_contains: LiteralString
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: LiteralString
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import LiteralString"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: LiteralString
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import LiteralString
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "4.0.0"
+      min_version: 4.0.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import LiteralString
-      def query(sql: LiteralString) -> None: ...
-    after: |
-      from typing_extensions import LiteralString
+    before: 'from typing import LiteralString
+
       def query(sql: LiteralString) -> None: ...
 
-# ── Python 3.10 ──────────────────────────────────────────────────
+      '
+    after: 'from typing_extensions import LiteralString
 
+      def query(sql: LiteralString) -> None: ...
+
+      '
 - id: python.typing.paramspec
   language: python
-  feature_name: "typing.ParamSpec"
-  introduced: "3.10"
+  feature_name: typing.ParamSpec
+  introduced: '3.10'
   category: typing
-  description: "ParamSpec for preserving callable parameter types"
+  description: ParamSpec for preserving callable parameter types
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, paramspec, callable]
+  tags:
+  - typing
+  - paramspec
+  - callable
   detection:
     primary:
       ast_type: ImportFrom
@@ -236,184 +70,49 @@
         module: typing
         names_contains: ParamSpec
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: ParamSpec
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import ParamSpec"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: ParamSpec
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import ParamSpec
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "3.10.0"
+      min_version: 3.10.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import ParamSpec
-      P = ParamSpec("P")
-    after: |
-      from typing_extensions import ParamSpec
+    before: 'from typing import ParamSpec
+
       P = ParamSpec("P")
 
-- id: python.typing.typeguard
-  language: python
-  feature_name: "typing.TypeGuard"
-  introduced: "3.10"
-  category: typing
-  description: "TypeGuard for narrowing types in conditional checks"
-  direction: downgrade
-  severity: warning
-  error_type: import_error
-  error_subtype: missing_name
-  tags: [typing, typeguard, narrowing]
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: typing
-        names_contains: TypeGuard
-    exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
-  fix:
-    strategy: replace_import
-    transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: TypeGuard
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import TypeGuard"
-        condition: not_already_present
-    backport:
-      package: typing-extensions
-      min_version: "3.10.0"
-  verification:
-    re_detect: true
-  test:
-    before: |
-      from typing import TypeGuard
-      def is_str(val: object) -> TypeGuard[str]:
-          return isinstance(val, str)
-    after: |
-      from typing_extensions import TypeGuard
-      def is_str(val: object) -> TypeGuard[str]:
-          return isinstance(val, str)
+      '
+    after: 'from typing_extensions import ParamSpec
 
-- id: python.typing.typealias
-  language: python
-  feature_name: "typing.TypeAlias"
-  introduced: "3.10"
-  category: typing
-  description: "TypeAlias annotation for explicit type alias declarations"
-  direction: downgrade
-  severity: warning
-  error_type: import_error
-  error_subtype: missing_name
-  tags: [typing, alias]
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: typing
-        names_contains: TypeAlias
-    exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
-  fix:
-    strategy: replace_import
-    transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: TypeAlias
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import TypeAlias"
-        condition: not_already_present
-    backport:
-      package: typing-extensions
-      min_version: "3.10.0"
-  verification:
-    re_detect: true
-  test:
-    before: |
-      from typing import TypeAlias
-      Vector: TypeAlias = list[float]
-    after: |
-      from typing_extensions import TypeAlias
-      Vector: TypeAlias = list[float]
-
-- id: python.typing.concatenate
-  language: python
-  feature_name: "typing.Concatenate"
-  introduced: "3.10"
-  category: typing
-  description: "Concatenate for ParamSpec manipulation"
-  direction: downgrade
-  severity: warning
-  error_type: import_error
-  error_subtype: missing_name
-  tags: [typing, concatenate, paramspec]
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: typing
-        names_contains: Concatenate
-    exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
-  fix:
-    strategy: replace_import
-    transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: Concatenate
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import Concatenate"
-        condition: not_already_present
-    backport:
-      package: typing-extensions
-      min_version: "3.10.0"
-  verification:
-    re_detect: true
-  test:
-    before: |
-      from typing import Concatenate, ParamSpec
-      P = ParamSpec("P")
-    after: |
-      from typing_extensions import Concatenate
-      from typing import ParamSpec
       P = ParamSpec("P")
 
-# ── Python 3.8 ──────────────────────────────────────────────────
-
+      '
 - id: python.typing.literal
   language: python
-  feature_name: "typing.Literal"
-  introduced: "3.8"
+  feature_name: typing.Literal
+  introduced: '3.8'
   category: typing
-  description: "Literal types for specific values"
+  description: Literal types for specific values
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, literal]
+  tags:
+  - typing
+  - literal
   detection:
     primary:
       ast_type: ImportFrom
@@ -421,44 +120,50 @@
         module: typing
         names_contains: Literal
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: Literal
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import Literal"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: Literal
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import Literal
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "3.8.0"
+      min_version: 3.8.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import Literal
-      Mode = Literal["r", "w", "a"]
-    after: |
-      from typing_extensions import Literal
+    before: 'from typing import Literal
+
       Mode = Literal["r", "w", "a"]
 
+      '
+    after: 'from typing_extensions import Literal
+
+      Mode = Literal["r", "w", "a"]
+
+      '
 - id: python.typing.typeddict
   language: python
-  feature_name: "typing.TypedDict"
-  introduced: "3.8"
+  feature_name: typing.TypedDict
+  introduced: '3.8'
   category: typing
-  description: "TypedDict for typed dictionary schemas"
+  description: TypedDict for typed dictionary schemas
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, dict, schema]
+  tags:
+  - typing
+  - dict
+  - schema
   detection:
     primary:
       ast_type: ImportFrom
@@ -466,48 +171,44 @@
         module: typing
         names_contains: TypedDict
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: TypedDict
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import TypedDict"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: TypedDict
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import TypedDict
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "3.8.0"
+      min_version: 3.8.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import TypedDict
-      class Point(TypedDict):
-          x: int
-          y: int
-    after: |
-      from typing_extensions import TypedDict
-      class Point(TypedDict):
-          x: int
-          y: int
-
+    before: "from typing import TypedDict\nclass Point(TypedDict):\n    x: int\n \
+      \   y: int\n"
+    after: "from typing_extensions import TypedDict\nclass Point(TypedDict):\n   \
+      \ x: int\n    y: int\n"
 - id: python.typing.protocol
   language: python
-  feature_name: "typing.Protocol"
-  introduced: "3.8"
+  feature_name: typing.Protocol
+  introduced: '3.8'
   category: typing
-  description: "Protocol for structural subtyping"
+  description: Protocol for structural subtyping
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, protocol, structural]
+  tags:
+  - typing
+  - protocol
+  - structural
   detection:
     primary:
       ast_type: ImportFrom
@@ -515,46 +216,44 @@
         module: typing
         names_contains: Protocol
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: Protocol
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import Protocol"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: Protocol
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import Protocol
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "3.8.0"
+      min_version: 3.8.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import Protocol
-      class Readable(Protocol):
-          def read(self) -> str: ...
-    after: |
-      from typing_extensions import Protocol
-      class Readable(Protocol):
-          def read(self) -> str: ...
-
+    before: "from typing import Protocol\nclass Readable(Protocol):\n    def read(self)\
+      \ -> str: ...\n"
+    after: "from typing_extensions import Protocol\nclass Readable(Protocol):\n  \
+      \  def read(self) -> str: ...\n"
 - id: python.typing.final
   language: python
-  feature_name: "typing.Final"
-  introduced: "3.8"
+  feature_name: typing.Final
+  introduced: '3.8'
   category: typing
-  description: "Final qualifier to prevent reassignment"
+  description: Final qualifier to prevent reassignment
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, final, constant]
+  tags:
+  - typing
+  - final
+  - constant
   detection:
     primary:
       ast_type: ImportFrom
@@ -562,29 +261,33 @@
         module: typing
         names_contains: Final
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: Final
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import Final"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: Final
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import Final
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "3.8.0"
+      min_version: 3.8.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import Final
+    before: 'from typing import Final
+
       MAX_SIZE: Final = 100
-    after: |
-      from typing_extensions import Final
+
+      '
+    after: 'from typing_extensions import Final
+
       MAX_SIZE: Final = 100
+
+      '

@@ -185,38 +185,3 @@
       T = TypeVar(''T'')
 
       '
-- id: python.stdlib.dbm_sqlite3
-  language: python
-  feature_name: dbm.sqlite3
-  introduced: '3.13'
-  category: stdlib
-  description: SQLite3-based dbm backend
-  direction: downgrade
-  severity: error
-  error_type: import_error
-  error_subtype: missing_module
-  tags:
-  - dbm
-  - sqlite3
-  - database
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: dbm.sqlite3
-    alternatives:
-    - ast_type: Import
-      match:
-        names_contains: dbm.sqlite3
-  fix:
-    strategy: manual
-    manual_instructions: Use dbm.gnu or dbm.ndbm, or use sqlite3 directly.
-  verification:
-    re_detect: true
-  test:
-    before: 'import dbm.sqlite3
-
-      '
-    after: 'import dbm
-
-      '

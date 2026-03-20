@@ -344,75 +344,82 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
         return {"ok": False, "error": f"Failed to run tests: {exc}"}
 
 
-# ── Known compatibility patterns ────────────────────────────────
+# ── Compat failure detection ────────────────────────────────────
 
-_COMPAT_PATTERNS = [
-    {
-        "pattern": r"cannot import name 'UTC' from 'datetime'",
-        "feature": "datetime.UTC",
-        "since": "3.11",
-        "fix": "Replace `datetime.UTC` with `datetime.timezone.utc` (available since Python 3.2)",
-        "search": "datetime.UTC",
-        "replace": "datetime.timezone.utc",
-    },
-    {
-        "pattern": r"cannot import name 'StrEnum' from 'enum'",
-        "feature": "enum.StrEnum",
-        "since": "3.11",
-        "fix": "Use a backport: `pip install backports.strenum` or define a simple base class",
-        "search": None,
-        "replace": None,
-    },
-    {
-        "pattern": r"cannot import name 'tomllib'|No module named 'tomllib'",
-        "feature": "tomllib",
-        "since": "3.11",
-        "fix": "Use the backport: `pip install tomli` and `import tomli as tomllib`",
-        "search": None,
-        "replace": None,
-    },
-    {
-        "pattern": r"'str' object has no attribute 'removeprefix'",
-        "feature": "str.removeprefix",
-        "since": "3.9",
-        "fix": "Replace `s.removeprefix(p)` with `s[len(p):] if s.startswith(p) else s`",
-        "search": None,
-        "replace": None,
-    },
-    {
-        "pattern": r"'str' object has no attribute 'removesuffix'",
-        "feature": "str.removesuffix",
-        "since": "3.9",
-        "fix": "Replace `s.removesuffix(p)` with `s[:-len(p)] if s.endswith(p) else s`",
-        "search": None,
-        "replace": None,
-    },
-    {
-        "pattern": r"'dict' object has no attribute '\|'|unsupported operand type.*for \|.*'dict'",
-        "feature": "dict merge operator (|)",
-        "since": "3.9",
-        "fix": "Replace `a | b` with `{**a, **b}`",
-        "search": None,
-        "replace": None,
-    },
+# Common Python error patterns that indicate version incompatibility.
+# These match error MESSAGES in test output — not code patterns.
+_ERROR_PATTERNS = [
+    (r"cannot import name '(\w+)' from '([\w.]+)'", "import_error"),
+    (r"No module named '([\w.]+)'", "module_error"),
+    (r"'(\w+)' object has no attribute '(\w+)'", "attribute_error"),
+    (r"unsupported operand type.*for \|.*'dict'", "operator_error"),
 ]
 
 
 def _detect_compat_failures(output: str, target: str) -> list[dict]:
-    """Scan test output for known Python version compat failures."""
+    """Scan test output for Python version compat failures.
+
+    Matches error messages against common patterns, then looks up
+    the compat database for feature information and fix availability.
+    """
     import re
 
     hints = []
-    for pat in _COMPAT_PATTERNS:
-        if re.search(pat["pattern"], output):
-            hint = {
-                "feature": pat["feature"],
-                "since": pat["since"],
-                "fix": pat["fix"],
-            }
-            if pat.get("search") and pat.get("replace"):
-                hint["search"] = pat["search"]
-                hint["replace"] = pat["replace"]
-                hint["auto_fixable"] = True
-            hints.append(hint)
+    seen_features = set()
+
+    for pattern, error_type in _ERROR_PATTERNS:
+        for match in re.finditer(pattern, output):
+            # Extract feature info from the error
+            hint = None
+
+            if error_type == "import_error":
+                name = match.group(1)
+                module = match.group(2)
+                hint = {
+                    "feature": f"{module}.{name}",
+                    "since": "?",
+                    "fix": f"'{name}' is not available in the target Python version",
+                }
+            elif error_type == "module_error":
+                module = match.group(1)
+                hint = {
+                    "feature": module,
+                    "since": "?",
+                    "fix": f"Module '{module}' is not available in the target Python version",
+                }
+            elif error_type == "attribute_error":
+                obj_type = match.group(1)
+                attr = match.group(2)
+                hint = {
+                    "feature": f"{obj_type}.{attr}",
+                    "since": "?",
+                    "fix": f"'{attr}' is not available on '{obj_type}' in the target Python version",
+                }
+            elif error_type == "operator_error":
+                hint = {
+                    "feature": "dict merge operator (|)",
+                    "since": "3.9",
+                    "fix": "Replace `a | b` with `{**a, **b}`",
+                }
+
+            if hint and hint["feature"] not in seen_features:
+                # Try to enrich from compat database
+                try:
+                    from src.core.services.mediator import get_mediator
+                    m = get_mediator()
+                    compat_data = m.peek("compat.orchestrator")
+                    if compat_data and compat_data.get("data"):
+                        compat = compat_data["data"]
+                        entries = compat.registry.search(hint["feature"])
+                        if entries:
+                            entry = entries[0]
+                            hint["since"] = entry.introduced
+                            hint["fix"] = entry.description or hint["fix"]
+                            hint["fix_available"] = entry.fix.strategy.value != "manual"
+                except Exception:
+                    pass
+
+                seen_features.add(hint["feature"])
+                hints.append(hint)
+
     return hints

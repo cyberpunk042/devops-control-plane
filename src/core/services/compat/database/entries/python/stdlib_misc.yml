@@ -135,45 +135,6 @@
       now = datetime.now(UTC)
 
       '
-- id: python.stdlib.strict_zip
-  language: python
-  feature_name: itertools.pairwise()
-  introduced: '3.10'
-  category: stdlib
-  description: Return successive overlapping pairs from an iterable
-  direction: downgrade
-  severity: error
-  error_type: import_error
-  error_subtype: missing_name
-  tags:
-  - itertools
-  - pairwise
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: itertools
-        names_contains: pairwise
-  fix:
-    strategy: conditional_import
-    backport:
-      package: more-itertools
-      install_command: pip install more-itertools
-    transforms:
-    - type: conditional_import
-      find:
-        import_name: pairwise
-      replace:
-        try_import: from itertools import pairwise
-        except_import: 'from more_itertools import pairwise  # pip install more-itertools'
-  verification:
-    re_detect: true
-  test:
-    before: "from itertools import pairwise\nfor a, b in pairwise([1, 2, 3]):\n  \
-      \  print(a, b)\n"
-    after: "import itertools\ndef pairwise(it):\n    a, b = itertools.tee(it)\n  \
-      \  next(b, None)\n    return zip(a, b)\nfor a, b in pairwise([1, 2, 3]):\n \
-      \   print(a, b)\n"
 - id: python.stdlib.int_bit_count
   language: python
   feature_name: int.bit_count()
@@ -246,42 +207,6 @@
 
       '
     after: 'config.update(extra_settings)
-
-      '
-- id: python.stdlib.string_removeprefix_bytes
-  language: python
-  feature_name: bytes.removeprefix()
-  introduced: '3.9'
-  category: stdlib
-  description: removeprefix method on bytes objects
-  direction: downgrade
-  severity: error
-  error_type: runtime_error
-  error_subtype: missing_method
-  tags:
-  - bytes
-  - removeprefix
-  - method
-  detection:
-    primary:
-      ast_type: Call
-      match:
-        func_attr: removeprefix
-  fix:
-    strategy: rewrite_expression
-    transforms:
-    - type: rewrite_method_call
-      find:
-        method: removeprefix
-      replace:
-        template: '{receiver}[len({arg}):]  if {receiver}.startswith({arg}) else {receiver}'
-  verification:
-    re_detect: true
-  test:
-    before: 'data = raw.removeprefix(b"header:")
-
-      '
-    after: 'data = raw[len(b"header:"):]  if raw.startswith(b"header:") else raw
 
       '
 - id: python.stdlib.importlib_metadata

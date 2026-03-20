@@ -1,141 +1,244 @@
-# Last 10 entries for 800
-
 - id: python.stdlib.platform_improvements
   language: python
-  feature_name: "platform module"
-  introduced: "3.8"
+  feature_name: platform module
+  introduced: '3.8'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [platform]
-  detection: { primary: { ast_type: Import, match: { names_contains: platform } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import platform\n", after: "import platform\n" }
+  tags:
+  - platform
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: platform
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import platform
 
-- id: python.stdlib.webbrowser_improvements
-  language: python
-  feature_name: "webbrowser improvements"
-  introduced: "3.12"
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags: [webbrowser]
-  detection: { primary: { ast_type: Import, match: { names_contains: webbrowser } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import webbrowser\n", after: "import webbrowser\n" }
+      '
+    after: 'import platform
 
+      '
 - id: python.stdlib.wave_improvements
   language: python
-  feature_name: "wave module improvements"
-  introduced: "3.12"
+  feature_name: wave module improvements
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [wave, audio]
-  detection: { primary: { ast_type: Import, match: { names_contains: wave } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import wave\n", after: "import wave\n" }
+  tags:
+  - wave
+  - audio
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: wave
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import wave
 
+      '
+    after: 'import wave
+
+      '
 - id: python.stdlib.trace_improvements
   language: python
-  feature_name: "trace module improvements"
-  introduced: "3.12"
+  feature_name: trace module improvements
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [trace, coverage]
-  detection: { primary: { ast_type: Import, match: { names_contains: trace } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import trace\n", after: "import trace\n" }
+  tags:
+  - trace
+  - coverage
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: trace
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import trace
 
+      '
+    after: 'import trace
+
+      '
 - id: python.stdlib.symtable_improvements
   language: python
-  feature_name: "symtable improvements"
-  introduced: "3.13"
+  feature_name: symtable improvements
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [symtable, analysis]
-  detection: { primary: { ast_type: Import, match: { names_contains: symtable } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import symtable\n", after: "import symtable\n" }
+  tags:
+  - symtable
+  - analysis
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: symtable
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import symtable
 
+      '
+    after: 'import symtable
+
+      '
 - id: python.stdlib.token_improvements
   language: python
-  feature_name: "token module improvements"
-  introduced: "3.12"
+  feature_name: token module improvements
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [token, tokenize]
-  detection: { primary: { ast_type: Import, match: { names_contains: token } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import token\n", after: "import token\n" }
+  tags:
+  - token
+  - tokenize
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: token
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import token
 
+      '
+    after: 'import token
+
+      '
 - id: python.stdlib.inspect_improvements_312
   language: python
-  feature_name: "inspect module improvements (3.12)"
-  introduced: "3.12"
+  feature_name: inspect module improvements (3.12)
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [inspect, improvements]
-  detection: { primary: { ast_type: Import, match: { names_contains: inspect } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import inspect\n", after: "import inspect\n" }
+  tags:
+  - inspect
+  - improvements
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: inspect
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import inspect
 
+      '
+    after: 'import inspect
+
+      '
 - id: python.stdlib.copyreg_improvements
   language: python
-  feature_name: "copyreg improvements"
-  introduced: "3.12"
+  feature_name: copyreg improvements
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [copyreg, pickle]
-  detection: { primary: { ast_type: Import, match: { names_contains: copyreg } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import copyreg\n", after: "import copyreg\n" }
+  tags:
+  - copyreg
+  - pickle
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: copyreg
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import copyreg
 
+      '
+    after: 'import copyreg
+
+      '
 - id: python.stdlib.dis_improvements_312
   language: python
-  feature_name: "dis module improvements (3.12)"
-  introduced: "3.12"
+  feature_name: dis module improvements (3.12)
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [dis, bytecode, improvements]
-  detection: { primary: { ast_type: Import, match: { names_contains: dis } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import dis\n", after: "import dis\n" }
+  tags:
+  - dis
+  - bytecode
+  - improvements
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: dis
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import dis
 
+      '
+    after: 'import dis
+
+      '
 - id: python.stdlib.gc_improvements_312
   language: python
-  feature_name: "gc module improvements (3.12)"
-  introduced: "3.12"
+  feature_name: gc module improvements (3.12)
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [gc, garbage, collector]
-  detection: { primary: { ast_type: Import, match: { names_contains: gc } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import gc\n", after: "import gc\n" }
+  tags:
+  - gc
+  - garbage
+  - collector
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: gc
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import gc
+
+      '
+    after: 'import gc
+
+      '

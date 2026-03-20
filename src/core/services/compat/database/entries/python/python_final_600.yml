@@ -25,33 +25,6 @@
     after: 'import zlib
 
       '
-- id: python.stdlib.struct_improvements
-  language: python
-  feature_name: struct module improvements
-  introduced: '3.12'
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags:
-  - struct
-  - binary
-  detection:
-    primary:
-      ast_type: Import
-      match:
-        names_contains: struct
-  fix:
-    strategy: no_fix_needed
-  verification:
-    re_detect: false
-  test:
-    before: 'import struct
-
-      '
-    after: 'import struct
-
-      '
 - id: python.stdlib.socket_improvements
   language: python
   feature_name: socket module improvements
@@ -259,33 +232,6 @@
 
       '
     after: 'import codeop
-
-      '
-- id: python.stdlib.pathlib_parser
-  language: python
-  feature_name: pathlib parser attribute
-  introduced: '3.13'
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags:
-  - pathlib
-  - parser
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: pathlib
-  fix:
-    strategy: no_fix_needed
-  verification:
-    re_detect: false
-  test:
-    before: 'from pathlib import PurePosixPath
-
-      '
-    after: 'from pathlib import PurePosixPath
 
       '
 - id: python.stdlib.types_capsule

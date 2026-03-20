@@ -2108,6 +2108,37 @@
                 html += '</div>';
             }
 
+            // Compat fix preview (shows what will change before applying)
+            if (ptype === 'compat_fix_preview' && data.by_feature) {
+                html += `<div style="font-size:0.82rem;margin:0.5rem 0;color:var(--text-secondary)">`;
+                html += `${data.total_findings} finding(s) across ${data.total_files} file(s) will be modified:`;
+                html += `</div>`;
+
+                for (const group of data.by_feature) {
+                    html += `<div style="margin:0.5rem 0;padding:0.5rem 0.6rem;background:var(--bg-inset);border-radius:var(--radius-sm)">`;
+                    html += `<div style="font-weight:600;font-size:0.82rem">🔧 ${esc(group.feature)} <span style="color:var(--text-muted)">${esc(group.version)}+ → ${group.count} occurrence(s)</span></div>`;
+
+                    if (group.description) {
+                        html += `<div style="font-size:0.78rem;color:var(--text-secondary);margin:0.3rem 0">${esc(group.description)}</div>`;
+                    }
+
+                    // Before/after preview
+                    if (group.before && group.after) {
+                        html += `<div style="display:flex;gap:0.5rem;margin:0.3rem 0;font-size:0.75rem">`;
+                        html += `<div style="flex:1;padding:0.3rem;background:var(--danger-bg,#fee);border-radius:var(--radius-sm)"><div style="color:var(--danger);font-weight:600;font-size:0.7rem">BEFORE</div><pre style="margin:0;white-space:pre-wrap">${esc(group.before)}</pre></div>`;
+                        html += `<div style="flex:1;padding:0.3rem;background:var(--success-bg,#efe);border-radius:var(--radius-sm)"><div style="color:var(--success);font-weight:600;font-size:0.7rem">AFTER</div><pre style="margin:0;white-space:pre-wrap">${esc(group.after)}</pre></div>`;
+                        html += `</div>`;
+                    }
+
+                    // File locations
+                    for (const loc of group.files || []) {
+                        html += `<div style="font-size:0.75rem;padding-left:0.5rem;color:var(--text-muted)">${esc(loc)}</div>`;
+                    }
+                    if (group.more_files > 0) html += `<div style="font-size:0.75rem;padding-left:0.5rem;color:var(--text-muted)">... +${group.more_files} more</div>`;
+                    html += `</div>`;
+                }
+            }
+
             // Compat scan preview (rich grouped findings with fix actions)
             if (ptype === 'compat_scan' && data.by_feature) {
                 // Stats bar
@@ -2237,7 +2268,7 @@
                 html += _adm('danger', 'Failed', esc(data.error || data.summary || 'Unknown error'));
             }
 
-            // Compat hints (from test failures)
+            // Compat hints (from test failures) — route through step automation
             if (data.compat_hints && data.compat_hints.length) {
                 html += '<div style="margin-top:0.75rem">';
                 html += `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.4rem">🔍 Detected compatibility issues:</div>`;
@@ -2245,13 +2276,12 @@
                     html += `<div class="plan-guide-feature" style="margin-bottom:0.5rem">`;
                     html += `<div class="plan-guide-header">⚠️ <strong>${esc(hint.feature)}</strong> <span class="plan-preview-tag">Python ${esc(hint.since)}+</span></div>`;
                     html += `<div class="plan-guide-hint">${esc(hint.fix)}</div>`;
-                    if (hint.auto_fixable && hint.search && hint.replace) {
-                        html += `<button class="btn btn-sm btn-primary" style="margin-top:0.3rem"
-                            onclick="_autoFixCompat('${esc(moduleName)}','${esc(hint.search)}','${esc(hint.replace)}')">
-                            🔧 Auto-fix: ${esc(hint.search)} → ${esc(hint.replace)}</button>`;
-                    }
                     html += `</div>`;
                 }
+                // Single "Fix All" button that routes through the compat fix handler
+                html += `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem"
+                    onclick="_modalApplyStep('${esc(moduleName)}','fix_compat_auto:from_test',${stepIndex})">
+                    🔧 Fix all detected issues</button>`;
                 html += '</div>';
             }
 
@@ -2277,23 +2307,6 @@
     window._wizardMarkDone_close = function(moduleName, stepId, stepIndex) {
         _wizardMarkDone(moduleName, stepId, stepIndex);
         modalClose();
-    };
-
-    window._autoFixCompat = async function(moduleName, search, replace) {
-        try {
-            const resp = await fetch('/api/posture/module-compat-fix', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ module: moduleName, search: search, replace: replace }),
-            });
-            const data = await resp.json();
-            if (data.ok) {
-                toast('🔧 ' + (data.summary || 'Fixed'), 'success');
-                modalClose();
-            } else {
-                toast('⚠️ ' + (data.error || 'Failed'), 'error');
-            }
-        } catch (e) { toast('❌ ' + e.message, 'error'); }
     };
 
     window.modulePlanRunBatch = function(moduleName, fromIdx, toIdx) {
@@ -2693,13 +2706,12 @@
                 html += `<div class="plan-guide-feature" style="margin-bottom:0.5rem">`;
                 html += `<div class="plan-guide-header">⚠️ <strong>${esc(hint.feature)}</strong> <span class="plan-preview-tag">Python ${esc(hint.since)}+</span></div>`;
                 html += `<div class="plan-guide-hint">${esc(hint.fix)}</div>`;
-                if (hint.auto_fixable && hint.search && hint.replace) {
-                    html += `<button class="btn btn-sm btn-primary" style="margin-top:0.3rem"
-                        onclick="_autoFixCompat('${esc(moduleName)}','${esc(hint.search)}','${esc(hint.replace)}')">
-                        🔧 Auto-fix: ${esc(hint.search)} → ${esc(hint.replace)}</button>`;
-                }
                 html += `</div>`;
             }
+            // Single button to fix all through the step automation flow
+            html += `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem"
+                onclick="modulePlanAutomate('${esc(moduleName)}','fix_compat_auto:from_wizard',-1)">
+                🔧 Fix all detected issues</button>`;
             html += '</div>';
         } else if (hasDeps) {
             html += _adm('warning', 'Incompatible dependencies found',

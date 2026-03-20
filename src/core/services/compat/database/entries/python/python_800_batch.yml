@@ -293,62 +293,6 @@
     after: 'hashlib.sha3_256(data)
 
       '
-- id: python.stdlib.ssl_hostname_checks
-  language: python
-  feature_name: ssl hostname checking
-  introduced: '3.10'
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags:
-  - ssl
-  - hostname
-  - security
-  detection:
-    primary:
-      ast_type: Import
-      match:
-        names_contains: ssl
-  fix:
-    strategy: no_fix_needed
-  verification:
-    re_detect: false
-  test:
-    before: 'import ssl
-
-      '
-    after: 'import ssl
-
-      '
-- id: python.stdlib.sqlite3_default_adapters
-  language: python
-  feature_name: sqlite3 deprecated default adapters
-  introduced: '3.12'
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: deprecation_warning
-  tags:
-  - sqlite3
-  - adapters
-  - deprecated
-  detection:
-    primary:
-      ast_type: Import
-      match:
-        names_contains: sqlite3
-  fix:
-    strategy: no_fix_needed
-  verification:
-    re_detect: false
-  test:
-    before: 'import sqlite3
-
-      '
-    after: 'import sqlite3
-
-      '
 - id: python.stdlib.xml_sax_improvements
   language: python
   feature_name: xml.sax improvements
@@ -429,33 +373,5 @@
 
       '
     after: 'from http import HTTPStatus
-
-      '
-- id: python.stdlib.selectors_improvements
-  language: python
-  feature_name: selectors improvements
-  introduced: '3.10'
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags:
-  - selectors
-  - io
-  - multiplexing
-  detection:
-    primary:
-      ast_type: Import
-      match:
-        names_contains: selectors
-  fix:
-    strategy: no_fix_needed
-  verification:
-    re_detect: false
-  test:
-    before: 'import selectors
-
-      '
-    after: 'import selectors
 
       '

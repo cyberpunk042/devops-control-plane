@@ -1,141 +1,236 @@
-# Python — push to 900
-
 - id: python.stdlib.email_improvements_313
   language: python
-  feature_name: "email improvements"
-  introduced: "3.13"
+  feature_name: email improvements
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [email]
-  detection: { primary: { ast_type: Import, match: { names_contains: email } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import email\n", after: "import email\n" }
+  tags:
+  - email
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: email
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import email
 
+      '
+    after: 'import email
+
+      '
 - id: python.stdlib.typing_protocol_312
   language: python
-  feature_name: "Protocol improvements (3.12)"
-  introduced: "3.12"
+  feature_name: Protocol improvements (3.12)
+  introduced: '3.12'
   category: typing
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [typing, protocol]
-  detection: { primary: { ast_type: ImportFrom, match: { module: typing, names_contains: Protocol } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "from typing import Protocol\n", after: "from typing import Protocol\n" }
+  tags:
+  - typing
+  - protocol
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: typing
+        names_contains: Protocol
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'from typing import Protocol
 
+      '
+    after: 'from typing import Protocol
+
+      '
 - id: python.stdlib.abc_updates_313
   language: python
-  feature_name: "abc updates (3.13)"
-  introduced: "3.13"
+  feature_name: abc updates (3.13)
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [abc]
-  detection: { primary: { ast_type: Import, match: { names_contains: abc } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import abc\n", after: "import abc\n" }
+  tags:
+  - abc
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: abc
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import abc
 
+      '
+    after: 'import abc
+
+      '
 - id: python.stdlib.os_improvements_313
   language: python
-  feature_name: "os module improvements (3.13)"
-  introduced: "3.13"
+  feature_name: os module improvements (3.13)
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [os]
-  detection: { primary: { ast_type: Import, match: { names_contains: os } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import os\n", after: "import os\n" }
+  tags:
+  - os
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: os
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import os
 
+      '
+    after: 'import os
+
+      '
 - id: python.stdlib.io_improvements_313
   language: python
-  feature_name: "io module improvements (3.13)"
-  introduced: "3.13"
+  feature_name: io module improvements (3.13)
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [io]
-  detection: { primary: { ast_type: Import, match: { names_contains: io } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import io\n", after: "import io\n" }
+  tags:
+  - io
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: io
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import io
 
+      '
+    after: 'import io
+
+      '
 - id: python.stdlib.collections_improvements_312
   language: python
-  feature_name: "collections improvements (3.12)"
-  introduced: "3.12"
+  feature_name: collections improvements (3.12)
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [collections]
-  detection: { primary: { ast_type: Import, match: { names_contains: collections } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import collections\n", after: "import collections\n" }
+  tags:
+  - collections
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: collections
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import collections
 
-- id: python.stdlib.pathlib_improvements_313
-  language: python
-  feature_name: "pathlib improvements (3.13)"
-  introduced: "3.13"
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags: [pathlib]
-  detection: { primary: { ast_type: ImportFrom, match: { module: pathlib } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "from pathlib import Path\n", after: "from pathlib import Path\n" }
+      '
+    after: 'import collections
 
+      '
 - id: python.stdlib.unittest_improvements_312
   language: python
-  feature_name: "unittest improvements (3.12)"
-  introduced: "3.12"
+  feature_name: unittest improvements (3.12)
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [unittest]
-  detection: { primary: { ast_type: Import, match: { names_contains: unittest } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import unittest\n", after: "import unittest\n" }
+  tags:
+  - unittest
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: unittest
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import unittest
 
+      '
+    after: 'import unittest
+
+      '
 - id: python.stdlib.importlib_improvements_313
   language: python
-  feature_name: "importlib improvements (3.13)"
-  introduced: "3.13"
+  feature_name: importlib improvements (3.13)
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [importlib]
-  detection: { primary: { ast_type: Import, match: { names_contains: importlib } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import importlib\n", after: "import importlib\n" }
+  tags:
+  - importlib
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: importlib
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import importlib
 
+      '
+    after: 'import importlib
+
+      '
 - id: python.stdlib.subprocess_improvements_313
   language: python
-  feature_name: "subprocess improvements (3.13)"
-  introduced: "3.13"
+  feature_name: subprocess improvements (3.13)
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [subprocess]
-  detection: { primary: { ast_type: Import, match: { names_contains: subprocess } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "import subprocess\n", after: "import subprocess\n" }
+  tags:
+  - subprocess
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: subprocess
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'import subprocess
+
+      '
+    after: 'import subprocess
+
+      '

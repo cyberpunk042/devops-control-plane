@@ -103,46 +103,6 @@
     after: 'async_it = stream.__aiter__()
 
       '
-- id: python.builtins.dict_union_or
-  language: python
-  feature_name: dict | dict merge
-  introduced: '3.9'
-  category: builtins
-  description: Merge two dicts with | operator — runtime usage
-  direction: downgrade
-  severity: error
-  error_type: runtime_error
-  error_subtype: unsupported_operator
-  tags:
-  - dict
-  - merge
-  - runtime
-  detection:
-    primary:
-      ast_type: BinOp
-      match:
-        op_type: BitOr
-      context: runtime
-    exclude:
-    - context: annotation
-      reason: X | Y in annotations is union type, not dict merge
-  fix:
-    strategy: rewrite_expression
-    transforms:
-    - type: rewrite_binary_op
-      find:
-        operator: '|'
-      replace:
-        template: '{**{left}, **{right}}'
-  verification:
-    re_detect: true
-  test:
-    before: 'merged = defaults | overrides
-
-      '
-    after: 'merged = {**defaults, **overrides}
-
-      '
 - id: python.builtins.str_isascii
   language: python
   feature_name: str.isascii()

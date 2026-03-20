@@ -91,19 +91,50 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
         files = sorted(set(f.file for f in fixable))
 
         if mode == "preview":
-            by_feature: dict[str, int] = {}
+            # Build rich preview with file locations and before/after examples
+            from src.core.services.mediator import get_mediator
+            _m2 = get_mediator()
+            compat = _m2.get("compat.orchestrator")["data"]
+
+            by_feature: dict[str, list] = {}
             for f in fixable:
-                by_feature[f.feature_name] = by_feature.get(f.feature_name, 0) + 1
+                by_feature.setdefault(f.feature_name, []).append(f)
+
+            feature_previews = []
+            for feature_name, findings in sorted(by_feature.items()):
+                feature_files = sorted(set(f.file for f in findings))
+                entry = compat.registry.get(findings[0].feature_id)
+
+                preview = {
+                    "feature": feature_name,
+                    "version": findings[0].version,
+                    "count": len(findings),
+                    "files": [f"{f.file}:{f.line}" for f in findings[:5]],
+                    "more_files": max(0, len(findings) - 5),
+                    "fix_strategy": findings[0].fix_strategy,
+                }
+
+                # Add before/after from database entry test case
+                if entry and entry.test:
+                    if entry.test.before:
+                        preview["before"] = entry.test.before.strip()
+                    if entry.test.after:
+                        preview["after"] = entry.test.after.strip()
+
+                # Add description from entry
+                if entry and entry.description:
+                    preview["description"] = entry.description
+
+                feature_previews.append(preview)
 
             return {
                 "ok": True,
                 "can_apply": True,
-                "preview_type": "info",
+                "preview_type": "compat_fix_preview",
                 "summary": f"Will fix {len(fixable)} finding(s) in {len(files)} file(s)",
-                "detail": "\n".join(
-                    f"  {name}: {count} occurrence(s)"
-                    for name, count in sorted(by_feature.items())
-                ),
+                "total_findings": len(fixable),
+                "total_files": len(files),
+                "by_feature": feature_previews,
             }
 
         # Execute — use compat fix engine
@@ -764,18 +795,21 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
                 "summary": f"No incompatible syntax found for Python {ctx.target_floor}",
             }
 
-        # Convert to guide format with rewrite hints
+        # Convert to guide format with rewrite hints from database entries
         findings = []
         for f in result.findings:
             entry = compat.registry.get(f.feature_id)
             guide = {}
             if entry:
-                guide = _REWRITE_GUIDES.get(f.feature_name, {})
-                if not guide and entry.fix.manual_instructions:
-                    guide = {
-                        "fixable": entry.fix.strategy.value != "manual",
-                        "hint": entry.fix.manual_instructions or f"Strategy: {entry.fix.strategy.value}",
-                    }
+                # Read before/after from database entry test case
+                guide = {
+                    "fixable": entry.fix.strategy.value != "manual",
+                    "hint": entry.fix.manual_instructions or entry.description or f"Strategy: {entry.fix.strategy.value}",
+                }
+                if entry.test and entry.test.before:
+                    guide["before"] = entry.test.before.strip()
+                if entry.test and entry.test.after:
+                    guide["after"] = entry.test.after.strip()
 
             findings.append({
                 "file": f.file,
@@ -818,150 +852,8 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
         return {"ok": False, "error": f"Incompatible syntax guide failed: {exc}"}
 
 
-# Rewrite guides per feature — what each pattern is, whether it can be
-# mechanically rewritten, and the before/after example.
-_REWRITE_GUIDES: dict[str, dict] = {
-    "match/case": {
-        "fixable": False,
-        "hint": "Replace with if/elif chain",
-        "explanation": (
-            "Structural pattern matching (match/case) was introduced in Python 3.10. "
-            "It cannot be mechanically rewritten because patterns can destructure objects, "
-            "bind variables, and use guards. Each case must be manually converted to "
-            "equivalent if/elif conditions."
-        ),
-        "before": "match command:\n    case 'quit':\n        quit()\n    case 'hello':\n        greet()",
-        "after": "if command == 'quit':\n    quit()\nelif command == 'hello':\n    greet()",
-    },
-    "except* (exception groups)": {
-        "fixable": False,
-        "hint": "Replace with nested try/except blocks",
-        "explanation": (
-            "Exception groups (except*) were introduced in Python 3.11. "
-            "They allow catching multiple exception types from a single operation. "
-            "Rewriting requires restructuring error handling to use separate try/except "
-            "blocks or the exceptiongroup backport package."
-        ),
-        "before": "try:\n    ...\nexcept* ValueError as eg:\n    handle(eg)",
-        "after": "try:\n    ...\nexcept ValueError as e:\n    handle(e)\n# Or: pip install exceptiongroup",
-    },
-    "walrus operator :=": {
-        "fixable": True,
-        "hint": "Split into separate assignment + condition",
-        "explanation": (
-            "The walrus operator (:=) assigns a value inside an expression. "
-            "Introduced in Python 3.8. To backport, split into a separate "
-            "assignment statement before the condition."
-        ),
-        "before": "if (n := len(data)) > 10:\n    print(n)",
-        "after": "n = len(data)\nif n > 10:\n    print(n)",
-    },
-    "positional-only /": {
-        "fixable": True,
-        "hint": "Remove the / separator from function parameters",
-        "explanation": (
-            "Positional-only parameters (/) were formalized in Python 3.8. "
-            "Removing the / means the parameters can also be passed as keywords, "
-            "which is usually acceptable."
-        ),
-        "before": "def func(a, b, /, c):",
-        "after": "def func(a, b, c):  # a,b can now be keyword args too",
-    },
-    "f-strings": {
-        "fixable": True,
-        "hint": "Replace with str.format() or % formatting",
-        "explanation": (
-            "f-strings were introduced in Python 3.6. They can be mechanically "
-            "rewritten to .format() calls, though the result is less readable."
-        ),
-        "before": 'msg = f"Hello {name}, you are {age} years old"',
-        "after": 'msg = "Hello {}, you are {} years old".format(name, age)',
-    },
-    "type statement": {
-        "fixable": False,
-        "hint": "Replace with TypeAlias from typing",
-        "explanation": (
-            "The type statement (type X = ...) was introduced in Python 3.12. "
-            "Use typing.TypeAlias instead for older versions."
-        ),
-        "before": "type Vector = list[float]",
-        "after": "from typing import TypeAlias\nVector: TypeAlias = list[float]",
-    },
-    "builtin generics (runtime)": {
-        "fixable": True,
-        "hint": "Add from __future__ import annotations, or use typing.List/Dict",
-        "explanation": (
-            "Using list[], dict[], set[] etc. as generic types in runtime positions "
-            "(not just annotations) requires Python 3.9+. Adding "
-            "'from __future__ import annotations' defers evaluation and makes "
-            "this syntax work on 3.7+. Alternatively, use typing.List, typing.Dict."
-        ),
-        "before": "x: list[int] = []\nd: dict[str, str] = {}",
-        "after": "from __future__ import annotations\n\nx: list[int] = []\nd: dict[str, str] = {}",
-    },
-    "union type X | Y (runtime)": {
-        "fixable": True,
-        "hint": "Add from __future__ import annotations, or use typing.Union",
-        "explanation": (
-            "The X | Y union syntax in type hints requires Python 3.10+ at runtime. "
-            "Adding 'from __future__ import annotations' defers evaluation and makes "
-            "this work on 3.7+. Alternatively, use typing.Union[X, Y] or typing.Optional[X]."
-        ),
-        "before": "def greet(name: str | None) -> str:",
-        "after": "from __future__ import annotations\n\ndef greet(name: str | None) -> str:\n# Or: from typing import Optional\ndef greet(name: Optional[str]) -> str:",
-    },
-    "datetime.UTC": {
-        "fixable": True,
-        "hint": "Replace datetime.UTC with datetime.timezone.utc",
-        "explanation": (
-            "datetime.UTC was added in Python 3.11 as a shorthand for "
-            "datetime.timezone.utc. The longer form has been available since "
-            "Python 3.2 and is functionally identical."
-        ),
-        "before": "from datetime import UTC\nnow = datetime.now(UTC)",
-        "after": "from datetime import timezone\nnow = datetime.now(timezone.utc)",
-    },
-    "enum.StrEnum": {
-        "fixable": False,
-        "hint": "Use (str, Enum) base classes or the strenum backport",
-        "explanation": (
-            "enum.StrEnum was added in Python 3.11. For older versions, "
-            "inherit from both str and Enum, or install the strenum backport."
-        ),
-        "before": "class Color(StrEnum):\n    RED = 'red'",
-        "after": "class Color(str, Enum):\n    RED = 'red'",
-    },
-    "tomllib": {
-        "fixable": False,
-        "hint": "Use the tomli backport package",
-        "explanation": (
-            "tomllib was added to the stdlib in Python 3.11. For older "
-            "versions, use the tomli package: pip install tomli"
-        ),
-        "before": "import tomllib",
-        "after": "try:\n    import tomllib\nexcept ImportError:\n    import tomli as tomllib",
-    },
-    "str.removeprefix": {
-        "fixable": True,
-        "hint": "Replace with slicing: s[len(p):] if s.startswith(p) else s",
-        "explanation": (
-            "str.removeprefix() was added in Python 3.9. The equivalent "
-            "operation can be done with startswith() + slicing."
-        ),
-        "before": "path.removeprefix('/api/')",
-        "after": "path[len('/api/'):] if path.startswith('/api/') else path",
-    },
-    "str.removesuffix": {
-        "fixable": True,
-        "hint": "Replace with slicing: s[:-len(p)] if s.endswith(p) else s",
-        "explanation": (
-            "str.removesuffix() was added in Python 3.9. The equivalent "
-            "operation can be done with endswith() + slicing."
-        ),
-        "before": "name.removesuffix('.py')",
-        "after": "name[:-len('.py')] if name.endswith('.py') else name",
-    },
-}
+# _REWRITE_GUIDES removed — guide handler reads from compat database entries
+# (entry.test.before, entry.test.after, entry.description, entry.fix.manual_instructions)
 
 
 def _parse_ver(v: str) -> list[int] | None:

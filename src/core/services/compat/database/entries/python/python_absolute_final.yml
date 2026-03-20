@@ -180,32 +180,6 @@
     after: 'import uuid
 
       '
-- id: python.stdlib.difflib_improvements_313
-  language: python
-  feature_name: difflib improvements (3.13)
-  introduced: '3.13'
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags:
-  - difflib
-  detection:
-    primary:
-      ast_type: Import
-      match:
-        names_contains: difflib
-  fix:
-    strategy: no_fix_needed
-  verification:
-    re_detect: false
-  test:
-    before: 'import difflib
-
-      '
-    after: 'import difflib
-
-      '
 - id: python.stdlib.heapq_improvements_313
   language: python
   feature_name: heapq improvements (3.13)

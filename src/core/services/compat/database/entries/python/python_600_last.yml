@@ -195,34 +195,6 @@
     after: 'from typing import Callable
 
       '
-- id: python.stdlib.enum_repr_311
-  language: python
-  feature_name: enum repr improvements
-  introduced: '3.11'
-  category: stdlib
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags:
-  - enum
-  - repr
-  - display
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: enum
-  fix:
-    strategy: no_fix_needed
-  verification:
-    re_detect: false
-  test:
-    before: 'from enum import Enum
-
-      '
-    after: 'from enum import Enum
-
-      '
 - id: python.stdlib.importlib_resources_as_file
   language: python
   feature_name: importlib.resources.as_file()

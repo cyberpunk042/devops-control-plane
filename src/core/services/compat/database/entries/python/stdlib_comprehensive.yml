@@ -84,43 +84,6 @@
       reader = csv.reader(f)
 
       '
-- id: python.stdlib.asyncio_runner
-  language: python
-  feature_name: asyncio.Runner
-  introduced: '3.11'
-  category: stdlib
-  description: Runner context manager for running async code
-  direction: downgrade
-  severity: error
-  error_type: import_error
-  error_subtype: missing_name
-  tags:
-  - asyncio
-  - runner
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: asyncio
-        names_contains: Runner
-  fix:
-    strategy: conditional_import
-    transforms:
-    - type: conditional_import
-      find:
-        import_name: Runner
-      replace:
-        try_import: from asyncio import Runner
-        except_import: 'pass  # No backport for Runner'
-  verification:
-    re_detect: true
-  test:
-    before: "from asyncio import Runner\nwith Runner() as runner:\n    runner.run(main())\n"
-    after: 'import asyncio
-
-      asyncio.run(main())
-
-      '
 - id: python.stdlib.contextlib_chdir
   language: python
   feature_name: contextlib.chdir

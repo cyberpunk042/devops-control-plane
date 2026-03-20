@@ -1,52 +1,16 @@
-# Python syntax features — language syntax added per version
-
-# ── Python 3.12 ──────────────────────────────────────────────────
-
-- id: python.syntax.type_statement
-  language: python
-  feature_name: "type statement"
-  introduced: "3.12"
-  category: syntax
-  description: "PEP 695 — type alias statement: type Alias = int"
-  direction: downgrade
-  severity: error
-  error_type: syntax_error
-  tags: [type, alias, syntax]
-  detection:
-    primary:
-      ast_type: TypeAlias
-      match: {}
-  fix:
-    strategy: rewrite_expression
-    transforms:
-      - type: rewrite_type_alias
-        find:
-          ast_type: TypeAlias
-        replace:
-          template: "{name}: TypeAlias = {value}"
-          add_import: "from typing import TypeAlias"
-  verification:
-    re_detect: true
-    syntax_check: true
-  test:
-    before: |
-      type Point = tuple[int, int]
-      type Matrix = list[list[float]]
-    after: |
-      from typing import TypeAlias
-      Point: TypeAlias = tuple[int, int]
-      Matrix: TypeAlias = list[list[float]]
-
 - id: python.syntax.fstring_nested
   language: python
-  feature_name: "nested f-string expressions"
-  introduced: "3.12"
+  feature_name: nested f-string expressions
+  introduced: '3.12'
   category: syntax
-  description: "F-strings can contain other f-strings as expressions"
+  description: F-strings can contain other f-strings as expressions
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [fstring, string, syntax]
+  tags:
+  - fstring
+  - string
+  - syntax
   detection:
     primary:
       ast_type: JoinedStr
@@ -54,148 +18,68 @@
         has_nested_fstring: true
   fix:
     strategy: manual
-    manual_instructions: |
-      Extract inner f-strings to variables:
-        f"{'yes' if f'{x}' == 'hello' else 'no'}"
-        →
-        inner = f'{x}'
-        f"{'yes' if inner == 'hello' else 'no'}"
+    manual_instructions: "Extract inner f-strings to variables:\n  f\"{'yes' if f'{x}'\
+      \ == 'hello' else 'no'}\"\n  →\n  inner = f'{x}'\n  f\"{'yes' if inner == 'hello'\
+      \ else 'no'}\"\n"
   verification:
     re_detect: true
     syntax_check: true
   test:
-    before: |
-      msg = f"result: {f'{value:.2f}'}"
-    after: |
-      _inner = f'{value:.2f}'
+    before: 'msg = f"result: {f''{value:.2f}''}"
+
+      '
+    after: '_inner = f''{value:.2f}''
+
       msg = f"result: {_inner}"
 
-
-# ── Python 3.11 ──────────────────────────────────────────────────
-
-- id: python.syntax.except_star
-  language: python
-  feature_name: "except* (exception groups)"
-  introduced: "3.11"
-  category: syntax
-  description: "PEP 654 — except* for catching exception groups"
-  direction: downgrade
-  severity: error
-  error_type: syntax_error
-  tags: [exception, error_handling, syntax]
-  detection:
-    primary:
-      ast_type: TryStar
-      match: {}
-  fix:
-    strategy: manual
-    manual_instructions: |
-      except* has no mechanical backport. Rewrite as standard try/except
-      with manual exception filtering:
-        try:
-            ...
-        except* ValueError as eg:
-            for e in eg.exceptions:
-                handle(e)
-        →
-        try:
-            ...
-        except Exception as e:
-            if isinstance(e, ValueError):
-                handle(e)
-            else:
-                raise
-      Consider the 'exceptiongroup' backport for ExceptionGroup class
-      (but NOT except* syntax).
-    backport:
-      package: exceptiongroup
-      min_version: "1.0.0"
-      notes: "Provides ExceptionGroup class but NOT except* syntax"
-  verification:
-    re_detect: true
-    syntax_check: true
-  test:
-    before: |
-      try:
-          raise ExceptionGroup("eg", [ValueError("a")])
-      except* ValueError as eg:
-          for e in eg.exceptions:
-              print(e)
-    after: |
-      try:
-          raise ExceptionGroup("eg", [ValueError("a")])
-      except Exception as e:
-          if isinstance(e, ValueError):
-              print(e)
-          else:
-              raise
-
-
-# ── Python 3.10 ──────────────────────────────────────────────────
-
+      '
 - id: python.syntax.match_case
   language: python
-  feature_name: "match/case statement"
-  introduced: "3.10"
+  feature_name: match/case statement
+  introduced: '3.10'
   category: syntax
-  description: "PEP 634 — structural pattern matching"
+  description: PEP 634 — structural pattern matching
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [match, case, pattern, syntax]
+  tags:
+  - match
+  - case
+  - pattern
+  - syntax
   detection:
     primary:
       ast_type: Match
       match: {}
   fix:
     strategy: manual
-    manual_instructions: |
-      match/case must be rewritten as if/elif/else chains.
-
-      Simple value matching:
-        match command:
-            case "quit": quit()
-            case "hello": greet()
-            case _: unknown()
-        →
-        if command == "quit": quit()
-        elif command == "hello": greet()
-        else: unknown()
-
-      Structural pattern matching (destructuring, guards, OR patterns)
-      requires more complex rewriting. Review each case carefully.
+    manual_instructions: "match/case must be rewritten as if/elif/else chains.\n\n\
+      Simple value matching:\n  match command:\n      case \"quit\": quit()\n    \
+      \  case \"hello\": greet()\n      case _: unknown()\n  →\n  if command == \"\
+      quit\": quit()\n  elif command == \"hello\": greet()\n  else: unknown()\n\n\
+      Structural pattern matching (destructuring, guards, OR patterns)\nrequires more\
+      \ complex rewriting. Review each case carefully.\n"
   verification:
     re_detect: true
     syntax_check: true
   test:
-    before: |
-      match command:
-          case "quit":
-              return 0
-          case "help":
-              show_help()
-              return 0
-          case _:
-              return 1
-    after: |
-      if command == "quit":
-          return 0
-      elif command == "help":
-          show_help()
-          return 0
-      else:
-          return 1
-
+    before: "match command:\n    case \"quit\":\n        return 0\n    case \"help\"\
+      :\n        show_help()\n        return 0\n    case _:\n        return 1\n"
+    after: "if command == \"quit\":\n    return 0\nelif command == \"help\":\n   \
+      \ show_help()\n    return 0\nelse:\n    return 1\n"
 - id: python.syntax.parenthesized_context_managers
   language: python
-  feature_name: "parenthesized context managers"
-  introduced: "3.10"
+  feature_name: parenthesized context managers
+  introduced: '3.10'
   category: syntax
-  description: "Multiple context managers in parenthesized with statement"
+  description: Multiple context managers in parenthesized with statement
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [with, context_manager, syntax]
+  tags:
+  - with
+  - context_manager
+  - syntax
   detection:
     primary:
       ast_type: With
@@ -204,39 +88,33 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: split_with_statement
-        find:
-          ast_type: With
-        replace:
-          style: nested_with
+    - type: split_with_statement
+      find:
+        ast_type: With
+      replace:
+        style: nested_with
   verification:
     re_detect: true
     syntax_check: true
   test:
-    before: |
-      with (
-          open("a.txt") as f1,
-          open("b.txt") as f2,
-      ):
-          data = f1.read() + f2.read()
-    after: |
-      with open("a.txt") as f1:
-          with open("b.txt") as f2:
-              data = f1.read() + f2.read()
-
-
-# ── Python 3.8 ──────────────────────────────────────────────────
-
+    before: "with (\n    open(\"a.txt\") as f1,\n    open(\"b.txt\") as f2,\n):\n\
+      \    data = f1.read() + f2.read()\n"
+    after: "with open(\"a.txt\") as f1:\n    with open(\"b.txt\") as f2:\n       \
+      \ data = f1.read() + f2.read()\n"
 - id: python.syntax.walrus_operator
   language: python
-  feature_name: "walrus operator (:=)"
-  introduced: "3.8"
+  feature_name: walrus operator (:=)
+  introduced: '3.8'
   category: syntax
-  description: "PEP 572 — assignment expressions"
+  description: PEP 572 — assignment expressions
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [walrus, assignment, expression, syntax]
+  tags:
+  - walrus
+  - assignment
+  - expression
+  - syntax
   detection:
     primary:
       ast_type: NamedExpr
@@ -244,88 +122,71 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_walrus
-        find:
-          ast_type: NamedExpr
-        replace:
-          style: split
+    - type: rewrite_walrus
+      find:
+        ast_type: NamedExpr
+      replace:
+        style: split
   verification:
     re_detect: true
     syntax_check: true
   edge_cases:
-    - id: python.walrus.in_while
-      category: transform_edge_case
-      description: "Walrus in while condition"
-      handling: special_transform
-      test:
-        before: |
-          while chunk := f.read(8192):
-              process(chunk)
-        after: |
-          chunk = f.read(8192)
-          while chunk:
-              process(chunk)
-              chunk = f.read(8192)
-        notes: "While loop needs the assignment before AND at end of loop body"
+  - id: python.walrus.in_while
+    category: transform_edge_case
+    description: Walrus in while condition
+    handling: special_transform
+    test:
+      before: "while chunk := f.read(8192):\n    process(chunk)\n"
+      after: "chunk = f.read(8192)\nwhile chunk:\n    process(chunk)\n    chunk =\
+        \ f.read(8192)\n"
+      notes: While loop needs the assignment before AND at end of loop body
+  - id: python.walrus.in_comprehension
+    category: transform_edge_case
+    description: Walrus in list comprehension
+    handling: special_transform
+    test:
+      before: 'results = [y for x in data if (y := f(x)) is not None]
 
-    - id: python.walrus.in_comprehension
-      category: transform_edge_case
-      description: "Walrus in list comprehension"
-      handling: special_transform
-      test:
-        before: |
-          results = [y for x in data if (y := f(x)) is not None]
-        after: |
-          results = []
-          for x in data:
-              y = f(x)
-              if y is not None:
-                  results.append(y)
-        notes: "Comprehension with walrus must be expanded to a loop"
+        '
+      after: "results = []\nfor x in data:\n    y = f(x)\n    if y is not None:\n\
+        \        results.append(y)\n"
+      notes: Comprehension with walrus must be expanded to a loop
   test:
-    before: |
-      if (n := len(data)) > 10:
-          print(f"Too long: {n}")
-    after: |
-      n = len(data)
-      if n > 10:
-          print(f"Too long: {n}")
-
+    before: "if (n := len(data)) > 10:\n    print(f\"Too long: {n}\")\n"
+    after: "n = len(data)\nif n > 10:\n    print(f\"Too long: {n}\")\n"
 - id: python.syntax.positional_only_params
   language: python
-  feature_name: "positional-only parameters (/)"
-  introduced: "3.8"
+  feature_name: positional-only parameters (/)
+  introduced: '3.8'
   category: syntax
-  description: "PEP 570 — function parameters before / are positional-only"
+  description: PEP 570 — function parameters before / are positional-only
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [function, parameters, syntax]
+  tags:
+  - function
+  - parameters
+  - syntax
   detection:
     primary:
       ast_type: FunctionDef
       match:
         has_posonlyargs: true
     alternatives:
-      - ast_type: AsyncFunctionDef
-        match:
-          has_posonlyargs: true
+    - ast_type: AsyncFunctionDef
+      match:
+        has_posonlyargs: true
   fix:
     strategy: manual
-    manual_instructions: |
-      Remove the / separator from the parameter list.
-      Callers that currently use positional-only arguments
-      may start using keyword arguments — review call sites.
-        def greet(name, /, greeting="Hello"):
-        →
-        def greet(name, greeting="Hello"):
+    manual_instructions: "Remove the / separator from the parameter list.\nCallers\
+      \ that currently use positional-only arguments\nmay start using keyword arguments\
+      \ — review call sites.\n  def greet(name, /, greeting=\"Hello\"):\n  →\n  def\
+      \ greet(name, greeting=\"Hello\"):\n"
   verification:
     re_detect: true
     syntax_check: true
   test:
-    before: |
-      def greet(name, /, greeting="Hello"):
-          return f"{greeting}, {name}"
-    after: |
-      def greet(name, greeting="Hello"):
-          return f"{greeting}, {name}"
+    before: "def greet(name, /, greeting=\"Hello\"):\n    return f\"{greeting}, {name}\"\
+      \n"
+    after: "def greet(name, greeting=\"Hello\"):\n    return f\"{greeting}, {name}\"\
+      \n"

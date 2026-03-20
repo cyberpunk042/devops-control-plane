@@ -106,58 +106,6 @@
     after: 'fmt = logging.Formatter("%(message)s")
 
       '
-- id: python.stdlib.warnings_deprecated_dec
-  language: python
-  feature_name: warnings.deprecated decorator
-  introduced: '3.13'
-  category: stdlib
-  description: '@deprecated decorator for marking deprecated APIs'
-  direction: downgrade
-  severity: warning
-  error_type: import_error
-  error_subtype: missing_name
-  tags:
-  - warnings
-  - deprecated
-  - decorator
-  detection:
-    primary:
-      ast_type: ImportFrom
-      match:
-        module: warnings
-        names_contains: deprecated
-  fix:
-    strategy: replace_import
-    transforms:
-    - type: replace_import_name
-      find:
-        import_module: warnings
-        import_name: deprecated
-      replace:
-        import_name: ''
-    - type: add_import
-      import_statement: from typing_extensions import deprecated
-      condition: not_already_present
-    backport:
-      package: typing-extensions
-      min_version: 4.5.0
-  verification:
-    re_detect: true
-  test:
-    before: 'from warnings import deprecated
-
-      @deprecated("Use new_api()")
-
-      def old_api(): pass
-
-      '
-    after: 'from typing_extensions import deprecated
-
-      @deprecated("Use new_api()")
-
-      def old_api(): pass
-
-      '
 - id: python.stdlib.traceback_format_exception
   language: python
   feature_name: traceback format changes

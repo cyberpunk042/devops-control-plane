@@ -127,46 +127,6 @@
       pattern = re.compile(r"a*b")
 
       '
-- id: python.stdlib.re_atomic_groups
-  language: python
-  feature_name: re atomic groups
-  introduced: '3.11'
-  category: stdlib
-  description: 'Atomic groups in regex: (?>...)'
-  direction: downgrade
-  severity: info
-  error_type: behavioral_change
-  tags:
-  - regex
-  - atomic
-  - group
-  detection:
-    primary:
-      ast_type: Call
-      match:
-        func_attr: compile
-        func_value_id: re
-  fix:
-    strategy: rewrite_expression
-    transforms:
-    - type: rewrite_method_call
-      find:
-        method: compile
-      replace:
-        note: re atomic groups — requires Python 3.11+
-  verification:
-    re_detect: false
-  test:
-    before: 'import re
-
-      pattern = re.compile(r"(?>abc)+")
-
-      '
-    after: 'import re
-
-      pattern = re.compile(r"(?:abc)+")
-
-      '
 - id: python.stdlib.fractions_limit
   language: python
   feature_name: Fraction.limit_denominator improvements

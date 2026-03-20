@@ -51,48 +51,6 @@
       Name = Annotated[str, "max_length=50"]
 
       '
-- id: python.stdlib.removesuffix_bytes
-  language: python
-  feature_name: bytes.removeprefix/removesuffix
-  introduced: '3.9'
-  category: stdlib
-  description: removeprefix and removesuffix methods on bytes/bytearray
-  direction: downgrade
-  severity: error
-  error_type: runtime_error
-  error_subtype: missing_method
-  tags:
-  - bytes
-  - method
-  detection:
-    primary:
-      ast_type: Call
-      match:
-        func_attr: removeprefix
-    alternatives:
-    - ast_type: Call
-      match:
-        func_attr: removesuffix
-  fix:
-    strategy: rewrite_expression
-    transforms:
-    - type: rewrite_method_call
-      find:
-        method: removeprefix
-      replace:
-        extract:
-          arg: call_args_0
-          receiver: call_receiver
-        template: '{receiver}[len({arg}):]  if {receiver}.startswith({arg}) else {receiver}'
-  verification:
-    re_detect: true
-  test:
-    before: 'data = raw.removeprefix(b"header:")
-
-      '
-    after: 'data = raw[len(b"header:"):] if raw.startswith(b"header:") else raw
-
-      '
 - id: python.stdlib.math_lcm
   language: python
   feature_name: math.lcm()
