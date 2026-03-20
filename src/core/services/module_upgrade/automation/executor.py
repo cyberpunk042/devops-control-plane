@@ -79,10 +79,13 @@ def execute_step(
         return {"ok": False, "error": "This step cannot be automated"}
 
     # ── Look up handler ──────────────────────────────────────────
+    # Handle feature-specific fix steps: fix_compat_auto__hash → fix_compat_auto
+    handler_id = automation_id.split("__")[0] if "__" in automation_id else automation_id
+
     from . import get_handler_registry
 
     registry = get_handler_registry()
-    handler = registry.get(automation_id)
+    handler = registry.get(handler_id)
 
     if not handler:
         return {
@@ -100,6 +103,8 @@ def execute_step(
 
     ctx = build_context(module_name, target, project_root)
     ctx.auto_fix = auto_fix
+    # Pass feature filter for fix_compat_auto__hash steps
+    ctx._feature_hash = automation_id.split("__")[1] if "__" in automation_id else None
 
     # ── Smart state: skip handler if artifact already exists ─────
     # Returns a clean ok result (no findings) so the normal

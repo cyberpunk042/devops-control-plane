@@ -80,6 +80,15 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
             and not f.is_transitive
         ]
 
+        # If a feature hash is set, filter to just that feature
+        import hashlib as _hl
+        feature_hash = getattr(ctx, "_feature_hash", None)
+        if feature_hash:
+            fixable = [
+                f for f in fixable
+                if _hl.md5(f.feature_name.encode()).hexdigest()[:8] == feature_hash
+            ]
+
         if not fixable:
             return {
                 "ok": True,

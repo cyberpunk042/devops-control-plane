@@ -338,19 +338,27 @@ def wizard_batch(
         yield {"type": "log", "step": idx, "line": f"Running: {label}"}
         t0 = time.time()
 
-        handler = registry.get(automation_id)
+        handler_id = automation_id.split("__")[0] if "__" in automation_id else automation_id
+        handler = registry.get(handler_id)
         if not handler:
-            yield {"type": "log", "step": idx, "line": f"No handler for '{automation_id}'"}
-            yield {"type": "step_failed", "step": idx, "error": f"No handler: {automation_id}"}
+            yield {"type": "log", "step": idx, "line": f"No handler for '{handler_id}'"}
+            yield {"type": "step_failed", "step": idx, "error": f"No handler: {handler_id}"}
             failed_step = idx
             break
 
         # Determine mode: fix steps use preview when auto_fix is OFF
-        _FIX_AUTOMATIONS = {"fix_compat_auto", "add_future_annotations"}
-        is_fix_step = automation_id in _FIX_AUTOMATIONS
+        _FIX_PREFIXES = ("fix_compat_auto", "add_future_annotations")
+        base_aid = automation_id.split("__")[0] if "__" in automation_id else automation_id
+        is_fix_step = base_aid in _FIX_PREFIXES
         mode = "execute"
         if is_fix_step and not auto_fix:
             mode = "preview"
+
+        # Pass feature hash to context for per-feature filtering
+        if "__" in automation_id:
+            ctx._feature_hash = automation_id.split("__")[1]
+        else:
+            ctx._feature_hash = None
 
         try:
             result = handler(ctx, mode)

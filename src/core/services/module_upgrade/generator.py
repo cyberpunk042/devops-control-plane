@@ -382,10 +382,14 @@ def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
             except Exception:
                 pass
 
+            # Encode feature name in step ID so the handler can filter
+            import hashlib as _hl
+            feature_hash = _hl.md5(feature_name.encode()).hexdigest()[:8]
             steps.append({
                 "label": f"Fix {feature_name} ({len(files)} file(s))",
                 "description": desc,
-                "_automation_id": "fix_compat_auto",
+                "_automation_id": f"fix_compat_auto__{feature_hash}",
+                "_feature_name": feature_name,
                 "automatable": True,
                 "category": "code",
             })
