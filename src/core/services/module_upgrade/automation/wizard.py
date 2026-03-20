@@ -418,16 +418,24 @@ def wizard_batch(
             # Compat scan: show grouped summary, not individual findings
             by_feature = result.get("by_feature", [])
             if by_feature:
-                for group in by_feature[:8]:
+                # by_feature can be a list (from scan) or dict (from guide)
+                if isinstance(by_feature, dict):
+                    items = [{"feature": k, **v} for k, v in list(by_feature.items())[:8]]
+                    total = len(by_feature)
+                else:
+                    items = by_feature[:8]
+                    total = len(by_feature)
+
+                for group in items:
                     feat = group.get("feature", "?")
                     count = group.get("count", 0)
                     sev = group.get("severity", "error")
                     icon = "🔧" if group.get("fix_available") else "⚠️"
                     yield {"type": "log", "step": idx,
                            "line": f"  {icon} {feat}: {count} occurrence(s) ({sev})"}
-                if len(by_feature) > 8:
+                if total > 8:
                     yield {"type": "log", "step": idx,
-                           "line": f"  ...and {len(by_feature) - 8} more features"}
+                           "line": f"  ...and {total - 8} more features"}
             elif findings:
                 yield {"type": "log", "step": idx, "line": f"  {len(findings)} finding(s)"}
                 for f in findings[:5]:
