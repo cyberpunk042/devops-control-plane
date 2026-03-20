@@ -335,9 +335,8 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
         if sm: skipped = int(sm.group(1))
         summary_match = pm or fm  # at least one must exist for a valid summary
 
-        # Show last 30 lines
-        output_lines = output.strip().split("\n")
-        tail = "\n".join(output_lines[-30:]) if len(output_lines) > 30 else output
+        # Keep full output — don't truncate (frontend handles overflow with scroll)
+        tail = output.strip()
 
         ok = result.returncode == 0 or result.returncode == 5  # 5 = no tests collected
 
@@ -356,10 +355,31 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
             "exit_code": result.returncode,
         }
 
-        # Detect common compat failures and suggest fixes
-        # Pass module_name so already-fixed features are filtered out
+        # Detect compat failures from test output AND unfixed analysis findings
         if not ok:
             compat_hints = _detect_compat_failures(output, target, module_name=ctx.module_name)
+
+            # Also include unfixed compat findings from the analysis
+            # (test output may not show all errors if an early import crash
+            # prevents Python from reaching later imports)
+            try:
+                from src.core.services.mediator import get_mediator as _gm_hints
+                _m_hints = _gm_hints()
+                analysis_data = _m_hints.peek(f"compat.analysis.{ctx.module_name}")
+                if analysis_data and analysis_data.get("data"):
+                    seen = {h["feature"] for h in compat_hints}
+                    for f in analysis_data["data"].findings:
+                        if f.severity in ("error", "warning") and f.feature_name not in seen:
+                            compat_hints.append({
+                                "feature": f.feature_name,
+                                "since": f.version,
+                                "fix": f"Unfixed: {f.feature_name} requires Python {f.version}+",
+                                "fix_available": f.fix_available,
+                            })
+                            seen.add(f.feature_name)
+            except Exception:
+                pass
+
             if compat_hints:
                 res["compat_hints"] = compat_hints
 
@@ -388,26 +408,8 @@ def _detect_compat_failures(output: str, target: str, module_name: str = "") -> 
 
     Matches error messages against common patterns, then looks up
     the compat database for feature information and fix availability.
-
-    Filters out features that have already been fixed (no remaining
-    findings in the compat analysis for this module).
     """
     import re
-
-    # Get remaining compat findings to filter out already-fixed features
-    already_fixed_features: set[str] = set()
-    remaining_features: set[str] = set()
-    if module_name:
-        try:
-            from src.core.services.mediator import get_mediator
-            m = get_mediator()
-            analysis_data = m.peek(f"compat.analysis.{module_name}")
-            if analysis_data and analysis_data.get("data"):
-                for f in analysis_data["data"].findings:
-                    if f.severity in ("error", "warning"):
-                        remaining_features.add(f.feature_name.lower())
-        except Exception:
-            pass
 
     hints = []
     seen_features = set()
@@ -464,15 +466,6 @@ def _detect_compat_failures(output: str, target: str, module_name: str = "") -> 
                 }
 
             if hint and hint["feature"] not in seen_features:
-                # Skip compat features that have already been fixed
-                # (no remaining findings in the analysis for this module)
-                if remaining_features and hint["since"] != "package":
-                    feature_lower = hint["feature"].lower()
-                    if feature_lower not in remaining_features:
-                        # This feature was fixed — don't show it as a hint
-                        seen_features.add(hint["feature"])
-                        continue
-
                 # Try to enrich from compat database
                 try:
                     from src.core.services.mediator import get_mediator
