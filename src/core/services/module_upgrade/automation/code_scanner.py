@@ -802,7 +802,13 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
         # Need orchestrator for registry lookup (guide hints)
         compat = _m.get("compat.orchestrator")["data"]
 
-        if not result.findings:
+        # Filter to actionable findings (same filter as scan step)
+        actionable = [
+            f for f in result.findings
+            if f.severity in ("error", "warning") and f.fix_strategy != "no_fix_needed"
+        ]
+
+        if not actionable:
             return {
                 "ok": True,
                 "can_apply": False,
@@ -812,7 +818,7 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
 
         # Convert to guide format with rewrite hints from database entries
         findings = []
-        for f in result.findings:
+        for f in actionable:
             entry = compat.registry.get(f.feature_id)
             guide = {}
             if entry:

@@ -240,25 +240,67 @@ def _enrich_with_compat_analysis(
             return enriched
 
         # Separate compat-replaced steps from infrastructure steps
+        # Also skip no-op steps (e.g., "Change >=3.8 to >=3.8")
         infra_steps = []
-        insert_point = 0
-        found_first_compat = False
-
-        for i, step in enumerate(steps):
+        for step in steps:
             aid = step.get("_automation_id", "")
             if aid in _COMPAT_REPLACED_AUTOMATIONS:
-                if not found_first_compat:
-                    insert_point = len(infra_steps)
-                    found_first_compat = True
-                # Skip — will be replaced by compat steps
-            else:
-                infra_steps.append(step)
+                continue  # Replaced by compat steps
+
+            # Skip config update when current == target (no-op)
+            if aid.startswith("edit_") and target:
+                from .context import build_context as _bc
+                try:
+                    _ctx = _bc(module_name, target, project_root)
+                    if _ctx.current_floor == target:
+                        continue  # No change needed
+                except Exception:
+                    pass
+
+            infra_steps.append(step)
 
         # Generate compat-specific steps from analysis
         compat_steps = _generate_compat_steps(analysis, target, direction)
 
-        # Merge: infra steps before insert point + compat steps + infra steps after
-        result = infra_steps[:insert_point] + compat_steps + infra_steps[insert_point:]
+        # Reorder infra steps into logical groups for correct flow:
+        # compat code steps → deps → config → venv → install → test → CI
+        deps_steps = []
+        config_steps = []
+        venv_steps = []
+        test_steps = []
+        ci_steps = []
+        other_steps = []
+
+        for step in infra_steps:
+            aid = step.get("_automation_id", "")
+            cat = step.get("category", "")
+
+            if aid.startswith("check_dep_compat") or aid.startswith("update_deps"):
+                deps_steps.append(step)
+            elif aid.startswith("edit_") or aid == "generate_module_toml":
+                config_steps.append(step)
+            elif aid == "setup_test_env":
+                venv_steps.append(step)
+            elif aid == "run_pip_install" or aid == "run_npm_install":
+                # Install goes AFTER venv setup
+                venv_steps.append(step)
+            elif aid.startswith("run_") or aid.startswith("scaffold_") or aid.startswith("generate_smart"):
+                test_steps.append(step)
+            elif aid == "update_ci_matrix":
+                ci_steps.append(step)
+            else:
+                other_steps.append(step)
+
+        # Final order: compat → deps → config → venv+install → test → CI → other
+        result = (
+            compat_steps
+            + deps_steps
+            + config_steps
+            + venv_steps
+            + test_steps
+            + ci_steps
+            + other_steps
+        )
         return result
 
     except Exception as exc:
@@ -268,6 +310,10 @@ def _enrich_with_compat_analysis(
 
 def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
     """Generate plan steps from compat analysis results.
+
+    Steps follow the logical flow:
+    1. Scan → 2. Fix all (one step) → 3. Verify → done with code.
+    Infrastructure steps (deps, config, venv, tests, CI) come from the recipe.
 
     Every step with an automation_id gets automatable=True so the
     UI shows the 🔧 Automate button.
@@ -287,7 +333,7 @@ def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
 
     total_files = len(set(f.file for f in actionable))
 
-    # Step: Scan summary
+    # ── Step 1: Scan ──────────────────────────────────────────
     steps.append({
         "label": f"Scan — {len(actionable)} finding(s) in {total_files} file(s)",
         "description": (
@@ -299,7 +345,7 @@ def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
         "category": "code",
     })
 
-    # Step: Blocked by transitive (if any)
+    # ── Step 2: Blocked (if transitive issues) ────────────────
     if transitive:
         blocking_modules = sorted(set(
             f.source_module for f in transitive if f.source_module
@@ -313,76 +359,56 @@ def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
                 "category": "dependency",
             })
 
-    # Group auto-fixable by fix strategy
-    future_fixable = [f for f in auto_fixable if f.fix_strategy == "add_future_import"]
-    import_fixable = [f for f in auto_fixable if f.fix_strategy in (
-        "replace_import", "replace_import_and_usages", "add_backport_import",
-        "conditional_import",
-    )]
-    other_fixable = [f for f in auto_fixable if f not in future_fixable + import_fixable]
+    # ── Step 3: Fix ALL auto-fixable (one step) ──────────────
+    if auto_fixable:
+        # Build feature summary for the description
+        by_feature: dict[str, list] = {}
+        for f in auto_fixable:
+            by_feature.setdefault(f.feature_name, []).append(f)
 
-    # Step: Add __future__ annotations
-    if future_fixable:
-        files = sorted(set(f.file for f in future_fixable))
+        feature_summary = ", ".join(
+            f"{name} ({len(findings)})"
+            for name, findings in sorted(by_feature.items())[:5]
+        )
+        if len(by_feature) > 5:
+            feature_summary += f", +{len(by_feature) - 5} more"
+
+        auto_files = len(set(f.file for f in auto_fixable))
         steps.append({
-            "label": f"Add __future__ annotations ({len(files)} file(s))",
-            "description": "Enable PEP 604/585 syntax on older Python via deferred evaluation",
-            "_automation_id": "add_future_annotations",
-            "automatable": True,
-            "category": "code",
-        })
-
-    # Steps: Fix by feature (grouped)
-    by_feature: dict[str, list] = {}
-    for f in import_fixable + other_fixable:
-        by_feature.setdefault(f.feature_name, []).append(f)
-
-    for feature_name, findings in sorted(by_feature.items()):
-        files = sorted(set(f.file for f in findings))
-        steps.append({
-            "label": f"Fix {feature_name} ({len(files)} file(s))",
-            "description": f"Auto-fix: {findings[0].fix_strategy}",
+            "label": f"Fix {len(auto_fixable)} auto-fixable finding(s) in {auto_files} file(s)",
+            "description": feature_summary,
             "_automation_id": "fix_compat_auto",
             "automatable": True,
             "category": "code",
         })
 
-    # Step: Manual fixes — grouped into ONE step, not one per feature
+    # ── Step 4: Manual review (if any manual findings) ────────
     if manual:
         by_feat_manual: dict[str, list] = {}
         for f in manual:
             by_feat_manual.setdefault(f.feature_name, []).append(f)
 
-        manual_desc_parts = [
+        manual_desc = ", ".join(
             f"{name} ({len(findings)})"
             for name, findings in sorted(by_feat_manual.items())
-        ]
+        )
         steps.append({
             "label": f"Review {len(manual)} manual finding(s)",
-            "description": ", ".join(manual_desc_parts),
+            "description": manual_desc,
             "_automation_id": "guide_incompatible_syntax",
             "automatable": True,
             "category": "code",
         })
 
-    # Step: Guide (only if there are auto-fixable findings to review)
-    if auto_fixable:
+    # ── Step 5: Verify fixes ──────────────────────────────────
+    if actionable:
         steps.append({
-            "label": "Review incompatible syntax guide",
-            "description": "Shows rewrite patterns and before/after examples",
-            "_automation_id": "guide_incompatible_syntax",
+            "label": "Re-scan and verify",
+            "description": "Confirm all incompatibilities are resolved",
+            "_automation_id": "rescan_module",
             "automatable": True,
-            "category": "code",
+            "category": "verify",
         })
-
-    # Step: Re-scan and verify
-    steps.append({
-        "label": "Re-scan and verify",
-        "description": "Confirm all incompatibilities are resolved",
-        "_automation_id": "rescan_module",
-        "automatable": True,
-        "category": "verify",
-    })
 
     return steps
 

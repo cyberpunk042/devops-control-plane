@@ -357,6 +357,16 @@ def wizard_batch(
         elapsed = int((time.time() - t0) * 1000)
         ok = result.get("ok", False)
 
+        # Auto-fix required but disabled — stop batch and notify
+        if result.get("auto_fix_required"):
+            yield {"type": "log", "step": idx,
+                   "line": "⚠️ Auto-fix is disabled — enable the checkbox to apply code changes"}
+            yield {"type": "step_done", "step": idx, "elapsed_ms": elapsed,
+                   "step_id": step_id, "needs_attention": True}
+            completed += 1
+            # Stop the batch — remaining fix steps would also need auto-fix
+            break
+
         # Log result details
         if result.get("summary"):
             yield {"type": "log", "step": idx, "line": result["summary"]}
