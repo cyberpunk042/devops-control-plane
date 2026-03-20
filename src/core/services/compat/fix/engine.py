@@ -904,13 +904,22 @@ class FixEngine:
             return None
 
         # Apply replacements bottom-up to preserve positions
+        # Handle both single-line and multi-line spans
         for lineno, col_start, end_lineno, col_end, new_text in sorted(
             replacements, reverse=True
         ):
             if lineno == end_lineno:
+                # Single line
                 line_idx = lineno - 1
                 line = lines[line_idx]
                 lines[line_idx] = line[:col_start] + new_text + line[col_end:]
+            else:
+                # Multi-line: replace from start position to end position
+                start_idx = lineno - 1
+                end_idx = end_lineno - 1
+                prefix = lines[start_idx][:col_start]
+                suffix = lines[end_idx][col_end:]
+                lines[start_idx:end_idx + 1] = [prefix + new_text + suffix]
 
         return "\n".join(lines)
 

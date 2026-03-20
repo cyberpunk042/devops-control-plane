@@ -122,6 +122,7 @@
     alternatives:
     - ast_type: Attribute
       match:
+        func_value_attr: resources
         attr: files
   fix:
     strategy: conditional_import
