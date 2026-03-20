@@ -1,0 +1,449 @@
+# Python stdlib — comprehensive additions across all versions
+
+# ── Python 3.12 ──────────────────────────────────────────────────
+
+- id: python.stdlib.calendar_month_enum
+  language: python
+  feature_name: "calendar.Month/Day enums"
+  introduced: "3.12"
+  category: stdlib
+  description: "Month and Day enums in calendar module"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [calendar, enum]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: calendar
+        names_contains: Month
+    alternatives:
+      - ast_type: ImportFrom
+        match:
+          module: calendar
+          names_contains: Day
+  fix:
+    strategy: manual
+    manual_instructions: "Use integer constants instead (calendar.JANUARY = 1, etc.)"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from calendar import Month
+      jan = Month.JANUARY
+    after: |
+      import calendar
+      jan = calendar.JANUARY
+
+- id: python.stdlib.csv_reader_strict
+  language: python
+  feature_name: "csv strict mode"
+  introduced: "3.12"
+  category: stdlib
+  description: "strict parameter in csv.reader/writer"
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [csv, strict]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: reader
+  fix:
+    strategy: manual
+    manual_instructions: "Remove strict=True parameter from csv.reader()"
+  verification:
+    re_detect: false
+  test:
+    before: |
+      import csv
+      reader = csv.reader(f, strict=True)
+    after: |
+      import csv
+      reader = csv.reader(f)
+
+# ── Python 3.11 ──────────────────────────────────────────────────
+
+- id: python.stdlib.asyncio_runner
+  language: python
+  feature_name: "asyncio.Runner"
+  introduced: "3.11"
+  category: stdlib
+  description: "Runner context manager for running async code"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [asyncio, runner]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: asyncio
+        names_contains: Runner
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with asyncio.run() or manual event loop:
+        with asyncio.Runner() as runner:
+            runner.run(main())
+        → asyncio.run(main())
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from asyncio import Runner
+      with Runner() as runner:
+          runner.run(main())
+    after: |
+      import asyncio
+      asyncio.run(main())
+
+- id: python.stdlib.contextlib_chdir
+  language: python
+  feature_name: "contextlib.chdir"
+  introduced: "3.11"
+  category: stdlib
+  description: "Context manager for changing directory"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [contextlib, chdir, directory]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: contextlib
+        names_contains: chdir
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with manual chdir:
+        import os
+        from contextlib import contextmanager
+        @contextmanager
+        def chdir(path):
+            old = os.getcwd()
+            try:
+                os.chdir(path)
+                yield
+            finally:
+                os.chdir(old)
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from contextlib import chdir
+      with chdir("/tmp"):
+          work()
+    after: |
+      import os
+      old = os.getcwd()
+      try:
+          os.chdir("/tmp")
+          work()
+      finally:
+          os.chdir(old)
+
+- id: python.stdlib.enum_show_flag
+  language: python
+  feature_name: "enum.show_flag_values"
+  introduced: "3.11"
+  category: stdlib
+  description: "Display flag values in repr"
+  direction: downgrade
+  severity: warning
+  error_type: import_error
+  tags: [enum, flag]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: enum
+        names_contains: show_flag_values
+  fix:
+    strategy: manual
+    manual_instructions: "Remove show_flag_values — use custom __repr__ instead."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from enum import Flag, show_flag_values
+    after: |
+      from enum import Flag
+
+# ── Python 3.10 ──────────────────────────────────────────────────
+
+- id: python.stdlib.typing_concatenate
+  language: python
+  feature_name: "typing.Concatenate"
+  introduced: "3.10"
+  category: stdlib
+  description: "Concatenate type for ParamSpec manipulation"
+  direction: downgrade
+  severity: warning
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [typing, concatenate]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: typing
+        names_contains: Concatenate
+    exclude:
+      - context: type_checking_block
+        reason: "Not executed at runtime"
+  fix:
+    strategy: replace_import
+    transforms:
+      - type: replace_import_name
+        find:
+          import_module: typing
+          import_name: Concatenate
+        replace:
+          import_name: ""
+      - type: add_import
+        import_statement: "from typing_extensions import Concatenate"
+        condition: not_already_present
+    backport:
+      package: typing-extensions
+      min_version: "3.10.0"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from typing import Concatenate
+    after: |
+      from typing_extensions import Concatenate
+
+- id: python.stdlib.contextlib_aclosing
+  language: python
+  feature_name: "contextlib.aclosing"
+  introduced: "3.10"
+  category: stdlib
+  description: "Async version of contextlib.closing"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [contextlib, async, closing]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: contextlib
+        names_contains: aclosing
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Implement manually:
+        @asynccontextmanager
+        async def aclosing(thing):
+            try:
+                yield thing
+            finally:
+                await thing.aclose()
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from contextlib import aclosing
+      async with aclosing(stream) as s:
+          async for item in s: process(item)
+    after: |
+      # Manual aclosing implementation needed
+
+# ── Python 3.9 ──────────────────────────────────────────────────
+
+- id: python.stdlib.functools_cache
+  language: python
+  feature_name: "functools.cache"
+  introduced: "3.9"
+  category: stdlib
+  description: "Unbounded cache decorator (simpler than lru_cache)"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [functools, cache, decorator]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: functools
+        names_contains: cache
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with lru_cache(maxsize=None):
+        from functools import cache → from functools import lru_cache
+        @cache → @lru_cache(maxsize=None)
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from functools import cache
+      @cache
+      def fib(n): return n if n < 2 else fib(n-1) + fib(n-2)
+    after: |
+      from functools import lru_cache
+      @lru_cache(maxsize=None)
+      def fib(n): return n if n < 2 else fib(n-1) + fib(n-2)
+
+- id: python.stdlib.typing_get_origin
+  language: python
+  feature_name: "typing.get_origin/get_args"
+  introduced: "3.8"
+  category: stdlib
+  description: "Introspect generic type origins and arguments"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [typing, introspection, generics]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: typing
+        names_contains: get_origin
+    alternatives:
+      - ast_type: ImportFrom
+        match:
+          module: typing
+          names_contains: get_args
+  fix:
+    strategy: replace_import
+    transforms:
+      - type: replace_import_name
+        find:
+          import_module: typing
+          import_name: get_origin
+        replace:
+          import_name: ""
+      - type: add_import
+        import_statement: "from typing_extensions import get_origin, get_args"
+        condition: not_already_present
+    backport:
+      package: typing-extensions
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from typing import get_origin, get_args
+      origin = get_origin(List[int])
+    after: |
+      from typing_extensions import get_origin, get_args
+      origin = get_origin(List[int])
+
+- id: python.stdlib.os_pidfd_open
+  language: python
+  feature_name: "os.pidfd_open()"
+  introduced: "3.9"
+  category: stdlib
+  description: "Open a file descriptor for a process (Linux only)"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [os, pidfd, linux, process]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        value_id: os
+        attr: pidfd_open
+  fix:
+    strategy: manual
+    manual_instructions: "Use os.waitpid() or subprocess module instead."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import os
+      fd = os.pidfd_open(pid)
+    after: |
+      import os
+      os.waitpid(pid, 0)
+
+# ── Python 3.8 ──────────────────────────────────────────────────
+
+- id: python.stdlib.multiprocessing_shared_memory
+  language: python
+  feature_name: "multiprocessing.shared_memory"
+  introduced: "3.8"
+  category: stdlib
+  description: "Shared memory for multiprocessing"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_module
+  tags: [multiprocessing, shared_memory]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: multiprocessing.shared_memory
+    alternatives:
+      - ast_type: Import
+        match:
+          names_contains: multiprocessing.shared_memory
+  fix:
+    strategy: manual
+    manual_instructions: "Use mmap or third-party shared memory libraries."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from multiprocessing.shared_memory import SharedMemory
+      shm = SharedMemory(create=True, size=1024)
+    after: |
+      import mmap
+      # Use mmap for shared memory
+
+- id: python.stdlib.ast_unparse
+  language: python
+  feature_name: "ast.unparse()"
+  introduced: "3.9"
+  category: stdlib
+  description: "Convert AST back to source code"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [ast, unparse, codegen]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        value_id: ast
+        attr: unparse
+    alternatives:
+      - ast_type: ImportFrom
+        match:
+          module: ast
+          names_contains: unparse
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Use the astunparse backport:
+        pip install astunparse
+        import astunparse
+        code = astunparse.unparse(tree)
+    backport:
+      package: astunparse
+      install_command: "pip install astunparse"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import ast
+      code = ast.unparse(tree)
+    after: |
+      import astunparse
+      code = astunparse.unparse(tree)

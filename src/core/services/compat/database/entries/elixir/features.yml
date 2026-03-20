@@ -1,0 +1,104 @@
+# Elixir version-specific features
+
+- id: elixir.1_12.stepped_ranges
+  language: elixir
+  feature_name: "stepped ranges (first..last//step)"
+  introduced: "1.12"
+  category: syntax
+  description: "Range with step: 1..10//2"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [range, step, syntax]
+  detection:
+    primary:
+      ast_type: binary_operator
+      match:
+        operator: "//"
+        context: range
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_stepped_range
+        find: {}
+        replace:
+          template: "Enum.take_every({start}..{stop}, {step})"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      for i <- 1..100//5, do: IO.puts(i)
+    after: |
+      for i <- Enum.take_every(1..100, 5), do: IO.puts(i)
+
+- id: elixir.1_14.dbg
+  language: elixir
+  feature_name: "dbg/1 debugging macro"
+  introduced: "1.14"
+  category: stdlib
+  description: "Built-in debug macro that prints expression and value"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [debug, macro]
+  detection:
+    primary:
+      ast_type: call
+      match:
+        function: dbg
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: replace_function_call
+        find:
+          function: dbg
+        replace:
+          template: "IO.inspect({arg}, label: \"{arg}\")"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      result = compute() |> dbg()
+    after: |
+      result = compute() |> IO.inspect(label: "compute()")
+
+- id: elixir.1_15.duration
+  language: elixir
+  feature_name: "Duration module"
+  introduced: "1.15"
+  category: stdlib
+  description: "Duration struct for calendar durations"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_module
+  tags: [duration, time, calendar]
+  detection:
+    primary:
+      ast_type: call
+      match:
+        module: Duration
+    alternatives:
+      - ast_type: alias
+        match:
+          module: Duration
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Duration module requires Elixir 1.15+.
+      Use integer representations (seconds, milliseconds) or the Timex library:
+        Duration.new!(hour: 1, minute: 30)
+        →
+        # Use seconds: 5400
+        # Or with Timex: Timex.Duration.from_hours(1.5)
+    backport:
+      package: timex
+      install_command: "mix deps.get"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      duration = Duration.new!(hour: 2, minute: 30)
+    after: |
+      duration = 9000  # 2h30m in seconds

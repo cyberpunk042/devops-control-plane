@@ -1,0 +1,49 @@
+language: python
+display_name: Python
+file_extensions: [".py"]
+parser: ast
+
+versions:
+  - version: "3.7"
+    eol: "2023-06-27"
+    status: eol
+  - version: "3.8"
+    eol: "2024-10-14"
+    status: eol
+  - version: "3.9"
+    eol: "2025-10-05"
+    status: security
+  - version: "3.10"
+    eol: "2026-10-04"
+    status: security
+  - version: "3.11"
+    eol: "2027-10-24"
+    status: active
+  - version: "3.12"
+    eol: "2028-10-02"
+    status: active
+  - version: "3.13"
+    eol: "2029-10-01"
+    status: active
+
+version_format: "major.minor"
+
+default_exclusions:
+  - "__pycache__"
+  - ".venv"
+  - "venv"
+  - ".tox"
+  - ".mypy_cache"
+  - ".pytest_cache"
+  - "*.pyc"
+  - "*.pyo"
+
+import_styles:
+  - "import {module}"
+  - "from {module} import {name}"
+  - "from {module} import {name} as {alias}"
+
+package_registry:
+  name: PyPI
+  api: "https://pypi.org/pypi/{package}/json"
+  version_field: "requires_python"

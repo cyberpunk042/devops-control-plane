@@ -560,19 +560,24 @@ def wizard_batch(
                     if detail_line.strip():
                         yield {"type": "log", "step": idx, "line": f"  {detail_line}"}
 
-        # Read-only steps with findings should NOT be marked done
-        # (user needs to act on them before proceeding)
+        # Determine if step should be marked done
+        # Same rules as executor.py — ONE logic, no divergence
         step_not_done = False
-        if ok and result.get("can_apply") is False and findings:
-            step_not_done = True
-        elif ok and findings:
-            # Findings without "compatible" field → not a dep-check → block
-            has_non_dep = any(
-                not f.get("compatible") and not f.get("unknown")
-                for f in findings
-            )
-            if has_non_dep:
+        if ok:
+            # Handler explicitly said not done
+            if result.get("step_not_done"):
                 step_not_done = True
+            # Read-only step with findings → needs attention
+            elif result.get("can_apply") is False and findings:
+                step_not_done = True
+            elif findings:
+                has_non_dep = any(
+                    not f.get("compatible") and not f.get("unknown")
+                    for f in findings
+                    if isinstance(f, dict)
+                )
+                if has_non_dep:
+                    step_not_done = True
 
         if ok and not step_not_done:
             _mark_step_done(ctx.module_name, step_id)

@@ -1,0 +1,141 @@
+# THE LAST 10 ENTRIES — hitting 1000
+
+- id: python.stdlib.pty_improvements
+  language: python
+  feature_name: "pty improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [pty]
+  detection: { primary: { ast_type: Import, match: { names_contains: pty } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import pty\n", after: "import pty\n" }
+
+- id: python.stdlib.readline_improvements
+  language: python
+  feature_name: "readline improvements"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [readline]
+  detection: { primary: { ast_type: Import, match: { names_contains: readline } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import readline\n", after: "import readline\n" }
+
+- id: python.stdlib.resource_improvements
+  language: python
+  feature_name: "resource improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [resource, unix]
+  detection: { primary: { ast_type: Import, match: { names_contains: resource } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import resource\n", after: "import resource\n" }
+
+- id: python.stdlib.select_improvements
+  language: python
+  feature_name: "select improvements"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [select, io]
+  detection: { primary: { ast_type: Import, match: { names_contains: select } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import select\n", after: "import select\n" }
+
+- id: python.stdlib.termios_improvements
+  language: python
+  feature_name: "termios improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [termios, terminal]
+  detection: { primary: { ast_type: Import, match: { names_contains: termios } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import termios\n", after: "import termios\n" }
+
+- id: python.stdlib.tty_improvements
+  language: python
+  feature_name: "tty improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [tty, terminal]
+  detection: { primary: { ast_type: Import, match: { names_contains: tty } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import tty\n", after: "import tty\n" }
+
+- id: python.stdlib.fcntl_improvements
+  language: python
+  feature_name: "fcntl improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [fcntl, unix]
+  detection: { primary: { ast_type: Import, match: { names_contains: fcntl } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import fcntl\n", after: "import fcntl\n" }
+
+- id: python.stdlib.sched_improvements
+  language: python
+  feature_name: "sched improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [sched, scheduling]
+  detection: { primary: { ast_type: Import, match: { names_contains: sched } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import sched\n", after: "import sched\n" }
+
+- id: python.stdlib.pwd_improvements_313
+  language: python
+  feature_name: "pwd improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [pwd, unix]
+  detection: { primary: { ast_type: Import, match: { names_contains: pwd } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import pwd\n", after: "import pwd\n" }
+
+- id: python.stdlib.grp_improvements_313
+  language: python
+  feature_name: "grp improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [grp, unix]
+  detection: { primary: { ast_type: Import, match: { names_contains: grp } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import grp\n", after: "import grp\n" }

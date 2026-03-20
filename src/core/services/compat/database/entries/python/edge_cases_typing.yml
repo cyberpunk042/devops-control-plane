@@ -1,0 +1,220 @@
+# Typing edge cases — common patterns that need careful handling
+
+- id: python.edge.typing_extensions_universal
+  language: python
+  feature_name: "typing_extensions as universal backport"
+  introduced: "3.8"
+  category: typing
+  description: "typing_extensions provides backports for ALL typing features"
+  direction: downgrade
+  severity: info
+  error_type: import_error
+  tags: [edge_case, typing_extensions, backport]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: typing_extensions
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  edge_cases:
+    - id: python.edge.typing_ext.self
+      category: false_positive
+      description: "Self from typing_extensions — NOT from typing"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import Self
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.paramspec
+      category: false_positive
+      description: "ParamSpec from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import ParamSpec
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.typeguard
+      category: false_positive
+      description: "TypeGuard from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import TypeGuard
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.never
+      category: false_positive
+      description: "Never from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import Never
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.protocol
+      category: false_positive
+      description: "Protocol from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import Protocol
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.literal
+      category: false_positive
+      description: "Literal from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import Literal
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.annotated
+      category: false_positive
+      description: "Annotated from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import Annotated
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.override
+      category: false_positive
+      description: "override from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import override
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.typeis
+      category: false_positive
+      description: "TypeIs from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import TypeIs
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.readonly
+      category: false_positive
+      description: "ReadOnly from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import ReadOnly
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.unpack
+      category: false_positive
+      description: "Unpack from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import Unpack
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.required
+      category: false_positive
+      description: "Required/NotRequired from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import Required, NotRequired
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.deprecated
+      category: false_positive
+      description: "deprecated from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import deprecated
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.typevar_tuple
+      category: false_positive
+      description: "TypeVarTuple from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import TypeVarTuple
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.literal_string
+      category: false_positive
+      description: "LiteralString from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import LiteralString
+        expected_findings: 0
+
+    - id: python.edge.typing_ext.concatenate
+      category: false_positive
+      description: "Concatenate from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import Concatenate
+        expected_findings: 0
+
+  test:
+    before: |
+      from typing_extensions import Self
+    after: |
+      from typing_extensions import Self
+
+- id: python.edge.mixed_typing_imports
+  language: python
+  feature_name: "mixed typing and typing_extensions imports"
+  introduced: "3.8"
+  category: typing
+  description: "Some names from typing, others from typing_extensions"
+  direction: downgrade
+  severity: info
+  error_type: import_error
+  tags: [edge_case, typing, mixed_imports]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: typing
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  edge_cases:
+    - id: python.edge.mixed.common_pattern
+      category: transform_edge_case
+      description: "Common pattern: old names from typing, new from typing_extensions"
+      handling: special_transform
+      test:
+        input: |
+          from typing import Dict, List, Optional
+          from typing_extensions import Self, ParamSpec
+        expected_findings: 0
+        notes: "This is the CORRECT pattern — don't flag"
+
+    - id: python.edge.mixed.type_checking_guard
+      category: context_dependent
+      description: "Mixed imports inside TYPE_CHECKING"
+      handling: exclude
+      test:
+        input: |
+          from typing import TYPE_CHECKING
+          if TYPE_CHECKING:
+              from typing import Self, ParamSpec
+        expected_findings: 0
+        notes: "TYPE_CHECKING guard makes all imports safe"
+
+  test:
+    before: |
+      from typing import Dict, Optional
+    after: |
+      from typing import Dict, Optional

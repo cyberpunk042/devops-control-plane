@@ -1,0 +1,141 @@
+# JavaScript — final batch for 1000
+
+- id: js.es2015.array_copywithin
+  language: javascript
+  feature_name: "Array.prototype.copyWithin()"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [array, copyWithin]
+  detection: { primary: { ast_type: call_expression, match: { method: copyWithin } } }
+  fix: { strategy: manual, manual_instructions: "Manual copy with splice." }
+  verification: { re_detect: true }
+  test: { before: "arr.copyWithin(0, 3, 5);\n", after: "// Manual splice + copy\n" }
+
+- id: js.es2015.array_entries_iterator
+  language: javascript
+  feature_name: "Array.prototype.entries() iterator"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [array, entries, iterator]
+  detection: { primary: { ast_type: call_expression, match: { method: entries } } }
+  fix: { strategy: manual, manual_instructions: "Use index-based loop." }
+  verification: { re_detect: false }
+  test: { before: "for (const [i, v] of arr.entries()) {}\n", after: "for (var i=0;i<arr.length;i++){var v=arr[i];}\n" }
+
+- id: js.es2015.string_startswith_impl
+  language: javascript
+  feature_name: "String.prototype.startsWith"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [string, startsWith]
+  detection: { primary: { ast_type: call_expression, match: { method: startsWith } } }
+  fix: { strategy: manual, manual_instructions: "s.startsWith(p) → s.indexOf(p) === 0" }
+  verification: { re_detect: true }
+  test: { before: "str.startsWith('http');\n", after: "str.indexOf('http') === 0;\n" }
+
+- id: js.es2015.string_endswith_impl
+  language: javascript
+  feature_name: "String.prototype.endsWith"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [string, endsWith]
+  detection: { primary: { ast_type: call_expression, match: { method: endsWith } } }
+  fix: { strategy: manual, manual_instructions: "s.endsWith(p) → s.indexOf(p, s.length - p.length) !== -1" }
+  verification: { re_detect: true }
+  test: { before: "str.endsWith('.js');\n", after: "str.indexOf('.js', str.length - 3) !== -1;\n" }
+
+- id: js.es2017.object_entries_impl
+  language: javascript
+  feature_name: "Object.entries()"
+  introduced: "ES2017"
+  category: es2017
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [object, entries]
+  detection: { primary: { ast_type: call_expression, match: { object: Object, method: entries } } }
+  fix: { strategy: manual, manual_instructions: "Object.keys(o).map(k => [k, o[k]])" }
+  verification: { re_detect: true }
+  test: { before: "Object.entries(obj);\n", after: "Object.keys(obj).map(function(k){return[k,obj[k]]});\n" }
+
+- id: js.es2017.string_pad_impl
+  language: javascript
+  feature_name: "String.prototype.padEnd"
+  introduced: "ES2017"
+  category: es2017
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [string, padEnd]
+  detection: { primary: { ast_type: call_expression, match: { method: padEnd } } }
+  fix: { strategy: manual, manual_instructions: "while(s.length<n)s+=fill; return s.slice(0,n);" }
+  verification: { re_detect: true }
+  test: { before: "s.padEnd(10, '-');\n", after: "// Manual padding\n" }
+
+- id: js.es2020.promise_allsettled_impl
+  language: javascript
+  feature_name: "Promise.allSettled implementation"
+  introduced: "ES2020"
+  category: es2020
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [promise, allSettled]
+  detection: { primary: { ast_type: call_expression, match: { object: Promise, method: allSettled } } }
+  fix: { strategy: manual, manual_instructions: "Use Promise.all with .then/.catch wrappers." }
+  verification: { re_detect: true }
+  test: { before: "await Promise.allSettled(promises);\n", after: "await Promise.all(promises.map(p=>p.then(v=>({status:'fulfilled',value:v}),e=>({status:'rejected',reason:e}))));\n" }
+
+- id: js.es2021.promise_any_impl
+  language: javascript
+  feature_name: "Promise.any implementation"
+  introduced: "ES2021"
+  category: es2021
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [promise, any]
+  detection: { primary: { ast_type: call_expression, match: { object: Promise, method: any } } }
+  fix: { strategy: manual, manual_instructions: "Invert Promise.all with .catch." }
+  verification: { re_detect: true }
+  test: { before: "await Promise.any(promises);\n", after: "// Manual implementation\n" }
+
+- id: js.es2022.class_auto_accessor
+  language: javascript
+  feature_name: "class auto-accessor"
+  introduced: "ES2022"
+  category: es2022
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [class, accessor, auto]
+  detection: { primary: { ast_type: field_definition, match: { has_accessor: true } } }
+  fix: { strategy: manual, manual_instructions: "Define getter/setter manually." }
+  verification: { re_detect: true }
+  test: { before: "class Foo { accessor x = 1; }\n", after: "class Foo { #x=1; get x(){return this.#x} set x(v){this.#x=v} }\n" }
+
+- id: js.es2024.object_groupby_impl
+  language: javascript
+  feature_name: "Object.groupBy implementation"
+  introduced: "ES2024"
+  category: es2024
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [object, groupBy]
+  detection: { primary: { ast_type: call_expression, match: { object: Object, method: groupBy } } }
+  fix: { strategy: manual, manual_instructions: "Use reduce." }
+  verification: { re_detect: true }
+  test: { before: "Object.groupBy(arr, fn);\n", after: "arr.reduce((g,i)=>{const k=fn(i);(g[k]=g[k]||[]).push(i);return g},{});\n" }

@@ -1,0 +1,401 @@
+# Edge case entries — standalone entries that document known edge cases
+# These catch common false positive/negative patterns across features
+
+# ── Conditional import patterns ──────────────────────────────────
+
+- id: python.edge.try_except_tomllib
+  language: python
+  feature_name: "tomllib try/except backport"
+  introduced: "3.11"
+  category: stdlib
+  description: "try/except import pattern for tomllib/tomli — already handled"
+  direction: downgrade
+  severity: info
+  error_type: import_error
+  tags: [edge_case, try_except, tomllib]
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: tomllib
+    exclude:
+      - context: try_except_import
+        reason: "Already has fallback"
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  edge_cases:
+    - id: python.edge.try_except_tomllib.standard
+      category: context_dependent
+      description: "Standard try/except tomllib/tomli pattern"
+      handling: exclude
+      test:
+        input: |
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              import tomli as tomllib
+        expected_findings: 0
+
+    - id: python.edge.try_except_tomllib.importerror
+      category: context_dependent
+      description: "Using ImportError instead of ModuleNotFoundError"
+      handling: exclude
+      test:
+        input: |
+          try:
+              import tomllib
+          except ImportError:
+              import tomli as tomllib
+        expected_findings: 0
+
+    - id: python.edge.try_except_tomllib.multiple_except
+      category: context_dependent
+      description: "Tuple of exception types in except"
+      handling: exclude
+      test:
+        input: |
+          try:
+              import tomllib
+          except (ImportError, ModuleNotFoundError):
+              import tomli as tomllib
+        expected_findings: 0
+
+  test:
+    before: |
+      import tomllib
+    after: |
+      import tomllib
+
+- id: python.edge.version_gate_general
+  language: python
+  feature_name: "sys.version_info gate patterns"
+  introduced: "3.11"
+  category: stdlib
+  description: "Version-gated code using sys.version_info"
+  direction: downgrade
+  severity: info
+  error_type: import_error
+  tags: [edge_case, version_gate]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: datetime
+        names_contains: UTC
+    exclude:
+      - context: version_gate
+        reason: "Already version-gated"
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  edge_cases:
+    - id: python.edge.version_gate.gte
+      category: context_dependent
+      description: ">= comparison form"
+      handling: exclude
+      test:
+        input: |
+          import sys
+          if sys.version_info >= (3, 11):
+              from datetime import UTC
+          else:
+              from datetime import timezone
+              UTC = timezone.utc
+        expected_findings: 0
+
+    - id: python.edge.version_gate.lt
+      category: context_dependent
+      description: "< comparison form (inverted)"
+      handling: exclude
+      test:
+        input: |
+          import sys
+          if sys.version_info < (3, 11):
+              from datetime import timezone
+              UTC = timezone.utc
+          else:
+              from datetime import UTC
+        expected_findings: 0
+
+    - id: python.edge.version_gate.major_minor
+      category: context_dependent
+      description: "Comparing major.minor as tuple"
+      handling: exclude
+      test:
+        input: |
+          import sys
+          if sys.version_info[:2] >= (3, 11):
+              from datetime import UTC
+          else:
+              from datetime import timezone
+              UTC = timezone.utc
+        expected_findings: 0
+
+  test:
+    before: |
+      from datetime import UTC
+    after: |
+      from datetime import UTC
+
+# ── Annotation edge cases ────────────────────────────────────────
+
+- id: python.edge.annotation_only_features
+  language: python
+  feature_name: "annotation-only features with __future__"
+  introduced: "3.10"
+  category: typing
+  description: "Features used only in annotations with __future__ are safe"
+  direction: downgrade
+  severity: info
+  error_type: type_error
+  tags: [edge_case, annotation, future]
+  detection:
+    primary:
+      ast_type: BinOp
+      match:
+        op_type: BitOr
+      context: annotation
+    exclude:
+      - context: type_checking_block
+        reason: "TYPE_CHECKING block not executed"
+  fix:
+    strategy: add_future_import
+    transforms:
+      - type: add_import
+        import_statement: "from __future__ import annotations"
+        condition: not_already_present
+  verification:
+    re_detect: true
+    import_check: false
+  edge_cases:
+    - id: python.edge.annotation_with_future
+      category: context_dependent
+      description: "Annotations with __future__ present — safe"
+      handling: exclude
+      test:
+        input: |
+          from __future__ import annotations
+          def foo(x: int | str) -> list[int]:
+              pass
+        expected_findings: 0
+
+    - id: python.edge.annotation_return_type
+      category: context_dependent
+      description: "Return type annotation with __future__"
+      handling: exclude
+      test:
+        input: |
+          from __future__ import annotations
+          def foo() -> dict[str, list[int]]:
+              pass
+        expected_findings: 0
+
+    - id: python.edge.annotation_class_var
+      category: context_dependent
+      description: "Class variable annotation with __future__"
+      handling: exclude
+      test:
+        input: |
+          from __future__ import annotations
+          class Config:
+              items: list[str] = []
+              mapping: dict[str, int] = {}
+        expected_findings: 0
+
+    - id: python.edge.annotation_nested
+      category: context_dependent
+      description: "Deeply nested annotations with __future__"
+      handling: exclude
+      test:
+        input: |
+          from __future__ import annotations
+          def foo() -> dict[str, list[tuple[int, ...]]]:
+              pass
+        expected_findings: 0
+
+    - id: python.edge.runtime_union_not_annotation
+      category: context_dependent
+      description: "X | Y in runtime context (isinstance) — NOT safe with __future__"
+      handling: special_transform
+      test:
+        before: |
+          from __future__ import annotations
+          def check(x):
+              if isinstance(x, int | str):
+                  return True
+        after: |
+          from __future__ import annotations
+          def check(x):
+              if isinstance(x, (int, str)):
+                  return True
+        notes: "isinstance is RUNTIME even with __future__"
+
+  test:
+    before: |
+      def foo(x: int | str) -> None:
+          pass
+    after: |
+      from __future__ import annotations
+
+      def foo(x: int | str) -> None:
+          pass
+
+# ── Import aliasing edge cases ───────────────────────────────────
+
+- id: python.edge.import_aliasing
+  language: python
+  feature_name: "aliased imports"
+  introduced: "3.11"
+  category: stdlib
+  description: "Features imported with aliases need special handling"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [edge_case, alias, import]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: datetime
+        names_contains: UTC
+  fix:
+    strategy: replace_import_and_usages
+    transforms:
+      - type: replace_import_name
+        find:
+          import_module: datetime
+          import_name: UTC
+        replace:
+          import_name: timezone
+      - type: replace_usage
+        find:
+          name: UTC
+          origin: import
+        replace:
+          expression: "timezone.utc"
+  verification:
+    re_detect: true
+  edge_cases:
+    - id: python.edge.import_alias.simple
+      category: transform_edge_case
+      description: "UTC imported with simple alias"
+      handling: special_transform
+      test:
+        before: |
+          from datetime import UTC as utc
+          now = datetime.now(utc)
+        after: |
+          from datetime import timezone
+          now = datetime.now(timezone.utc)
+        notes: "Alias 'utc' must be tracked and all usages replaced"
+
+    - id: python.edge.import_alias.same_name
+      category: transform_edge_case
+      description: "UTC imported as UTC (no alias, just explicit)"
+      handling: special_transform
+      test:
+        before: |
+          from datetime import UTC
+          now = datetime.now(UTC)
+        after: |
+          from datetime import timezone
+          now = datetime.now(timezone.utc)
+
+    - id: python.edge.import_alias.shadowed_local
+      category: false_positive
+      description: "Local variable shadows the imported name"
+      handling: exclude
+      test:
+        input: |
+          UTC = "my_constant"
+          print(UTC)
+        expected_findings: 0
+        notes: "No import of UTC — local variable named UTC is fine"
+
+    - id: python.edge.import_wildcard
+      category: false_positive
+      description: "Star import — can't determine if UTC comes from datetime"
+      handling: exclude
+      test:
+        input: |
+          from some_module import *
+          print(UTC)
+        expected_findings: 0
+        notes: "Star import — origin unknown, don't flag"
+
+  test:
+    before: |
+      from datetime import UTC
+      now = datetime.now(UTC)
+    after: |
+      from datetime import timezone
+      now = datetime.now(timezone.utc)
+
+# ── Safe attribute access ────────────────────────────────────────
+
+- id: python.edge.safe_access
+  language: python
+  feature_name: "safe attribute access patterns"
+  introduced: "3.11"
+  category: stdlib
+  description: "getattr with default, hasattr checks"
+  direction: downgrade
+  severity: info
+  error_type: runtime_error
+  tags: [edge_case, getattr, hasattr, safe]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        value_id: datetime
+        attr: UTC
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  edge_cases:
+    - id: python.edge.getattr_default
+      category: false_positive
+      description: "getattr with default handles missing attribute"
+      handling: exclude
+      test:
+        input: |
+          import datetime
+          utc = getattr(datetime, "UTC", datetime.timezone.utc)
+        expected_findings: 0
+        notes: "getattr with 3 args = safe fallback"
+
+    - id: python.edge.hasattr_check
+      category: false_positive
+      description: "hasattr check before usage"
+      handling: exclude
+      test:
+        input: |
+          import datetime
+          if hasattr(datetime, "UTC"):
+              utc = datetime.UTC
+          else:
+              utc = datetime.timezone.utc
+        expected_findings: 0
+        notes: "hasattr guards the usage — safe pattern"
+
+    - id: python.edge.string_attr_name
+      category: false_positive
+      description: "Attribute name as string (not actual access)"
+      handling: exclude
+      test:
+        input: |
+          features = ["datetime.UTC", "enum.StrEnum"]
+        expected_findings: 0
+        notes: "String containing the attribute name is not code"
+
+  test:
+    before: |
+      import datetime
+      utc = datetime.UTC
+    after: |
+      import datetime
+      utc = datetime.UTC

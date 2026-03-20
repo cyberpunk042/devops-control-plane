@@ -1,0 +1,23 @@
+language: elixir
+display_name: Elixir
+file_extensions: [".ex", ".exs"]
+parser: tree-sitter-elixir
+versions:
+  - version: "1.12"
+    status: eol
+  - version: "1.13"
+    status: eol
+  - version: "1.14"
+    status: security
+  - version: "1.15"
+    status: active
+  - version: "1.16"
+    status: active
+  - version: "1.17"
+    status: active
+version_format: "major.minor"
+default_exclusions: ["_build", "deps", ".elixir_ls"]
+package_registry:
+  name: Hex
+  api: "https://hex.pm/api/packages/{package}"
+  version_field: "requirements"

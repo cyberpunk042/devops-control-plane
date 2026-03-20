@@ -1,0 +1,93 @@
+# Ruby — push to 600
+
+- id: ruby.3_0.hash_except
+  language: ruby
+  feature_name: "Hash#except"
+  introduced: "3.0"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [hash, except, filter]
+  detection:
+    primary:
+      ast_type: call
+      match: { method: except }
+  fix:
+    strategy: manual
+    manual_instructions: "hash.except(:a, :b) → hash.reject { |k, _| [:a, :b].include?(k) }"
+  verification: { re_detect: true }
+  test:
+    before: |
+      clean = params.except(:password, :token)
+    after: |
+      clean = params.reject { |k, _| [:password, :token].include?(k) }
+
+- id: ruby.3_1.values_at_pattern
+  language: ruby
+  feature_name: "Hash#values_at improvements"
+  introduced: "3.1"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [hash, values_at]
+  detection:
+    primary:
+      ast_type: call
+      match: { method: values_at }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      a, b = hash.values_at(:x, :y)
+    after: |
+      a, b = hash.values_at(:x, :y)
+
+- id: ruby.3_2.regex_timeout
+  language: ruby
+  feature_name: "Regexp.timeout"
+  introduced: "3.2"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [regexp, timeout, redos]
+  detection:
+    primary:
+      ast_type: call
+      match: { receiver: Regexp, method: timeout }
+  fix:
+    strategy: manual
+    manual_instructions: "Use Timeout.timeout { } around regex operations."
+  verification: { re_detect: true }
+  test:
+    before: |
+      Regexp.timeout = 1.0
+    after: |
+      # Use Timeout.timeout(1.0) { regex_match() }
+
+- id: ruby.3_3.m17n_string
+  language: ruby
+  feature_name: "String encoding improvements"
+  introduced: "3.3"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [string, encoding, m17n]
+  detection:
+    primary:
+      ast_type: call
+      match: { method: encode }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      str.encode("UTF-8")
+    after: |
+      str.encode("UTF-8")

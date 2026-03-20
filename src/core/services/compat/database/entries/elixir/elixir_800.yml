@@ -1,0 +1,43 @@
+# Elixir batch — 800
+
+- id: elixir.1_12.enum_zip_with
+  language: elixir
+  feature_name: "Enum.zip_with/2"
+  introduced: "1.12"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [enum, zip, transform]
+  detection: { primary: { ast_type: call, match: { module: Enum, function: zip_with } } }
+  fix: { strategy: manual, manual_instructions: "Use Enum.zip then Enum.map." }
+  verification: { re_detect: true }
+  test: { before: "Enum.zip_with([a, b], fn x, y -> x + y end)\n", after: "Enum.zip(a, b) |> Enum.map(fn {x, y} -> x + y end)\n" }
+
+- id: elixir.1_15.date_range_step
+  language: elixir
+  feature_name: "Date.range with step"
+  introduced: "1.12"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [date, range, step]
+  detection: { primary: { ast_type: call, match: { module: Date, function: range } } }
+  fix: { strategy: manual, manual_instructions: "Implement date iteration manually." }
+  verification: { re_detect: true }
+  test: { before: "Date.range(~D[2024-01-01], ~D[2024-12-31], 7)\n", after: "# Manual weekly iteration\n" }
+
+- id: elixir.1_16.kernel_is_non_struct_map
+  language: elixir
+  feature_name: "Kernel.is_non_struct_map/1"
+  introduced: "1.16"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [kernel, map, guard]
+  detection: { primary: { ast_type: call, match: { function: is_non_struct_map } } }
+  fix: { strategy: manual, manual_instructions: "Use is_map(x) and not is_struct(x)." }
+  verification: { re_detect: true }
+  test: { before: "is_non_struct_map(value)\n", after: "is_map(value) and not is_struct(value)\n" }

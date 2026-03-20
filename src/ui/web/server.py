@@ -119,6 +119,7 @@ def create_app(
     from src.ui.web.routes.plans import plans_bp
     from src.ui.web.routes.api.batch import batch_bp
     from src.ui.web.routes.posture import posture_bp
+    from src.ui.web.routes.compat import compat_bp
     from src.ui.web.routes.mediator import mediator_bp
     from src.ui.web.routes.timeline import timeline_bp
 
@@ -163,6 +164,7 @@ def create_app(
     app.register_blueprint(plans_bp, url_prefix="/api")
     app.register_blueprint(batch_bp, url_prefix="/api")
     app.register_blueprint(posture_bp, url_prefix="/api")
+    app.register_blueprint(compat_bp)
     app.register_blueprint(mediator_bp, url_prefix="/api")
     app.register_blueprint(timeline_bp)
 

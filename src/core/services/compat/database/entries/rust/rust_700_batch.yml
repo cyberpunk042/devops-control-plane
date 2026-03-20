@@ -1,0 +1,78 @@
+# Rust batch — 700
+
+- id: rust.1_64.future_intoFuture
+  language: rust
+  feature_name: "IntoFuture trait"
+  introduced: "1.64"
+  category: std
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [future, trait, async]
+  detection:
+    primary: { ast_type: use_declaration, match: { path_contains: "IntoFuture" } }
+  fix: { strategy: manual, manual_instructions: "Implement manually or use async fn." }
+  verification: { re_detect: true }
+  test: { before: "use std::future::IntoFuture;\n", after: "// Manual implementation\n" }
+
+- id: rust.1_71.cstr_from_bytes
+  language: rust
+  feature_name: "CStr::from_bytes_until_nul()"
+  introduced: "1.69"
+  category: std
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [cstr, bytes, ffi]
+  detection:
+    primary: { ast_type: call_expression, match: { path_contains: "from_bytes_until_nul" } }
+  fix: { strategy: manual, manual_instructions: "Use CStr::from_bytes_with_nul after finding null byte." }
+  verification: { re_detect: true }
+  test: { before: "CStr::from_bytes_until_nul(bytes)\n", after: "CStr::from_bytes_with_nul(&bytes[..bytes.iter().position(|&b| b == 0).unwrap() + 1])\n" }
+
+- id: rust.1_75.trait_async_fn
+  language: rust
+  feature_name: "async fn in traits (stable)"
+  introduced: "1.75"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [async, trait, method]
+  detection:
+    primary: { ast_type: function_item, match: { is_async: true, context: trait_impl } }
+  fix: { strategy: manual, manual_instructions: "Use #[async_trait] attribute macro.", backport: { package: async-trait } }
+  verification: { re_detect: true }
+  test: { before: "trait Svc { async fn handle(&self); }\n", after: "#[async_trait]\ntrait Svc { async fn handle(&self); }\n" }
+
+- id: rust.1_80.exclusive_range
+  language: rust
+  feature_name: "exclusive range in patterns"
+  introduced: "1.80"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [range, pattern, exclusive]
+  detection:
+    primary: { ast_type: range_pattern, match: { exclusive: true } }
+  fix: { strategy: manual, manual_instructions: "Use inclusive range: 0..10 → 0..=9" }
+  verification: { re_detect: true }
+  test: { before: "match n { 0..10 => ok(), _ => err() }\n", after: "match n { 0..=9 => ok(), _ => err() }\n" }
+
+- id: rust.1_77.offset_of
+  language: rust
+  feature_name: "offset_of! macro"
+  introduced: "1.77"
+  category: std
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [offset, macro, struct]
+  detection:
+    primary: { ast_type: macro_invocation, match: { macro_name: offset_of } }
+  fix: { strategy: manual, manual_instructions: "Use memoffset crate.", backport: { package: memoffset } }
+  verification: { re_detect: true }
+  test: { before: "let off = offset_of!(MyStruct, field);\n", after: "let off = memoffset::offset_of!(MyStruct, field);\n" }

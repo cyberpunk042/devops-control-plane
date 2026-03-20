@@ -1,0 +1,236 @@
+# Python — final push to 500
+
+- id: python.stdlib.sqlite3_serialize
+  language: python
+  feature_name: "sqlite3.Connection.serialize/deserialize"
+  introduced: "3.11"
+  category: stdlib
+  description: "Serialize/deserialize SQLite databases in memory"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [sqlite3, serialize]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: serialize
+  fix:
+    strategy: manual
+    manual_instructions: "Use iterdump() or backup to file instead."
+  verification:
+    re_detect: false
+  test:
+    before: |
+      data = conn.serialize()
+    after: |
+      # Use conn.iterdump()
+
+- id: python.stdlib.threading_excepthook
+  language: python
+  feature_name: "threading.excepthook"
+  introduced: "3.8"
+  category: stdlib
+  description: "Custom exception handler for threads"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [threading, exception, hook]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        value_id: threading
+        attr: excepthook
+  fix:
+    strategy: manual
+    manual_instructions: "Use try/except in thread target function."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      threading.excepthook = custom_handler
+    after: |
+      # Wrap thread targets in try/except
+
+- id: python.stdlib.os_waitstatus_to_exitcode
+  language: python
+  feature_name: "os.waitstatus_to_exitcode()"
+  introduced: "3.9"
+  category: stdlib
+  description: "Convert wait status to exit code"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [os, process, exitcode]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        value_id: os
+        attr: waitstatus_to_exitcode
+  fix:
+    strategy: manual
+    manual_instructions: "Use os.WEXITSTATUS(status) if os.WIFEXITED(status) else -os.WTERMSIG(status)"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      code = os.waitstatus_to_exitcode(status)
+    after: |
+      code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -os.WTERMSIG(status)
+
+- id: python.stdlib.itertools_accumulate_init
+  language: python
+  feature_name: "itertools.accumulate initial parameter"
+  introduced: "3.8"
+  category: stdlib
+  description: "Initial value for accumulate"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [itertools, accumulate, initial]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: accumulate
+  fix:
+    strategy: manual
+    manual_instructions: "Use itertools.chain([initial], accumulate(...))."
+  verification:
+    re_detect: false
+  test:
+    before: |
+      sums = list(itertools.accumulate(data, initial=0))
+    after: |
+      sums = list(itertools.chain([0], itertools.accumulate(data)))
+
+- id: python.stdlib.math_dist
+  language: python
+  feature_name: "math.dist()"
+  introduced: "3.8"
+  category: stdlib
+  description: "Euclidean distance between two points"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [math, distance, geometry]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        value_id: math
+        attr: dist
+    alternatives:
+      - ast_type: ImportFrom
+        match:
+          module: math
+          names_contains: dist
+  fix:
+    strategy: manual
+    manual_instructions: "math.dist(p, q) → math.sqrt(sum((a-b)**2 for a,b in zip(p,q)))"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import math
+      d = math.dist([0,0], [3,4])
+    after: |
+      import math
+      d = math.sqrt(sum((a-b)**2 for a,b in zip([0,0], [3,4])))
+
+- id: python.stdlib.statistics_quantiles
+  language: python
+  feature_name: "statistics.quantiles()"
+  introduced: "3.8"
+  category: stdlib
+  description: "Divide data into quantiles"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [statistics, quantiles, math]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: statistics
+        names_contains: quantiles
+  fix:
+    strategy: manual
+    manual_instructions: "Implement with sorted data and index calculation."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from statistics import quantiles
+      q = quantiles(data, n=4)
+    after: |
+      # Manual quantile calculation
+
+- id: python.stdlib.contextlib_nullcontext
+  language: python
+  feature_name: "contextlib.nullcontext"
+  introduced: "3.7"
+  category: stdlib
+  description: "No-op context manager"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [contextlib, null, noop]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: contextlib
+        names_contains: nullcontext
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Implement:
+        from contextlib import contextmanager
+        @contextmanager
+        def nullcontext(enter_result=None):
+            yield enter_result
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from contextlib import nullcontext
+    after: |
+      from contextlib import contextmanager
+      @contextmanager
+      def nullcontext(enter_result=None):
+          yield enter_result
+
+- id: python.stdlib.typing_forwarded_ref
+  language: python
+  feature_name: "typing.ForwardRef evaluation"
+  introduced: "3.9"
+  category: typing
+  description: "Improved ForwardRef evaluation"
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [typing, forwardref]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: typing
+        names_contains: ForwardRef
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: |
+      from typing import ForwardRef
+    after: |
+      from typing import ForwardRef

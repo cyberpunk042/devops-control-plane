@@ -1,0 +1,125 @@
+# TypeScript features — extended
+
+- id: ts.5_2.using_declarations
+  language: typescript
+  feature_name: "using declarations"
+  introduced: "5.2"
+  category: ts5
+  description: "Disposable resources with using/await using (ECMAScript proposal)"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [using, disposable, resource]
+  detection:
+    primary:
+      ast_type: using_declaration
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with try/finally:
+        using resource = getResource();
+        → const resource = getResource();
+          try { ... } finally { resource[Symbol.dispose](); }
+  verification:
+    re_detect: true
+  test:
+    before: |
+      using file = openFile("data.txt");
+      const data = file.read();
+    after: |
+      const file = openFile("data.txt");
+      try {
+        const data = file.read();
+      } finally {
+        file.close();
+      }
+
+- id: ts.5_3.import_attributes
+  language: typescript
+  feature_name: "import attributes"
+  introduced: "5.3"
+  category: ts5
+  description: "import { ... } from '...' with { type: 'json' }"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [import, attributes, json]
+  detection:
+    primary:
+      ast_type: import_statement
+      match:
+        has_with_clause: true
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Remove import attribute:
+        import data from './data.json' with { type: 'json' };
+        → import data from './data.json';
+      Or use require() for JSON:
+        const data = require('./data.json');
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import data from './config.json' with { type: 'json' };
+    after: |
+      const data = require('./config.json');
+
+- id: ts.4_5.type_modifiers_import
+  language: typescript
+  feature_name: "type modifiers on import names"
+  introduced: "4.5"
+  category: ts4
+  description: "import { type X } from 'module'"
+  direction: downgrade
+  severity: warning
+  error_type: syntax_error
+  tags: [import, type, modifier]
+  detection:
+    primary:
+      ast_type: import_specifier
+      match:
+        has_type_modifier: true
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Move to separate type import:
+        import { type User, createUser } from './models';
+        → import type { User } from './models';
+          import { createUser } from './models';
+      Or remove type modifier (imports will be stripped by bundler anyway).
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import { type User, createUser } from './models';
+    after: |
+      import type { User } from './models';
+      import { createUser } from './models';
+
+- id: ts.5_5.inferred_type_predicates
+  language: typescript
+  feature_name: "inferred type predicates"
+  introduced: "5.5"
+  category: ts5
+  description: "TypeScript infers type predicates from function bodies"
+  direction: downgrade
+  severity: info
+  error_type: type_error
+  tags: [inference, type_predicate]
+  detection:
+    primary:
+      ast_type: function_declaration
+      match:
+        inferred_predicate: true
+  fix:
+    strategy: manual
+    manual_instructions: "Add explicit type predicate: (x): x is Type => ..."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const isString = (x: unknown) => typeof x === 'string';
+    after: |
+      const isString = (x: unknown): x is string => typeof x === 'string';

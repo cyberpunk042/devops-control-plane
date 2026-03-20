@@ -1,0 +1,187 @@
+# Python testing/debugging features
+
+- id: python.stdlib.unittest_addmodulecleanup
+  language: python
+  feature_name: "unittest.addModuleCleanup()"
+  introduced: "3.8"
+  category: stdlib
+  description: "Register cleanup functions at module level"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [unittest, cleanup, testing]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        value_id: unittest
+        attr: addModuleCleanup
+  fix:
+    strategy: manual
+    manual_instructions: "Use setUp/tearDown module functions instead."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      unittest.addModuleCleanup(cleanup_func)
+    after: |
+      # Use setUpModule/tearDownModule
+
+- id: python.stdlib.unittest_isolatedasyncio
+  language: python
+  feature_name: "unittest.IsolatedAsyncioTestCase"
+  introduced: "3.8"
+  category: stdlib
+  description: "Async test case with isolated event loop"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [unittest, async, testing]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: unittest
+        names_contains: IsolatedAsyncioTestCase
+  fix:
+    strategy: manual
+    manual_instructions: "Use asynctest or pytest-asyncio instead."
+    backport:
+      package: asynctest
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from unittest import IsolatedAsyncioTestCase
+    after: |
+      import asynctest
+
+- id: python.stdlib.logging_taskname
+  language: python
+  feature_name: "logging taskName attribute"
+  introduced: "3.12"
+  category: stdlib
+  description: "taskName in log records for asyncio tasks"
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [logging, asyncio, taskname]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: Formatter
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: |
+      fmt = logging.Formatter("%(taskName)s - %(message)s")
+    after: |
+      fmt = logging.Formatter("%(message)s")
+
+- id: python.stdlib.warnings_deprecated_dec
+  language: python
+  feature_name: "warnings.deprecated decorator"
+  introduced: "3.13"
+  category: stdlib
+  description: "@deprecated decorator for marking deprecated APIs"
+  direction: downgrade
+  severity: warning
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [warnings, deprecated, decorator]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: warnings
+        names_contains: deprecated
+  fix:
+    strategy: replace_import
+    transforms:
+      - type: replace_import_name
+        find:
+          import_module: warnings
+          import_name: deprecated
+        replace:
+          import_name: ""
+      - type: add_import
+        import_statement: "from typing_extensions import deprecated"
+        condition: not_already_present
+    backport:
+      package: typing-extensions
+      min_version: "4.5.0"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from warnings import deprecated
+      @deprecated("Use new_api()")
+      def old_api(): pass
+    after: |
+      from typing_extensions import deprecated
+      @deprecated("Use new_api()")
+      def old_api(): pass
+
+- id: python.stdlib.traceback_format_exception
+  language: python
+  feature_name: "traceback format changes"
+  introduced: "3.11"
+  category: stdlib
+  description: "Enhanced traceback display with fine-grained locations"
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [traceback, error, display]
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: traceback
+    alternatives:
+      - ast_type: ImportFrom
+        match:
+          module: traceback
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: |
+      import traceback
+    after: |
+      import traceback
+
+- id: python.stdlib.sys_exception
+  language: python
+  feature_name: "sys.exception()"
+  introduced: "3.11"
+  category: stdlib
+  description: "Get the current exception being handled"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [sys, exception, handling]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        value_id: sys
+        attr: exception
+  fix:
+    strategy: manual
+    manual_instructions: "Use sys.exc_info()[1] instead."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import sys
+      exc = sys.exception()
+    after: |
+      import sys
+      exc = sys.exc_info()[1]

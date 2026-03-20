@@ -1690,9 +1690,14 @@ def posture_module_generate_toml():  # type: ignore[no-untyped-def]
 @posture_bp.route("/posture/module-compat-fix", methods=["POST"])
 @tracked("posture.module.compat_fix")
 def posture_module_compat_fix():  # type: ignore[no-untyped-def]
-    """Search-and-replace a compat pattern across module Python files.
+    """Fix a compat pattern using the compat v2 engine.
+
+    Uses AST-based detection + coupled fix transforms.
+    Falls back to string search-and-replace if v2 is unavailable.
 
     Body: {module, search, replace}
+    - search: feature name or search string (e.g., "datetime.UTC")
+    - replace: replacement string (used in fallback mode)
     """
     body = request.get_json(silent=True) or {}
     module_name = body.get("module", "")
@@ -1707,10 +1712,78 @@ def posture_module_compat_fix():  # type: ignore[no-untyped-def]
 
         project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
 
-        # Resolve module path
-        from src.core.models.project import load_project
+        # ── Try compat v2 engine first ───────────────────────────
+        try:
+            from src.core.services.compat.orchestrator import CompatOrchestrator
 
-        proj = load_project(project_root)
+            compat = CompatOrchestrator.create(project_root)
+            module_dir = compat._resolve_module_dir(module_name)
+            if not module_dir:
+                return jsonify({"error": f"Module '{module_name}' not found"}), 404
+
+            # Search is a feature name like "datetime.UTC" — find matching feature entries
+            matching_entries = compat.registry.search(search)
+
+            if matching_entries:
+                # Use compat engine: detect + fix
+                target = "3.8"  # TODO: get from module's plan
+                try:
+                    from src.core.services.module_upgrade.automation.executor import _get_plan_target
+                    plan_target = _get_plan_target(module_name)
+                    if plan_target:
+                        target = plan_target
+                except Exception:
+                    pass
+
+                result = compat.detection.analyze_module(
+                    module_dir=module_dir,
+                    target_version=target,
+                    direction="downgrade",
+                    project_root=project_root,
+                )
+
+                # Filter to findings matching the search
+                matching_ids = {e.id for e in matching_entries}
+                target_findings = [
+                    f for f in result.findings
+                    if f.feature_id in matching_ids and f.fix_available
+                ]
+
+                if target_findings:
+                    fix_result = compat.fix.fix_module(
+                        module_dir=module_dir,
+                        findings=target_findings,
+                        module_name=module_name,
+                        project_root=project_root,
+                        verify=True,
+                    )
+
+                    if fix_result.verified_fixes > 0:
+                        return jsonify({
+                            "ok": True,
+                            "summary": (
+                                f"Fixed {fix_result.verified_fixes} occurrence(s) "
+                                f"in {fix_result.files_fixed} file(s)"
+                            ),
+                            "files": [fr.file_path for fr in fix_result.file_results if fr.fixes_verified > 0],
+                        })
+                    elif fix_result.failed_fixes > 0:
+                        return jsonify({
+                            "ok": False,
+                            "summary": f"Fix failed for {fix_result.failed_fixes} finding(s) — rolled back",
+                            "files": [],
+                        })
+
+                # No matching findings — try the search string directly
+                # (might be a different pattern than what the database tracks)
+
+        except Exception as exc:
+            logger.warning("Compat v2 fix failed, falling back: %s", exc)
+
+        # ── Fallback: string search-and-replace ──────────────────
+        from src.core.config.loader import load_project
+
+        proj = load_project()
         mod = next((m for m in (proj.modules or []) if m.name == module_name), None)
         if not mod:
             return jsonify({"error": f"Module '{module_name}' not found"}), 404

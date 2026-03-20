@@ -1,0 +1,171 @@
+# Python json/http/urllib features
+
+- id: python.stdlib.json_default_improved
+  language: python
+  feature_name: "json.dumps improvements"
+  introduced: "3.10"
+  category: stdlib
+  description: "Improved error messages in json.dumps"
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [json, serialization]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: dumps
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: |
+      import json
+      data = json.dumps(obj)
+    after: |
+      import json
+      data = json.dumps(obj)
+
+- id: python.stdlib.http_status_names
+  language: python
+  feature_name: "http.HTTPStatus additions"
+  introduced: "3.9"
+  category: stdlib
+  description: "New HTTP status codes in http module"
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [http, status, codes]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        attr: EARLY_HINTS
+    alternatives:
+      - ast_type: Attribute
+        match:
+          attr: IM_A_TEAPOT
+      - ast_type: Attribute
+        match:
+          attr: TOO_EARLY
+  fix:
+    strategy: manual
+    manual_instructions: "Use integer status codes directly: 103, 418, 425"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from http import HTTPStatus
+      if resp.status == HTTPStatus.EARLY_HINTS:
+          pass
+    after: |
+      if resp.status == 103:
+          pass
+
+- id: python.stdlib.email_policy
+  language: python
+  feature_name: "email.policy improvements"
+  introduced: "3.9"
+  category: stdlib
+  description: "EmailPolicy improvements in 3.9+"
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [email, policy]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: email.policy
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: |
+      from email.policy import default
+    after: |
+      from email.policy import default
+
+- id: python.stdlib.importlib_resources_files
+  language: python
+  feature_name: "importlib.resources.files()"
+  introduced: "3.9"
+  category: stdlib
+  description: "Modern resource access API"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [importlib, resources, files]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: importlib.resources
+        names_contains: files
+    alternatives:
+      - ast_type: Attribute
+        match:
+          attr: files
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Use the backport:
+        pip install importlib-resources
+        from importlib_resources import files
+      Or use pkg_resources:
+        import pkg_resources
+        data = pkg_resources.resource_string(package, name)
+    backport:
+      package: importlib-resources
+      install_command: "pip install importlib-resources"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from importlib.resources import files
+      data = files("my_package").joinpath("data.json").read_text()
+    after: |
+      from importlib_resources import files
+      data = files("my_package").joinpath("data.json").read_text()
+
+- id: python.stdlib.socket_create_server
+  language: python
+  feature_name: "socket.create_server()"
+  introduced: "3.8"
+  category: stdlib
+  description: "Convenience function for creating TCP server sockets"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [socket, server, tcp]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        value_id: socket
+        attr: create_server
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Use manual socket setup:
+        sock = socket.create_server(("", 8080))
+        →
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("", 8080))
+        sock.listen()
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import socket
+      srv = socket.create_server(("", 8080))
+    after: |
+      import socket
+      srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      srv.bind(("", 8080))
+      srv.listen()

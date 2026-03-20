@@ -1,0 +1,236 @@
+# Java version-specific features (LTS versions: 11, 17, 21)
+
+- id: java.16.records
+  language: java
+  feature_name: "record classes"
+  introduced: "16"
+  category: syntax
+  description: "Immutable data classes with auto-generated equals/hashCode/toString"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [record, data, class]
+  detection:
+    primary:
+      ast_type: record_declaration
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace record with a standard class:
+        record Point(int x, int y) {}
+        →
+        public final class Point {
+            private final int x;
+            private final int y;
+            public Point(int x, int y) { this.x = x; this.y = y; }
+            public int x() { return x; }
+            public int y() { return y; }
+            @Override public boolean equals(Object o) { ... }
+            @Override public int hashCode() { return Objects.hash(x, y); }
+            @Override public String toString() { return "Point[x=" + x + ", y=" + y + "]"; }
+        }
+      Consider Lombok @Value as a shorter alternative.
+  verification:
+    re_detect: true
+  test:
+    before: |
+      public record Point(int x, int y) {}
+    after: |
+      public final class Point {
+          private final int x;
+          private final int y;
+          public Point(int x, int y) { this.x = x; this.y = y; }
+          public int x() { return x; }
+          public int y() { return y; }
+      }
+
+- id: java.16.pattern_instanceof
+  language: java
+  feature_name: "pattern matching for instanceof"
+  introduced: "16"
+  category: syntax
+  description: "if (obj instanceof String s) — bind variable in instanceof check"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [instanceof, pattern, casting]
+  detection:
+    primary:
+      ast_type: instanceof_expression
+      match:
+        has_pattern: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: split_instanceof_cast
+        find: {}
+        replace:
+          style: separate_cast
+  verification:
+    re_detect: true
+  test:
+    before: |
+      if (obj instanceof String s) {
+          System.out.println(s.length());
+      }
+    after: |
+      if (obj instanceof String) {
+          String s = (String) obj;
+          System.out.println(s.length());
+      }
+
+- id: java.15.text_blocks
+  language: java
+  feature_name: "text blocks"
+  introduced: "15"
+  category: syntax
+  description: "Multi-line string literals with triple quotes"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [string, text_block, multiline]
+  detection:
+    primary:
+      ast_type: text_block
+      match: {}
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_text_block
+        find: {}
+        replace:
+          style: string_concatenation
+  verification:
+    re_detect: true
+  test:
+    before: |
+      String query = """
+          SELECT *
+          FROM users
+          WHERE active = true
+          """;
+    after: |
+      String query = "SELECT *\n"
+          + "FROM users\n"
+          + "WHERE active = true\n";
+
+- id: java.14.switch_expression
+  language: java
+  feature_name: "switch expression"
+  introduced: "14"
+  category: syntax
+  description: "switch as an expression with arrow syntax and yield"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [switch, expression, syntax]
+  detection:
+    primary:
+      ast_type: switch_expression
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Rewrite as a switch statement with a result variable:
+        int result = switch(x) {
+            case 1 -> 10;
+            case 2 -> 20;
+            default -> 0;
+        };
+        →
+        int result;
+        switch(x) {
+            case 1: result = 10; break;
+            case 2: result = 20; break;
+            default: result = 0; break;
+        }
+  verification:
+    re_detect: true
+  test:
+    before: |
+      String result = switch (day) {
+          case MONDAY, FRIDAY -> "busy";
+          case SUNDAY -> "rest";
+          default -> "normal";
+      };
+    after: |
+      String result;
+      switch (day) {
+          case MONDAY: case FRIDAY: result = "busy"; break;
+          case SUNDAY: result = "rest"; break;
+          default: result = "normal"; break;
+      }
+
+- id: java.17.sealed_classes
+  language: java
+  feature_name: "sealed classes"
+  introduced: "17"
+  category: syntax
+  description: "Restrict which classes can extend/implement"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [sealed, class, hierarchy]
+  detection:
+    primary:
+      ast_type: class_declaration
+      match:
+        modifiers_contains: sealed
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Remove 'sealed' and 'permits' keywords.
+      Document the allowed subclasses in Javadoc instead.
+        public sealed class Shape permits Circle, Square {}
+        →
+        /** Subclasses: Circle, Square (do not extend directly) */
+        public abstract class Shape {}
+  verification:
+    re_detect: true
+  test:
+    before: |
+      public sealed class Shape permits Circle, Square {}
+    after: |
+      public abstract class Shape {}
+
+- id: java.21.virtual_threads
+  language: java
+  feature_name: "virtual threads"
+  introduced: "21"
+  category: api
+  description: "Lightweight threads via Thread.ofVirtual()"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [thread, virtual, concurrency]
+  detection:
+    primary:
+      ast_type: method_invocation
+      match:
+        object: Thread
+        method: ofVirtual
+    alternatives:
+      - ast_type: method_invocation
+        match:
+          receiver: Executors
+          method: newVirtualThreadPerTaskExecutor
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace virtual threads with platform threads:
+        Thread.ofVirtual().start(() -> task())
+        →
+        new Thread(() -> task()).start()
+      Or use a thread pool:
+        Executors.newVirtualThreadPerTaskExecutor()
+        →
+        Executors.newCachedThreadPool()
+  verification:
+    re_detect: true
+  test:
+    before: |
+      Thread.ofVirtual().start(() -> handleRequest(req));
+    after: |
+      new Thread(() -> handleRequest(req)).start();

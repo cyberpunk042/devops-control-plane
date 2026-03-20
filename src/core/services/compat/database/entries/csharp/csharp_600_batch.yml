@@ -1,0 +1,71 @@
+# C# batch
+
+- id: csharp.8.default_interface_methods
+  language: csharp
+  feature_name: "default interface methods"
+  introduced: "8"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [interface, default, method]
+  detection:
+    primary:
+      ast_type: method_declaration
+      context: interface_body
+      match: { has_body: true }
+  fix:
+    strategy: manual
+    manual_instructions: "Move default implementation to abstract base class."
+  verification: { re_detect: true }
+  test:
+    before: |
+      interface ILogger { void Log(string msg) { Console.WriteLine(msg); } }
+    after: |
+      interface ILogger { void Log(string msg); }
+      abstract class LoggerBase : ILogger { public virtual void Log(string msg) { Console.WriteLine(msg); } }
+
+- id: csharp.9.covariant_returns
+  language: csharp
+  feature_name: "covariant return types"
+  introduced: "9"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [covariant, return, override]
+  detection:
+    primary:
+      ast_type: method_declaration
+      match: { has_covariant_return: true }
+  fix:
+    strategy: manual
+    manual_instructions: "Use same return type as base, cast in caller."
+  verification: { re_detect: true }
+  test:
+    before: |
+      class Derived : Base { public override Derived Clone() => new(); }
+    after: |
+      class Derived : Base { public override Base Clone() => new Derived(); }
+
+- id: csharp.11.utf8_string_literals
+  language: csharp
+  feature_name: "UTF-8 string literals"
+  introduced: "11"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [utf8, string, literal]
+  detection:
+    primary:
+      ast_type: utf8_string_literal_expression
+  fix:
+    strategy: manual
+    manual_instructions: "Use Encoding.UTF8.GetBytes(str)."
+  verification: { re_detect: true }
+  test:
+    before: |
+      ReadOnlySpan<byte> utf8 = "hello"u8;
+    after: |
+      byte[] utf8 = Encoding.UTF8.GetBytes("hello");

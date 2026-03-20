@@ -1,0 +1,118 @@
+# Java batch
+
+- id: java.14.npe_helpful_messages
+  language: java
+  feature_name: "helpful NullPointerExceptions"
+  introduced: "14"
+  category: jvm
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [npe, debug, messages]
+  detection:
+    primary:
+      ast_type: jvm_flag
+      match: { flag: "ShowCodeDetailsInExceptionMessages" }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      // -XX:+ShowCodeDetailsInExceptionMessages
+    after: |
+      // Not available
+
+- id: java.16.stream_tolist
+  language: java
+  feature_name: "Stream.toList()"
+  introduced: "16"
+  category: api
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [stream, toList, collection]
+  detection:
+    primary:
+      ast_type: method_invocation
+      match: { method: toList }
+  fix:
+    strategy: manual
+    manual_instructions: ".toList() → .collect(Collectors.toList())"
+  verification: { re_detect: true }
+  test:
+    before: |
+      List<String> names = users.stream().map(User::name).toList();
+    after: |
+      List<String> names = users.stream().map(User::name).collect(Collectors.toList());
+
+- id: java.17.context_specific_deserialization
+  language: java
+  feature_name: "context-specific deserialization filters"
+  introduced: "17"
+  category: api
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [serialization, filter, security]
+  detection:
+    primary:
+      ast_type: method_invocation
+      match: { method: setObjectInputFilter }
+  fix:
+    strategy: manual
+    manual_instructions: "Use global ObjectInputFilter.Config.setSerialFilter()."
+  verification: { re_detect: true }
+  test:
+    before: |
+      ois.setObjectInputFilter(filter);
+    after: |
+      ObjectInputFilter.Config.setSerialFilter(filter);
+
+- id: java.11.files_readstring
+  language: java
+  feature_name: "Files.readString/writeString"
+  introduced: "11"
+  category: api
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [files, string, io]
+  detection:
+    primary:
+      ast_type: method_invocation
+      match: { method_in: [readString, writeString] }
+  fix:
+    strategy: manual
+    manual_instructions: "Use Files.readAllBytes + new String() or Files.write()."
+  verification: { re_detect: true }
+  test:
+    before: |
+      String content = Files.readString(path);
+    after: |
+      String content = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+
+- id: java.11.collection_tounmodifiable
+  language: java
+  feature_name: "Collectors.toUnmodifiable*()"
+  introduced: "10"
+  category: api
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [collectors, unmodifiable, collection]
+  detection:
+    primary:
+      ast_type: method_invocation
+      match: { method_in: [toUnmodifiableList, toUnmodifiableSet, toUnmodifiableMap] }
+  fix:
+    strategy: manual
+    manual_instructions: "Use Collections.unmodifiableList(stream.collect(Collectors.toList()))."
+  verification: { re_detect: true }
+  test:
+    before: |
+      List<String> names = stream.collect(Collectors.toUnmodifiableList());
+    after: |
+      List<String> names = Collections.unmodifiableList(stream.collect(Collectors.toList()));

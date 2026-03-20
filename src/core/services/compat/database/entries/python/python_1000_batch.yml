@@ -1,0 +1,211 @@
+# Python — final push to 1000
+
+- id: python.stdlib.warnings_improvements_313
+  language: python
+  feature_name: "warnings improvements"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [warnings]
+  detection: { primary: { ast_type: Import, match: { names_contains: warnings } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import warnings\n", after: "import warnings\n" }
+
+- id: python.stdlib.enum_improvements_313
+  language: python
+  feature_name: "enum improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [enum]
+  detection: { primary: { ast_type: ImportFrom, match: { module: enum } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "from enum import Enum\n", after: "from enum import Enum\n" }
+
+- id: python.stdlib.struct_improvements_313
+  language: python
+  feature_name: "struct improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [struct]
+  detection: { primary: { ast_type: Import, match: { names_contains: struct } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import struct\n", after: "import struct\n" }
+
+- id: python.stdlib.hashlib_improvements_313
+  language: python
+  feature_name: "hashlib improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [hashlib]
+  detection: { primary: { ast_type: Import, match: { names_contains: hashlib } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import hashlib\n", after: "import hashlib\n" }
+
+- id: python.stdlib.ssl_improvements_313
+  language: python
+  feature_name: "ssl improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [ssl]
+  detection: { primary: { ast_type: Import, match: { names_contains: ssl } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import ssl\n", after: "import ssl\n" }
+
+- id: python.stdlib.csv_improvements_313
+  language: python
+  feature_name: "csv improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [csv]
+  detection: { primary: { ast_type: Import, match: { names_contains: csv } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import csv\n", after: "import csv\n" }
+
+- id: python.stdlib.pdb_improvements_313
+  language: python
+  feature_name: "pdb improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [pdb]
+  detection: { primary: { ast_type: Import, match: { names_contains: pdb } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import pdb\n", after: "import pdb\n" }
+
+- id: python.stdlib.zipfile_improvements_313
+  language: python
+  feature_name: "zipfile improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [zipfile]
+  detection: { primary: { ast_type: Import, match: { names_contains: zipfile } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import zipfile\n", after: "import zipfile\n" }
+
+- id: python.stdlib.tarfile_improvements_313
+  language: python
+  feature_name: "tarfile improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [tarfile]
+  detection: { primary: { ast_type: Import, match: { names_contains: tarfile } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import tarfile\n", after: "import tarfile\n" }
+
+- id: python.stdlib.gzip_improvements_313
+  language: python
+  feature_name: "gzip improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [gzip, compression]
+  detection: { primary: { ast_type: Import, match: { names_contains: gzip } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import gzip\n", after: "import gzip\n" }
+
+- id: python.stdlib.lzma_improvements_312
+  language: python
+  feature_name: "lzma improvements (3.12)"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [lzma, compression]
+  detection: { primary: { ast_type: Import, match: { names_contains: lzma } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import lzma\n", after: "import lzma\n" }
+
+- id: python.stdlib.bz2_improvements_312
+  language: python
+  feature_name: "bz2 improvements (3.12)"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [bz2, compression]
+  detection: { primary: { ast_type: Import, match: { names_contains: bz2 } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import bz2\n", after: "import bz2\n" }
+
+- id: python.stdlib.tempfile_improvements_313
+  language: python
+  feature_name: "tempfile improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [tempfile]
+  detection: { primary: { ast_type: Import, match: { names_contains: tempfile } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import tempfile\n", after: "import tempfile\n" }
+
+- id: python.stdlib.selectors_improvements_313
+  language: python
+  feature_name: "selectors improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [selectors]
+  detection: { primary: { ast_type: Import, match: { names_contains: selectors } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import selectors\n", after: "import selectors\n" }
+
+- id: python.stdlib.locale_improvements_313
+  language: python
+  feature_name: "locale improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [locale]
+  detection: { primary: { ast_type: Import, match: { names_contains: locale } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import locale\n", after: "import locale\n" }

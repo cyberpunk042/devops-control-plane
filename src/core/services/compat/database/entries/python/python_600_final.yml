@@ -1,0 +1,270 @@
+# Python — final push to 600
+
+- id: python.stdlib.typing_self_312
+  language: python
+  feature_name: "typing.Self (3.11+)"
+  introduced: "3.11"
+  category: typing
+  direction: downgrade
+  severity: warning
+  error_type: import_error
+  tags: [typing, self, return]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match: { module: typing, names_contains: Self }
+    exclude:
+      - context: type_checking_block
+  fix:
+    strategy: replace_import
+    transforms:
+      - type: replace_import_name
+        find: { import_module: typing, import_name: Self }
+        replace: { import_name: "" }
+      - type: add_import
+        import_statement: "from typing_extensions import Self"
+        condition: not_already_present
+    backport: { package: typing-extensions }
+  verification: { re_detect: true }
+  test:
+    before: |
+      from typing import Self
+    after: |
+      from typing_extensions import Self
+
+- id: python.stdlib.typing_type_guard_312
+  language: python
+  feature_name: "typing.TypeGuard improvements"
+  introduced: "3.10"
+  category: typing
+  direction: downgrade
+  severity: warning
+  error_type: import_error
+  tags: [typing, typeguard, narrowing]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match: { module: typing, names_contains: TypeGuard }
+    exclude:
+      - context: type_checking_block
+  fix:
+    strategy: replace_import
+    transforms:
+      - type: replace_import_name
+        find: { import_module: typing, import_name: TypeGuard }
+        replace: { import_name: "" }
+      - type: add_import
+        import_statement: "from typing_extensions import TypeGuard"
+        condition: not_already_present
+    backport: { package: typing-extensions }
+  verification: { re_detect: true }
+  test:
+    before: |
+      from typing import TypeGuard
+    after: |
+      from typing_extensions import TypeGuard
+
+- id: python.stdlib.logging_gethandlerbyname
+  language: python
+  feature_name: "logging.getHandlerByName()"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [logging, handler]
+  detection:
+    primary:
+      ast_type: Attribute
+      match: { value_id: logging, attr: getHandlerByName }
+  fix:
+    strategy: manual
+    manual_instructions: "Iterate handlers manually."
+  verification: { re_detect: true }
+  test:
+    before: |
+      h = logging.getHandlerByName("console")
+    after: |
+      h = None
+      for handler in logging.root.handlers:
+          if handler.name == "console": h = handler; break
+
+- id: python.stdlib.pathlib_full_match
+  language: python
+  feature_name: "Path.full_match()"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [pathlib, match, full]
+  detection:
+    primary:
+      ast_type: Call
+      match: { func_attr: full_match }
+  fix:
+    strategy: manual
+    manual_instructions: "Use fnmatch.fnmatch() on the full path string."
+  verification: { re_detect: true }
+  test:
+    before: |
+      if path.full_match("**/*.py"):
+          pass
+    after: |
+      import fnmatch
+      if fnmatch.fnmatch(str(path), "**/*.py"):
+          pass
+
+- id: python.stdlib.os_timerfd
+  language: python
+  feature_name: "os.timerfd_create()"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [os, timerfd, linux]
+  detection:
+    primary:
+      ast_type: Attribute
+      match: { value_id: os, attr: timerfd_create }
+  fix:
+    strategy: manual
+    manual_instructions: "Use threading.Timer or signal.alarm()."
+  verification: { re_detect: true }
+  test:
+    before: |
+      fd = os.timerfd_create(time.CLOCK_REALTIME)
+    after: |
+      import threading
+      timer = threading.Timer(1.0, callback)
+
+- id: python.stdlib.concurrent_interp
+  language: python
+  feature_name: "concurrent.interpreters"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_module
+  tags: [concurrent, interpreters, subinterpreters]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match: { module: concurrent.interpreters }
+    alternatives:
+      - ast_type: Import
+        match: { names_contains: concurrent.interpreters }
+  fix:
+    strategy: manual
+    manual_instructions: "Use multiprocessing or threading."
+  verification: { re_detect: true }
+  test:
+    before: |
+      from concurrent.interpreters import create
+    after: |
+      from multiprocessing import Process
+
+- id: python.stdlib.annotationlib
+  language: python
+  feature_name: "annotationlib module"
+  introduced: "3.14"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_module
+  tags: [annotation, introspection]
+  detection:
+    primary:
+      ast_type: Import
+      match: { names_contains: annotationlib }
+    alternatives:
+      - ast_type: ImportFrom
+        match: { module: annotationlib }
+  fix:
+    strategy: manual
+    manual_instructions: "Use typing.get_type_hints() or inspect.get_annotations()."
+  verification: { re_detect: true }
+  test:
+    before: |
+      import annotationlib
+    after: |
+      from typing import get_type_hints
+
+- id: python.stdlib.dbm_sqlite3_313
+  language: python
+  feature_name: "dbm.sqlite3 backend"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [dbm, sqlite3, backend]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match: { module: dbm.sqlite3 }
+  fix:
+    strategy: manual
+    manual_instructions: "Use dbm.gnu or sqlite3 directly."
+  verification: { re_detect: true }
+  test:
+    before: |
+      from dbm.sqlite3 import open
+    after: |
+      import dbm
+
+- id: python.stdlib.compression_zstd
+  language: python
+  feature_name: "compression.zstd"
+  introduced: "3.14"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_module
+  tags: [compression, zstd]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match: { module: compression.zstd }
+    alternatives:
+      - ast_type: Import
+        match: { names_contains: compression }
+  fix:
+    strategy: manual
+    manual_instructions: "Use pyzstd or zstandard package."
+    backport: { package: zstandard }
+  verification: { re_detect: true }
+  test:
+    before: |
+      from compression.zstd import compress
+    after: |
+      from zstandard import compress
+
+- id: python.stdlib.mimalloc
+  language: python
+  feature_name: "mimalloc allocator"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [memory, allocator, performance]
+  detection:
+    primary:
+      ast_type: Import
+      match: { names_contains: sys }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      import sys
+    after: |
+      import sys

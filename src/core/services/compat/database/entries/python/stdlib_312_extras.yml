@@ -1,0 +1,119 @@
+# Python 3.12 stdlib extras
+
+- id: python.stdlib.pathlib_relative_to_walk
+  language: python
+  feature_name: "Path.relative_to(walk_up=True)"
+  introduced: "3.12"
+  category: stdlib
+  description: "walk_up parameter for relative_to method"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [pathlib, relative, walk_up]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: relative_to
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Remove walk_up parameter:
+        path.relative_to(base, walk_up=True)
+        → os.path.relpath(str(path), str(base))
+  verification:
+    re_detect: false
+  test:
+    before: |
+      rel = path.relative_to(base, walk_up=True)
+    after: |
+      import os
+      rel = Path(os.path.relpath(str(path), str(base)))
+
+- id: python.stdlib.tempfile_delete_param
+  language: python
+  feature_name: "NamedTemporaryFile(delete_on_close=False)"
+  introduced: "3.12"
+  category: stdlib
+  description: "delete_on_close parameter for NamedTemporaryFile"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [tempfile, delete, parameter]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: NamedTemporaryFile
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Remove delete_on_close parameter:
+        NamedTemporaryFile(delete_on_close=False)
+        → NamedTemporaryFile(delete=False)
+  verification:
+    re_detect: false
+  test:
+    before: |
+      import tempfile
+      f = tempfile.NamedTemporaryFile(delete_on_close=False)
+    after: |
+      import tempfile
+      f = tempfile.NamedTemporaryFile(delete=False)
+
+- id: python.stdlib.sqlite3_autocommit
+  language: python
+  feature_name: "sqlite3 autocommit mode"
+  introduced: "3.12"
+  category: stdlib
+  description: "PEP 249 compliant autocommit mode for sqlite3"
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [sqlite3, autocommit, database]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: connect
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Remove autocommit parameter:
+        sqlite3.connect(db, autocommit=True)
+        → conn = sqlite3.connect(db)
+          conn.execute("PRAGMA journal_mode=WAL")
+  verification:
+    re_detect: false
+  test:
+    before: |
+      import sqlite3
+      conn = sqlite3.connect("app.db", autocommit=True)
+    after: |
+      import sqlite3
+      conn = sqlite3.connect("app.db")
+
+- id: python.stdlib.tokenize_open
+  language: python
+  feature_name: "tokenize module improvements"
+  introduced: "3.12"
+  category: stdlib
+  description: "tokenize module supports PEP 701 f-strings"
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [tokenize, fstring]
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: tokenize
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: |
+      import tokenize
+    after: |
+      import tokenize

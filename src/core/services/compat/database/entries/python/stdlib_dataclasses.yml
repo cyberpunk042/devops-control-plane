@@ -1,0 +1,100 @@
+# Python dataclass features across versions
+
+- id: python.stdlib.dataclass_match_args
+  language: python
+  feature_name: "dataclass match_args=True"
+  introduced: "3.10"
+  category: stdlib
+  description: "__match_args__ for pattern matching support"
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [dataclass, match_args, pattern]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_id: dataclass
+  fix:
+    strategy: manual
+    manual_instructions: "Remove match_args=True — only needed for match/case."
+  verification:
+    re_detect: false
+  test:
+    before: |
+      @dataclass(match_args=True)
+      class Point:
+          x: int
+          y: int
+    after: |
+      @dataclass
+      class Point:
+          x: int
+          y: int
+
+- id: python.stdlib.dataclass_frozen_slots
+  language: python
+  feature_name: "dataclass frozen + slots combination"
+  introduced: "3.10"
+  category: stdlib
+  description: "Combining frozen=True and slots=True in dataclass"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [dataclass, frozen, slots]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_id: dataclass
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Remove slots=True, keep frozen=True:
+        @dataclass(frozen=True, slots=True)
+        → @dataclass(frozen=True)
+  verification:
+    re_detect: false
+  test:
+    before: |
+      @dataclass(frozen=True, slots=True)
+      class Config:
+          host: str
+          port: int
+    after: |
+      @dataclass(frozen=True)
+      class Config:
+          host: str
+          port: int
+
+- id: python.stdlib.field_kw_only
+  language: python
+  feature_name: "field(kw_only=True)"
+  introduced: "3.10"
+  category: stdlib
+  description: "Per-field keyword-only setting"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [dataclass, field, kw_only]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_id: field
+  fix:
+    strategy: manual
+    manual_instructions: "Remove kw_only parameter from field()."
+  verification:
+    re_detect: false
+  test:
+    before: |
+      @dataclass
+      class Config:
+          name: str
+          debug: bool = field(default=False, kw_only=True)
+    after: |
+      @dataclass
+      class Config:
+          name: str
+          debug: bool = field(default=False)

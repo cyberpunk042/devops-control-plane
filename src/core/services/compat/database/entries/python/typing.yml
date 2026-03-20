@@ -1,0 +1,252 @@
+# Python typing features — type annotation syntax per version
+
+# ── Python 3.10 ──────────────────────────────────────────────────
+
+- id: python.typing.union_pipe
+  language: python
+  feature_name: "union type X | Y"
+  introduced: "3.10"
+  category: typing
+  description: "PEP 604 — X | Y syntax for union types in annotations"
+  direction: both
+  severity: warning
+  error_type: type_error
+  tags: [typing, union, annotation]
+  detection:
+    primary:
+      ast_type: BinOp
+      match:
+        op_type: BitOr
+      context: annotation
+    exclude:
+      - context: type_checking_block
+        reason: "Not evaluated at runtime"
+      - context: string_annotation
+        reason: "String annotations are not evaluated"
+  fix:
+    strategy: add_future_import
+    transforms:
+      - type: add_import
+        import_statement: "from __future__ import annotations"
+        condition: not_already_present
+    alternative:
+      strategy: rewrite_expression
+      transforms:
+        - type: rewrite_annotation
+          find:
+            annotation_type: BinOp
+            operator: BitOr
+          replace:
+            template: "Union[{left}, {right}]"
+            add_import: "from typing import Union"
+  fix_upgrade:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_annotation
+        find:
+          annotation_type: Subscript
+          annotation_value: Optional
+        replace:
+          template: "{inner} | None"
+      - type: rewrite_annotation
+        find:
+          annotation_type: Subscript
+          annotation_value: Union
+        replace:
+          template: "{args_joined_pipe}"
+  verification:
+    re_detect: true
+    syntax_check: true
+    import_check: false
+  edge_cases:
+    - id: python.union_pipe.runtime_isinstance
+      category: context_dependent
+      description: "X | Y used in isinstance() — runtime, not annotation"
+      handling: special_transform
+      test:
+        before: |
+          if isinstance(x, int | str):
+              pass
+        after: |
+          if isinstance(x, (int, str)):
+              pass
+        notes: "isinstance(x, int | str) is RUNTIME even with __future__. Must rewrite as tuple."
+
+    - id: python.union_pipe.issubclass
+      category: context_dependent
+      description: "X | Y used in issubclass() — also runtime"
+      handling: special_transform
+      test:
+        before: |
+          if issubclass(cls, int | str):
+              pass
+        after: |
+          if issubclass(cls, (int, str)):
+              pass
+        notes: "issubclass has same issue as isinstance"
+
+    - id: python.union_pipe.none_union
+      category: transform_edge_case
+      description: "X | None (Optional equivalent)"
+      handling: special_transform
+      test:
+        before: |
+          def foo(x: int | None) -> str | None:
+              pass
+        after: |
+          from __future__ import annotations
+
+          def foo(x: int | None) -> str | None:
+              pass
+        notes: "X | None is the same as Optional[X] — __future__ fixes it in annotations"
+
+    - id: python.union_pipe.nested_union
+      category: transform_edge_case
+      description: "Nested union: int | str | None"
+      handling: special_transform
+      test:
+        before: |
+          def foo(x: int | str | None) -> None:
+              pass
+        after: |
+          from __future__ import annotations
+
+          def foo(x: int | str | None) -> None:
+              pass
+
+    - id: python.union_pipe.with_future
+      category: context_dependent
+      description: "X | Y in file that already has __future__ annotations"
+      handling: exclude
+      test:
+        input: |
+          from __future__ import annotations
+          def foo(x: int | str) -> None:
+              pass
+        expected_findings: 0
+        notes: "With __future__, annotation X | Y is safe — deferred evaluation"
+  test:
+    before: |
+      def foo(x: int | str) -> None:
+          pass
+    after: |
+      from __future__ import annotations
+
+      def foo(x: int | str) -> None:
+          pass
+
+
+# ── Python 3.9 ──────────────────────────────────────────────────
+
+- id: python.typing.builtin_generics
+  language: python
+  feature_name: "builtin generics (list[int], dict[str, Any])"
+  introduced: "3.9"
+  category: typing
+  description: "PEP 585 — using builtin types as generics in annotations"
+  direction: both
+  severity: warning
+  error_type: type_error
+  tags: [typing, generics, annotation]
+  detection:
+    primary:
+      ast_type: Subscript
+      match:
+        value_type: Name
+        value_id_in: [list, dict, set, tuple, frozenset, type]
+      context: annotation
+    exclude:
+      - context: type_checking_block
+        reason: "Not evaluated at runtime"
+      - context: string_annotation
+        reason: "String annotations are not evaluated"
+  fix:
+    strategy: add_future_import
+    transforms:
+      - type: add_import
+        import_statement: "from __future__ import annotations"
+        condition: not_already_present
+    alternative:
+      strategy: rewrite_annotation
+      transforms:
+        - type: rewrite_builtin_generic
+          find:
+            annotation_value_name: list
+          replace:
+            typing_name: List
+            add_import: "from typing import List"
+        - type: rewrite_builtin_generic
+          find:
+            annotation_value_name: dict
+          replace:
+            typing_name: Dict
+            add_import: "from typing import Dict"
+        - type: rewrite_builtin_generic
+          find:
+            annotation_value_name: set
+          replace:
+            typing_name: Set
+            add_import: "from typing import Set"
+        - type: rewrite_builtin_generic
+          find:
+            annotation_value_name: tuple
+          replace:
+            typing_name: Tuple
+            add_import: "from typing import Tuple"
+        - type: rewrite_builtin_generic
+          find:
+            annotation_value_name: frozenset
+          replace:
+            typing_name: FrozenSet
+            add_import: "from typing import FrozenSet"
+        - type: rewrite_builtin_generic
+          find:
+            annotation_value_name: type
+          replace:
+            typing_name: Type
+            add_import: "from typing import Type"
+  fix_upgrade:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_typing_generic
+        find:
+          typing_name_in: [List, Dict, Set, Tuple, FrozenSet, Type]
+        replace:
+          style: builtin_name
+  verification:
+    re_detect: true
+    syntax_check: true
+    import_check: false
+  edge_cases:
+    - id: python.builtin_generics.with_future
+      category: context_dependent
+      description: "File already has __future__ annotations"
+      handling: exclude
+      test:
+        input: |
+          from __future__ import annotations
+          def foo(items: list[int]) -> dict[str, int]:
+              pass
+        expected_findings: 0
+
+    - id: python.builtin_generics.runtime_usage
+      category: context_dependent
+      description: "list[int] used at runtime (not annotation)"
+      handling: special_transform
+      test:
+        before: |
+          x = list[int]()
+        after: |
+          x = list()
+        notes: "Runtime list[int]() is different from annotation — it's a subscript call"
+  test:
+    before: |
+      def process(items: list[int]) -> dict[str, int]:
+          result: set[str] = set()
+          return {}
+    after: |
+      from __future__ import annotations
+
+      def process(items: list[int]) -> dict[str, int]:
+          result: set[str] = set()
+          return {}

@@ -1,0 +1,110 @@
+# Elixir 1.13-1.17 features — filling gaps
+
+- id: elixir.1_13.default_struct_inspect
+  language: elixir
+  feature_name: "default struct Inspect implementation"
+  introduced: "1.13"
+  category: stdlib
+  description: "Structs get default Inspect implementation showing fields"
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [struct, inspect, display]
+  detection:
+    primary:
+      ast_type: call
+      match:
+        function: defstruct
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: |
+      defmodule User do
+        defstruct [:name, :age]
+      end
+    after: |
+      defmodule User do
+        defstruct [:name, :age]
+      end
+
+- id: elixir.1_14.partition_supervisor
+  language: elixir
+  feature_name: "PartitionSupervisor"
+  introduced: "1.14"
+  category: stdlib
+  description: "Supervisor that partitions children across available schedulers"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_module
+  tags: [supervisor, partition, concurrency]
+  detection:
+    primary:
+      ast_type: call
+      match:
+        module: PartitionSupervisor
+  fix:
+    strategy: manual
+    manual_instructions: "Use DynamicSupervisor with manual partitioning."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      children = [{PartitionSupervisor, child_spec: Worker, name: Workers}]
+    after: |
+      children = [{DynamicSupervisor, name: Workers}]
+
+- id: elixir.1_15.shift_date
+  language: elixir
+  feature_name: "Date.shift/2"
+  introduced: "1.15"
+  category: stdlib
+  description: "Shift dates by durations"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [date, shift, calendar]
+  detection:
+    primary:
+      ast_type: call
+      match:
+        module: Date
+        function: shift
+  fix:
+    strategy: manual
+    manual_instructions: "Use Date.add/2 for days or implement manual date arithmetic."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      next_month = Date.shift(date, month: 1)
+    after: |
+      next_month = Date.add(date, 30)
+
+- id: elixir.1_16.document_metadata
+  language: elixir
+  feature_name: "@doc metadata"
+  introduced: "1.16"
+  category: syntax
+  description: "Structured metadata in @doc attributes"
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [doc, metadata, documentation]
+  detection:
+    primary:
+      ast_type: module_attribute
+      match:
+        name: doc
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: |
+      @doc since: "1.0.0", deprecated: "Use new_func/1"
+    after: |
+      @doc "Deprecated: Use new_func/1. Since: 1.0.0"

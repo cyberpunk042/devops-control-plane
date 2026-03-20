@@ -1,0 +1,29 @@
+# Java — final for 1000
+
+- id: java.21.record_patterns_switch
+  language: java
+  feature_name: "record patterns in switch"
+  introduced: "21"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [record, pattern, switch]
+  detection: { primary: { ast_type: switch_expression, match: { has_record_pattern: true } } }
+  fix: { strategy: manual, manual_instructions: "Use instanceof + cast." }
+  verification: { re_detect: true }
+  test: { before: "case Point(var x, var y) -> x + y;\n", after: "if (obj instanceof Point p) return p.x() + p.y();\n" }
+
+- id: java.11.optional_isempty
+  language: java
+  feature_name: "Optional.isEmpty()"
+  introduced: "11"
+  category: api
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [optional, isEmpty]
+  detection: { primary: { ast_type: method_invocation, match: { method: isEmpty } } }
+  fix: { strategy: manual, manual_instructions: "!optional.isPresent()" }
+  verification: { re_detect: false }
+  test: { before: "if (opt.isEmpty()) {}\n", after: "if (!opt.isPresent()) {}\n" }

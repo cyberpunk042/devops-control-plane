@@ -1,0 +1,76 @@
+# PHP batch — 700
+
+- id: php.8_0.mixed_type
+  language: php
+  feature_name: "mixed type"
+  introduced: "8.0"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [types, mixed]
+  detection:
+    primary: { ast_type: named_type, match: { name: mixed } }
+  fix: { strategy: manual, manual_instructions: "Remove mixed type declaration." }
+  verification: { re_detect: true }
+  test: { before: "function process(mixed $input): mixed {}\n", after: "function process($input) {}\n" }
+
+- id: php.8_1.readonly_promotion
+  language: php
+  feature_name: "readonly constructor promotion"
+  introduced: "8.1"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [readonly, promotion, constructor]
+  detection:
+    primary: { ast_type: property_promotion_parameter, match: { modifiers_contains: readonly } }
+  fix: { strategy: manual, manual_instructions: "Expand to property + constructor assignment." }
+  verification: { re_detect: true }
+  test: { before: "public function __construct(public readonly string $name) {}\n", after: "private string $name;\npublic function __construct(string $name) { $this->name = $name; }\n" }
+
+- id: php.8_2.disjunctive_normal_form
+  language: php
+  feature_name: "DNF types"
+  introduced: "8.2"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [types, dnf, compound]
+  detection:
+    primary: { ast_type: disjunctive_normal_form_type }
+  fix: { strategy: manual, manual_instructions: "Simplify type or use PHPDoc." }
+  verification: { re_detect: true }
+  test: { before: "function f((A&B)|C $x) {}\n", after: "/** @param A&B|C $x */\nfunction f($x) {}\n" }
+
+- id: php.8_3.fetch_class_constants
+  language: php
+  feature_name: "class constant dynamic fetch"
+  introduced: "8.3"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [class, constant, dynamic]
+  detection:
+    primary: { ast_type: dynamic_class_const_access }
+  fix: { strategy: manual, manual_instructions: "Use constant() function." }
+  verification: { re_detect: true }
+  test: { before: "$val = Enum::{$name};\n", after: "$val = constant(Enum::class . '::' . $name);\n" }
+
+- id: php.7_4.unpack_in_const
+  language: php
+  feature_name: "unpacking inside const arrays"
+  introduced: "8.1"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [unpack, const, array]
+  detection:
+    primary: { ast_type: spread_element, context: const_declaration }
+  fix: { strategy: manual, manual_instructions: "Flatten arrays manually in constants." }
+  verification: { re_detect: true }
+  test: { before: "const ALL = [...DEFAULTS, ...EXTRA];\n", after: "const ALL = ['a', 'b', 'c', 'd'];\n" }

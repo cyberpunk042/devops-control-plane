@@ -1,0 +1,244 @@
+# Python batch — pushing to 600 total
+
+- id: python.stdlib.typing_override_check
+  language: python
+  feature_name: "typing.override runtime"
+  introduced: "3.12"
+  category: typing
+  direction: downgrade
+  severity: warning
+  error_type: import_error
+  tags: [typing, override]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: typing
+        names_contains: override
+    exclude:
+      - context: type_checking_block
+  fix:
+    strategy: replace_import
+    transforms:
+      - type: replace_import_name
+        find: { import_module: typing, import_name: override }
+        replace: { import_name: "" }
+      - type: add_import
+        import_statement: "from typing_extensions import override"
+        condition: not_already_present
+    backport: { package: typing-extensions }
+  verification: { re_detect: true }
+  test:
+    before: |
+      from typing import override
+    after: |
+      from typing_extensions import override
+
+- id: python.stdlib.tomllib_313
+  language: python
+  feature_name: "tomllib.TOMLDecodeError"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [toml, error]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match: { module: tomllib, names_contains: TOMLDecodeError }
+  fix:
+    strategy: manual
+    manual_instructions: "from tomli import TOMLDecodeError"
+  verification: { re_detect: true }
+  test:
+    before: |
+      from tomllib import TOMLDecodeError
+    after: |
+      from tomli import TOMLDecodeError
+
+- id: python.stdlib.warnings_filters
+  language: python
+  feature_name: "warnings.warn stacklevel"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [warnings, stacklevel]
+  detection:
+    primary:
+      ast_type: Call
+      match: { func_attr: warn }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      import warnings
+      warnings.warn("deprecated", stacklevel=2)
+    after: |
+      import warnings
+      warnings.warn("deprecated", stacklevel=2)
+
+- id: python.stdlib.abc_abstractmethod
+  language: python
+  feature_name: "abc.abstractmethod improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [abc, abstractmethod]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match: { module: abc, names_contains: abstractmethod }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      from abc import abstractmethod
+    after: |
+      from abc import abstractmethod
+
+- id: python.stdlib.enum_auto_values
+  language: python
+  feature_name: "enum auto() improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [enum, auto]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match: { module: enum, names_contains: auto }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      from enum import auto
+    after: |
+      from enum import auto
+
+- id: python.stdlib.decimal_localcontext
+  language: python
+  feature_name: "decimal.localcontext kwargs"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [decimal, context, kwargs]
+  detection:
+    primary:
+      ast_type: Call
+      match: { func_attr: localcontext }
+  fix:
+    strategy: manual
+    manual_instructions: "Set context attributes after creation instead of kwargs."
+  verification: { re_detect: false }
+  test:
+    before: |
+      with decimal.localcontext(prec=10):
+          pass
+    after: |
+      ctx = decimal.getcontext().copy()
+      ctx.prec = 10
+      with decimal.localcontext(ctx):
+          pass
+
+- id: python.stdlib.ipaddress_improvements
+  language: python
+  feature_name: "ipaddress module improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [ipaddress, network]
+  detection:
+    primary:
+      ast_type: Import
+      match: { names_contains: ipaddress }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      import ipaddress
+    after: |
+      import ipaddress
+
+- id: python.stdlib.json_default_312
+  language: python
+  feature_name: "json module CLI improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [json, cli]
+  detection:
+    primary:
+      ast_type: Import
+      match: { names_contains: json }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      import json
+    after: |
+      import json
+
+- id: python.stdlib.array_w_type
+  language: python
+  feature_name: "array.array 'w' type code"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [array, wchar, type]
+  detection:
+    primary:
+      ast_type: Call
+      match: { func_attr: array }
+  fix:
+    strategy: manual
+    manual_instructions: "Use 'u' type code or list for wide characters."
+  verification: { re_detect: false }
+  test:
+    before: |
+      import array
+      a = array.array('w', 'hello')
+    after: |
+      a = list('hello')
+
+- id: python.stdlib.tarfile_data_filter
+  language: python
+  feature_name: "tarfile extraction filter"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [tarfile, filter, security]
+  detection:
+    primary:
+      ast_type: Call
+      match: { func_attr: extractall }
+  fix:
+    strategy: manual
+    manual_instructions: "Remove filter parameter from extractall()."
+  verification: { re_detect: false }
+  test:
+    before: |
+      tar.extractall(path, filter='data')
+    after: |
+      tar.extractall(path)

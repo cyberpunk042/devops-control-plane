@@ -1,0 +1,21 @@
+language: csharp
+display_name: "C#"
+file_extensions: [".cs"]
+parser: tree-sitter-c-sharp
+versions:
+  - version: "8"
+    status: active
+  - version: "9"
+    status: active
+  - version: "10"
+    status: active
+  - version: "11"
+    status: active
+  - version: "12"
+    status: active
+version_format: "major"
+default_exclusions: ["bin", "obj", ".vs"]
+package_registry:
+  name: NuGet
+  api: "https://api.nuget.org/v3-flatcontainer/{package}/index.json"
+  version_field: "TargetFramework"

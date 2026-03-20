@@ -1,0 +1,29 @@
+# TypeScript — final for 1000
+
+- id: ts.5_5.isolated_declarations
+  language: typescript
+  feature_name: "isolated declarations"
+  introduced: "5.5"
+  category: ts5
+  direction: downgrade
+  severity: info
+  error_type: type_error
+  tags: [isolated, declarations, dts]
+  detection: { primary: { ast_type: tsconfig_json, match: { isolatedDeclarations: true } } }
+  fix: { strategy: manual, manual_instructions: "Remove isolatedDeclarations from tsconfig." }
+  verification: { re_detect: true }
+  test: { before: "{ \"isolatedDeclarations\": true }\n", after: "{}\n" }
+
+- id: ts.5_2.using_declarations_ts
+  language: typescript
+  feature_name: "using/await using"
+  introduced: "5.2"
+  category: ts5
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [using, disposable, resource]
+  detection: { primary: { ast_type: using_declaration } }
+  fix: { strategy: manual, manual_instructions: "Use try/finally." }
+  verification: { re_detect: true }
+  test: { before: "using db = getConnection();\n", after: "const db = getConnection();\ntry { } finally { db.close(); }\n" }

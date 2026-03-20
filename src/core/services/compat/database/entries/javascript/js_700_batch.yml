@@ -1,0 +1,151 @@
+# JavaScript batch — 700
+
+- id: js.es2015.regexp_flags
+  language: javascript
+  feature_name: "RegExp.prototype.flags"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [regexp, flags, property]
+  detection:
+    primary: { ast_type: member_expression, match: { property: flags } }
+  fix: { strategy: manual, manual_instructions: "Use regex.toString().match(/[gimsuy]*$/)[0]." }
+  verification: { re_detect: true }
+  test: { before: "const f = /test/gi.flags;\n", after: "var f = /test/gi.toString().match(/[gimsuy]*$/)[0];\n" }
+
+- id: js.es2015.object_getownpropertysymbols
+  language: javascript
+  feature_name: "Object.getOwnPropertySymbols()"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [object, symbols]
+  detection:
+    primary: { ast_type: call_expression, match: { object: Object, method: getOwnPropertySymbols } }
+  fix: { strategy: manual, manual_instructions: "Not polyfillable without Symbol support." }
+  verification: { re_detect: true }
+  test: { before: "Object.getOwnPropertySymbols(obj);\n", after: "// No symbol support\n" }
+
+- id: js.es2017.string_padstart_padend
+  language: javascript
+  feature_name: "String.pad methods"
+  introduced: "ES2017"
+  category: es2017
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [string, pad]
+  detection:
+    primary: { ast_type: call_expression, match: { method_in: [padStart, padEnd] } }
+  fix: { strategy: manual, manual_instructions: "Use while loop to pad." }
+  verification: { re_detect: true }
+  test: { before: "'5'.padStart(3, '0');\n", after: "var s='5'; while(s.length<3) s='0'+s;\n" }
+
+- id: js.es2018.regex_unicode_property
+  language: javascript
+  feature_name: "RegExp Unicode property escapes"
+  introduced: "ES2018"
+  category: es2018
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [regexp, unicode, property]
+  detection:
+    primary: { ast_type: regex, match: { has_unicode_property: true } }
+  fix: { strategy: manual, manual_instructions: "Replace \\p{...} with character class ranges." }
+  verification: { re_detect: true }
+  test: { before: "/\\p{Letter}/u.test(str);\n", after: "/[a-zA-Z\\u00C0-\\u024F]/u.test(str);\n" }
+
+- id: js.es2019.array_flat_depth
+  language: javascript
+  feature_name: "Array.prototype.flat(depth)"
+  introduced: "ES2019"
+  category: es2019
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [array, flat, depth]
+  detection:
+    primary: { ast_type: call_expression, match: { method: flat } }
+  fix: { strategy: manual, manual_instructions: "Use recursive flatten function." }
+  verification: { re_detect: true }
+  test: { before: "arr.flat(Infinity);\n", after: "function flat(a,d){return d>0?a.reduce((r,v)=>r.concat(Array.isArray(v)?flat(v,d-1):v),[]):a.slice()}\n" }
+
+- id: js.es2020.import_meta_url
+  language: javascript
+  feature_name: "import.meta.url"
+  introduced: "ES2020"
+  category: es2020
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [import, meta, url]
+  detection:
+    primary: { ast_type: member_expression, match: { property: url } }
+  fix: { strategy: manual, manual_instructions: "Use __filename or __dirname in CommonJS." }
+  verification: { re_detect: false }
+  test: { before: "const url = import.meta.url;\n", after: "const url = 'file://' + __filename;\n" }
+
+- id: js.es2022.class_public_instance_fields
+  language: javascript
+  feature_name: "class public instance fields"
+  introduced: "ES2022"
+  category: es2022
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [class, fields, instance]
+  detection:
+    primary: { ast_type: field_definition, match: { is_static: false } }
+  fix: { strategy: manual, manual_instructions: "Move field declarations into constructor." }
+  verification: { re_detect: true }
+  test: { before: "class Foo { count = 0; }\n", after: "class Foo { constructor() { this.count = 0; } }\n" }
+
+- id: js.es2023.array_with
+  language: javascript
+  feature_name: "Array.prototype.with()"
+  introduced: "ES2023"
+  category: es2023
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [array, with, copy]
+  detection:
+    primary: { ast_type: call_expression, match: { method: with } }
+  fix: { strategy: manual, manual_instructions: "arr.with(i, v) → arr.map((x, j) => j === i ? v : x)" }
+  verification: { re_detect: true }
+  test: { before: "const updated = arr.with(2, 'new');\n", after: "var updated = arr.map(function(x,j){return j===2?'new':x});\n" }
+
+- id: js.es2024.disposable_stack
+  language: javascript
+  feature_name: "DisposableStack"
+  introduced: "ES2024"
+  category: es2024
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [disposable, stack, resource]
+  detection:
+    primary: { ast_type: new_expression, match: { constructor: DisposableStack } }
+  fix: { strategy: manual, manual_instructions: "Use try/finally for resource cleanup." }
+  verification: { re_detect: true }
+  test: { before: "const stack = new DisposableStack();\n", after: "// Use try/finally\n" }
+
+- id: js.es2024.atomics_waitasync
+  language: javascript
+  feature_name: "Atomics.waitAsync()"
+  introduced: "ES2024"
+  category: es2024
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [atomics, async, wait]
+  detection:
+    primary: { ast_type: call_expression, match: { object: Atomics, method: waitAsync } }
+  fix: { strategy: manual, manual_instructions: "Use postMessage or polling." }
+  verification: { re_detect: true }
+  test: { before: "Atomics.waitAsync(i32a, 0, 0);\n", after: "// Use postMessage\n" }

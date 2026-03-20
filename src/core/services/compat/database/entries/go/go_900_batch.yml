@@ -1,0 +1,71 @@
+# Go batch — 900
+
+- id: go.1_21.maps_clone
+  language: go
+  feature_name: "maps.Clone()"
+  introduced: "1.21"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [maps, clone, copy]
+  detection: { primary: { ast_type: call_expression, match: { package: maps, function: Clone } } }
+  fix: { strategy: manual, manual_instructions: "Manual copy with for range." }
+  verification: { re_detect: true }
+  test: { before: "copy := maps.Clone(m)\n", after: "copy := make(map[K]V); for k,v := range m { copy[k]=v }\n" }
+
+- id: go.1_21.slices_sort_func
+  language: go
+  feature_name: "slices.SortFunc()"
+  introduced: "1.21"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [slices, sort, func]
+  detection: { primary: { ast_type: call_expression, match: { package: slices, function: SortFunc } } }
+  fix: { strategy: manual, manual_instructions: "Use sort.Slice()." }
+  verification: { re_detect: true }
+  test: { before: "slices.SortFunc(s, cmp)\n", after: "sort.Slice(s, func(i,j int) bool { return cmp(s[i],s[j]) < 0 })\n" }
+
+- id: go.1_22.slices_concat
+  language: go
+  feature_name: "slices.Concat()"
+  introduced: "1.22"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [slices, concat, merge]
+  detection: { primary: { ast_type: call_expression, match: { package: slices, function: Concat } } }
+  fix: { strategy: manual, manual_instructions: "Use append(s1, s2...)." }
+  verification: { re_detect: true }
+  test: { before: "result := slices.Concat(a, b, c)\n", after: "result := append(append(a, b...), c...)\n" }
+
+- id: go.1_23.os_root
+  language: go
+  feature_name: "os.Root"
+  introduced: "1.24"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [os, root, filesystem]
+  detection: { primary: { ast_type: call_expression, match: { package: os, function: OpenRoot } } }
+  fix: { strategy: manual, manual_instructions: "Use filepath.Join with validation." }
+  verification: { re_detect: true }
+  test: { before: "root, _ := os.OpenRoot(\"/data\")\n", after: "// Manual path validation\n" }
+
+- id: go.1_21.slices_index
+  language: go
+  feature_name: "slices.Index()"
+  introduced: "1.21"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [slices, index, search]
+  detection: { primary: { ast_type: call_expression, match: { package: slices, function: Index } } }
+  fix: { strategy: manual, manual_instructions: "for i, v := range s { if v == target { return i } }" }
+  verification: { re_detect: true }
+  test: { before: "idx := slices.Index(s, val)\n", after: "// Manual loop search\n" }

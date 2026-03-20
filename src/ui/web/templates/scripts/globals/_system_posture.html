@@ -513,8 +513,184 @@
         }
 
         h += `<div class="mp-muted">Files with <code>from __future__ import annotations</code> have their type hints evaluated as strings — they don't raise the floor. Only runtime syntax counts.</div>`;
+
+        // Compat v2 deep analyze button
+        h += `<div class="mp-divider"></div>`;
+        h += `<button class="btn btn-sm btn-ghost" style="width:100%" onclick="_moduleHidePeek();moduleCompatAnalyze('${esc(item._moduleName)}')">🔍 Deep Analyze (AST-based)</button>`;
+
         return h;
     }
+
+    // ── Compat v2 deep analyze modal ────────────────────────
+    window.moduleCompatAnalyze = async function(moduleName) {
+        toast('🔍 Analyzing ' + moduleName + '...', 'info');
+
+        try {
+            const resp = await fetch('/api/compat/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, target_version: '3.8', include_transitive: true }),
+            });
+            const data = await resp.json();
+
+            if (!data.ok) {
+                toast('⚠️ ' + (data.error || 'Analysis failed'), 'error');
+                return;
+            }
+
+            const summary = data.summary || {};
+            let html = '';
+
+            // Header
+            html += `<div style="display:flex;justify-content:space-between;margin-bottom:0.75rem">`;
+            html += `<div><strong>${summary.total || 0}</strong> findings in ${summary.files_scanned || 0} files</div>`;
+            html += `<div style="font-size:0.8rem;color:var(--text-muted)">${summary.scan_duration_ms || 0}ms</div>`;
+            html += `</div>`;
+
+            // Severity breakdown
+            const bySev = summary.by_severity || {};
+            const byFix = summary.by_fix || {};
+            html += `<div style="display:flex;gap:1rem;margin-bottom:0.75rem;font-size:0.82rem">`;
+            if (bySev.error) html += `<span style="color:var(--danger)">❌ ${bySev.error} error(s)</span>`;
+            if (bySev.warning) html += `<span style="color:var(--warning)">⚠️ ${bySev.warning} warning(s)</span>`;
+            if (bySev.info) html += `<span style="color:var(--text-muted)">ℹ️ ${bySev.info} info</span>`;
+            html += `</div>`;
+
+            html += `<div style="font-size:0.82rem;margin-bottom:0.75rem">`;
+            html += `<span>🔧 ${byFix.auto_fixable || 0} auto-fixable</span>`;
+            html += ` · <span>⚠️ ${byFix.manual || 0} manual</span>`;
+            html += ` · <span>Direct: ${summary.direct || 0}</span>`;
+            html += ` · <span>Transitive: ${summary.transitive || 0}</span>`;
+            html += `</div>`;
+
+            // Findings by feature
+            const findings = data.findings || [];
+            const byFeature = {};
+            for (const f of findings) {
+                const key = f.feature_name || f.feature_id;
+                if (!byFeature[key]) byFeature[key] = { findings: [], version: f.version, fix: f.fix_available };
+                byFeature[key].findings.push(f);
+            }
+
+            for (const [feature, info] of Object.entries(byFeature)) {
+                const direct = info.findings.filter(f => !f.is_transitive);
+                const trans = info.findings.filter(f => f.is_transitive);
+                const fixIcon = info.fix ? '🔧' : '⚠️';
+
+                html += `<div style="margin-bottom:0.5rem;padding:0.4rem 0.6rem;background:var(--bg-inset);border-radius:var(--radius-sm)">`;
+                html += `<div style="font-weight:600;font-size:0.82rem">${fixIcon} ${esc(feature)} <span style="color:var(--text-muted)">(${esc(info.version)}+)</span></div>`;
+
+                if (direct.length > 0) {
+                    html += `<div style="font-size:0.78rem;color:var(--text-secondary)">Direct: ${direct.length} file(s)</div>`;
+                    for (const f of direct.slice(0, 3)) {
+                        html += `<div style="font-size:0.75rem;padding-left:0.5rem;color:var(--text-muted)">${esc(f.file)}:${f.line}</div>`;
+                    }
+                    if (direct.length > 3) html += `<div style="font-size:0.75rem;padding-left:0.5rem;color:var(--text-muted)">... +${direct.length - 3} more</div>`;
+                }
+                if (trans.length > 0) {
+                    html += `<div style="font-size:0.78rem;color:var(--warning)">Transitive: ${trans.length} file(s) from ${esc(trans[0].source_module || '?')}</div>`;
+                    for (const f of trans.slice(0, 2)) {
+                        const chain = (f.import_chain || []).map(p => p.split('/').pop()).join(' → ');
+                        html += `<div style="font-size:0.75rem;padding-left:0.5rem;color:var(--text-muted)">${esc(f.file.split('/').pop())} via ${esc(chain)}</div>`;
+                    }
+                    if (trans.length > 2) html += `<div style="font-size:0.75rem;padding-left:0.5rem;color:var(--text-muted)">... +${trans.length - 2} more</div>`;
+                }
+                html += `</div>`;
+            }
+
+            if (!findings.length) {
+                html += `<div class="adm adm-success" style="padding:0.5rem">✅ No incompatibilities found for the target version.</div>`;
+            }
+
+            // Action buttons
+            const autoFixable = byFix.auto_fixable || 0;
+            const directCount = summary.direct || 0;
+            if (autoFixable > 0 && directCount > 0) {
+                html += `<div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">`;
+                html += `<button class="btn btn-sm btn-primary" onclick="moduleCompatFixAll('${esc(moduleName)}','3.8')">🔧 Fix All Auto (${autoFixable} direct)</button>`;
+                html += `<button class="btn btn-sm btn-ghost" onclick="moduleCompatAnalyze('${esc(moduleName)}')">🔄 Re-analyze</button>`;
+                html += `</div>`;
+            }
+
+            // Blocking modules info
+            if (summary.transitive > 0) {
+                const transModules = new Set();
+                for (const f of findings.filter(f => f.is_transitive && f.source_module)) {
+                    transModules.add(f.source_module);
+                }
+                if (transModules.size > 0) {
+                    html += `<div class="adm adm-warning" style="padding:0.5rem;margin-top:0.5rem">`;
+                    html += `⚠️ ${summary.transitive} transitive finding(s) in: <strong>${[...transModules].join(', ')}</strong>`;
+                    html += `<div style="font-size:0.78rem;opacity:0.8">Fix those modules first to resolve transitive issues</div>`;
+                    html += `</div>`;
+                }
+            }
+
+            modalOpen({
+                title: '🔍 Compat Analysis: ' + moduleName,
+                body: html,
+                size: 'lg',
+                footerButtons: [{ label: 'Close', onclick: 'modalClose()' }],
+            });
+
+        } catch (e) {
+            toast('❌ ' + e.message, 'error');
+        }
+    };
+
+    window.moduleCompatFixAll = async function(moduleName, targetVersion) {
+        toast('🔧 Applying auto-fixes to ' + moduleName + '...', 'info');
+
+        try {
+            const resp = await fetch('/api/compat/fix/apply-all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, target_version: targetVersion, verify: true }),
+            });
+            const data = await resp.json();
+
+            if (data.ok) {
+                let msg = `✅ Fixed ${data.verified_fixes}/${data.total_fixes} finding(s) in ${data.files_fixed} file(s)`;
+                if (data.files_rolled_back > 0) {
+                    msg += ` (${data.files_rolled_back} rolled back)`;
+                }
+                toast(msg, 'success', 5000);
+
+                // Show results in modal
+                let html = `<div class="adm adm-success" style="padding:0.5rem;margin-bottom:0.5rem">${esc(msg)}</div>`;
+
+                if (data.file_results && data.file_results.length) {
+                    html += '<div style="font-size:0.82rem">';
+                    for (const fr of data.file_results) {
+                        const icon = fr.rolled_back ? '❌' : (fr.fixes_verified > 0 ? '✅' : '⚪');
+                        html += `<div>${icon} ${esc(fr.file.split('/').pop())} — ${fr.fixes_verified} verified`;
+                        if (fr.rolled_back) html += ' (rolled back)';
+                        html += `</div>`;
+                    }
+                    html += '</div>';
+                }
+
+                html += `<div style="margin-top:0.75rem">`;
+                html += `<button class="btn btn-sm btn-ghost" onclick="moduleCompatAnalyze('${esc(moduleName)}')">🔄 Re-analyze</button>`;
+                html += `</div>`;
+
+                modalOpen({
+                    title: '🔧 Fix Results: ' + moduleName,
+                    replace: true,
+                    body: html,
+                    size: 'lg',
+                    footerButtons: [{ label: 'Close', onclick: 'modalClose()' }],
+                });
+
+                // Refresh posture
+                if (typeof postureRescan === 'function') postureRescan();
+            } else {
+                toast('⚠️ ' + (data.error || 'Fix failed'), 'error');
+            }
+        } catch (e) {
+            toast('❌ ' + e.message, 'error');
+        }
+    };
 
     function _peekEffective(item) {
         const eff = item.effective_floor || '—';
@@ -1610,6 +1786,45 @@
         const target = typeof mfVal === 'function' ? mfVal('rem_plan_target') : (document.getElementById('mf-rem_plan_target') || {}).value || '';
         const date = typeof mfVal === 'function' ? mfVal('rem_plan_date') : (document.getElementById('mf-rem_plan_date') || {}).value || '';
         if (!target) { toast('⚠️ Please enter a target floor', 'warning'); return; }
+
+        // ── Run compat assessment first ─────────────────────────
+        try {
+            const assessResp = await fetch('/api/compat/assess', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: moduleName, target_version: target }),
+            });
+            if (assessResp.ok) {
+                const assess = await assessResp.json();
+                if (assess.ok && assess.gap) {
+                    // Show assessment before creating
+                    let assessHtml = `<div style="margin-bottom:1rem">`;
+                    assessHtml += `<div style="font-weight:600;margin-bottom:0.5rem">Assessment: ${esc(moduleName)} → Python ${esc(target)}</div>`;
+                    assessHtml += `<div>Current floor: <strong>${esc(assess.current_floor)}</strong></div>`;
+                    assessHtml += `<div>Code fixes: <strong>${assess.code_fixes_auto}</strong> auto + <strong>${assess.code_fixes_manual}</strong> manual</div>`;
+                    if (assess.dep_changes_needed > 0) {
+                        assessHtml += `<div>Dependency changes: <strong>${assess.dep_changes_needed}</strong></div>`;
+                    }
+                    if (assess.blocking_modules && assess.blocking_modules.length > 0) {
+                        assessHtml += `<div style="color:var(--warning-color);margin-top:0.3rem">⚠️ Blocked by: <strong>${esc(assess.blocking_modules.join(', '))}</strong></div>`;
+                        assessHtml += `<div style="font-size:0.8rem;opacity:0.7">Fix ${esc(assess.blocking_modules.join(', '))} first</div>`;
+                    }
+                    if (assess.transitive_fixes_needed > 0) {
+                        assessHtml += `<div>Transitive fixes: <strong>${assess.transitive_fixes_needed}</strong> (in dependencies)</div>`;
+                    }
+                    assessHtml += `<div style="margin-top:0.3rem">${esc(assess.recommendation)}</div>`;
+                    assessHtml += `</div>`;
+
+                    // Show assessment then create plan
+                    toast('📊 ' + assess.recommendation, 'info', 5000);
+                }
+            }
+        } catch (e) {
+            // Assessment failed — continue without it
+            console.warn('Compat assessment failed:', e);
+        }
+
+        // ── Create the plan ─────────────────────────────────────
         try {
             const resp = await fetch('/api/posture/module-plan', {
                 method: 'POST',
@@ -1686,6 +1901,42 @@
         body += `<span style="font-size:0.82rem;color:var(--text-muted)">${doneCount}/${totalCount} (${pct}%)</span>`;
         body += `</div>`;
 
+        // Compat assessment info (loaded async)
+        body += `<div id="plan-compat-assessment" data-module="${esc(moduleName)}" data-target="${esc(target)}" style="margin-bottom:0.75rem"></div>`;
+
+        // Load assessment in background
+        setTimeout(async () => {
+            const el = document.getElementById('plan-compat-assessment');
+            if (!el) return;
+            try {
+                const resp = await fetch('/api/compat/assess', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ module: moduleName, target_version: target }),
+                });
+                if (!resp.ok) return;
+                const assess = await resp.json();
+                if (!assess.ok) return;
+
+                let html = '';
+                if (assess.blocking_modules && assess.blocking_modules.length > 0) {
+                    html += `<div class="adm adm-warning" style="padding:0.5rem 0.75rem;margin-bottom:0.5rem">`;
+                    html += `<strong>⚠️ Blocked by:</strong> ${esc(assess.blocking_modules.join(', '))}`;
+                    html += `<div style="font-size:0.78rem;opacity:0.8">${assess.transitive_fixes_needed} transitive incompatibilities — fix ${esc(assess.blocking_modules.join(', '))} first</div>`;
+                    html += `</div>`;
+                }
+                if (assess.code_fixes_auto > 0 || assess.code_fixes_manual > 0) {
+                    html += `<div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.3rem">`;
+                    html += `Floor: ${esc(assess.current_floor)} → ${esc(assess.target)} | `;
+                    html += `${assess.code_fixes_auto} auto-fixable`;
+                    if (assess.code_fixes_manual > 0) html += ` + ${assess.code_fixes_manual} manual`;
+                    if (assess.dep_changes_needed > 0) html += ` | ${assess.dep_changes_needed} dep change(s)`;
+                    html += `</div>`;
+                }
+                el.innerHTML = html;
+            } catch (e) { /* silent — assessment is informational */ }
+        }, 100);
+
         if (met) {
             body += _adm('success', 'Plan complete!', 'The effective floor meets or exceeds the target. This plan has been achieved.');
         } else if (overdue) {
@@ -1700,18 +1951,41 @@
         for (let i = 0; i < freshChecklist.length; i++) {
             const step = freshChecklist[i];
             const done = step.done || false;
-            const canAutomate = step.automatable && step.automation_id && !done;
+            const stepState = step.state || (done ? 'passed' : 'pending');
+            const canAutomate = step.automatable && step.automation_id && !done && stepState !== 'blocked';
             const stepId = step.id || '';
             const cat = step.category || '';
             const catBadge = cat ? `<span class="plan-step-cat">${esc(cat)}</span>` : '';
 
+            // State-based styling
+            let stateIcon = '';
+            let stateClass = done ? 'done' : '';
+            if (stepState === 'blocked') {
+                stateIcon = '<span title="Blocked by dependency">🔒</span> ';
+                stateClass = 'blocked';
+            } else if (stepState === 'needs_attention') {
+                stateIcon = '<span title="Needs attention">⚠️</span> ';
+                stateClass = 'attention';
+            } else if (stepState === 'failed') {
+                stateIcon = '<span title="Failed">❌</span> ';
+                stateClass = 'failed';
+            } else if (stepState === 'skipped') {
+                stateIcon = '<span title="Skipped">⏭️</span> ';
+                stateClass = 'done';
+            }
+
             const desc = step.description || '';
-            body += `<div class="plan-step ${done ? 'done' : ''}" data-step-id="${esc(stepId)}">
-                <input type="checkbox" class="plan-step-check" ${done ? 'checked' : ''}
+            const blockedInfo = step.blocked_by ? `<div class="plan-step-desc" style="color:var(--warning-color)">Blocked by: ${esc(step.blocked_by)}</div>` : '';
+            const errorInfo = step.error_message ? `<div class="plan-step-desc" style="color:var(--danger-color)">${esc(step.error_message)}</div>` : '';
+            const findingsInfo = step.findings_count ? `<div class="plan-step-desc">${step.findings_count} finding(s)${step.findings_fixable ? ' — ' + step.findings_fixable + ' auto-fixable' : ''}</div>` : '';
+
+            body += `<div class="plan-step ${stateClass}" data-step-id="${esc(stepId)}" data-state="${esc(stepState)}">
+                <input type="checkbox" class="plan-step-check" ${done ? 'checked' : ''} ${stepState === 'blocked' ? 'disabled' : ''}
                     onchange="modulePlanToggleStep('${esc(moduleName)}',${i},this.checked)">
                 <div class="plan-step-content">
-                    <div class="plan-step-label">${catBadge}${esc(step.label)}</div>
+                    <div class="plan-step-label">${stateIcon}${catBadge}${esc(step.label)}</div>
                     ${desc ? '<div class="plan-step-desc">' + esc(desc) + '</div>' : ''}
+                    ${blockedInfo}${errorInfo}${findingsInfo}
                 </div>`;
             if (canAutomate) {
                 body += `<button class="plan-step-auto" onclick="modulePlanAutomate('${esc(moduleName)}','${esc(stepId)}',${i})" title="Run automation">🔧 Automate</button>`;

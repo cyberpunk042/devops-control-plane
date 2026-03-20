@@ -1,0 +1,116 @@
+# Rust misc features
+
+- id: rust.1_60.namespaced_features
+  language: rust
+  feature_name: "namespaced features (dep:crate)"
+  introduced: "1.60"
+  category: syntax
+  description: "dep: prefix for optional dependency features"
+  direction: downgrade
+  severity: warning
+  error_type: syntax_error
+  tags: [cargo, features, namespaced]
+  detection:
+    primary:
+      ast_type: cargo_toml
+      match:
+        has_dep_prefix: true
+  fix:
+    strategy: manual
+    manual_instructions: "Remove dep: prefix from feature definitions."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      [features]
+      serde = ["dep:serde"]
+    after: |
+      [features]
+      serde = ["serde"]
+
+- id: rust.1_62.default_enum_variants
+  language: rust
+  feature_name: "#[default] on enum variants"
+  introduced: "1.62"
+  category: syntax
+  description: "Derive Default for enums with #[default] attribute"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [enum, default, derive]
+  detection:
+    primary:
+      ast_type: attribute
+      match:
+        path: default
+        context: enum_variant
+  fix:
+    strategy: manual
+    manual_instructions: "Implement Default trait manually."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      #[derive(Default)]
+      enum Color { #[default] Red, Blue }
+    after: |
+      enum Color { Red, Blue }
+      impl Default for Color { fn default() -> Self { Color::Red } }
+
+- id: rust.1_66.black_box
+  language: rust
+  feature_name: "std::hint::black_box()"
+  introduced: "1.66"
+  category: std
+  description: "Prevent compiler optimization for benchmarks"
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [hint, optimization, benchmark]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        path_contains: "hint::black_box"
+  fix:
+    strategy: manual
+    manual_instructions: "Use criterion::black_box or volatile read."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      std::hint::black_box(result);
+    after: |
+      criterion::black_box(result);
+
+- id: rust.1_70.is_terminal
+  language: rust
+  feature_name: "std::io::IsTerminal"
+  introduced: "1.70"
+  category: std
+  description: "Check if a handle is a terminal"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [io, terminal, tty]
+  detection:
+    primary:
+      ast_type: use_declaration
+      match:
+        path_contains: "io::IsTerminal"
+  fix:
+    strategy: manual
+    manual_instructions: "Use atty crate or libc::isatty."
+    backport:
+      package: atty
+      install_command: "cargo add atty"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      use std::io::IsTerminal;
+      if std::io::stdout().is_terminal() { colorize(); }
+    after: |
+      if atty::is(atty::Stream::Stdout) { colorize(); }

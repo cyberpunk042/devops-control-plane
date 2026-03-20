@@ -1,0 +1,114 @@
+# Go batch — pushing to 600
+
+- id: go.1_18.tilde_constraint
+  language: go
+  feature_name: "~T type constraint"
+  introduced: "1.18"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [generics, constraint, tilde]
+  detection:
+    primary:
+      ast_type: type_constraint
+      match: { has_tilde: true }
+  fix:
+    strategy: manual
+    manual_instructions: "Remove ~ — use interface{} with type assertion."
+  verification: { re_detect: true }
+  test:
+    before: |
+      type Number interface { ~int | ~float64 }
+    after: |
+      // Use interface{} with type switch
+
+- id: go.1_21.log_slog_attrs
+  language: go
+  feature_name: "slog.Attr helpers"
+  introduced: "1.21"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [slog, attributes, logging]
+  detection:
+    primary:
+      ast_type: call_expression
+      match: { package: slog, function_in: [String, Int64, Float64, Bool, Time, Duration, Any, Group] }
+  fix:
+    strategy: manual
+    manual_instructions: "Use standard log or structured logging library."
+  verification: { re_detect: true }
+  test:
+    before: |
+      slog.Info("msg", slog.String("key", "val"))
+    after: |
+      log.Printf("msg key=%s", "val")
+
+- id: go.1_22.net_http_handler
+  language: go
+  feature_name: "http.Handler improvements"
+  introduced: "1.22"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [http, handler]
+  detection:
+    primary:
+      ast_type: import_spec
+      match: { path: '"net/http"' }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      import "net/http"
+    after: |
+      import "net/http"
+
+- id: go.1_23.timer_stop_reset
+  language: go
+  feature_name: "Timer.Stop/Reset changes"
+  introduced: "1.23"
+  category: stdlib
+  direction: downgrade
+  severity: warning
+  error_type: behavioral_change
+  tags: [timer, stop, reset]
+  detection:
+    primary:
+      ast_type: call_expression
+      match: { method_in: [Stop, Reset] }
+  fix:
+    strategy: no_fix_needed
+  verification: { re_detect: false }
+  test:
+    before: |
+      timer.Stop()
+    after: |
+      timer.Stop()
+
+- id: go.1_22.reflect_typefor
+  language: go
+  feature_name: "reflect.TypeFor[T]()"
+  introduced: "1.22"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [reflect, typefor, generics]
+  detection:
+    primary:
+      ast_type: call_expression
+      match: { package: reflect, function: TypeFor }
+  fix:
+    strategy: manual
+    manual_instructions: "Use reflect.TypeOf((*T)(nil)).Elem()."
+  verification: { re_detect: true }
+  test:
+    before: |
+      t := reflect.TypeFor[MyStruct]()
+    after: |
+      t := reflect.TypeOf((*MyStruct)(nil)).Elem()

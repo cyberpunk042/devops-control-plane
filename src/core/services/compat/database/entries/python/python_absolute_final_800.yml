@@ -1,0 +1,141 @@
+# Python — absolute final for 800
+
+- id: python.stdlib.copy_copy_improvements
+  language: python
+  feature_name: "copy improvements"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [copy]
+  detection: { primary: { ast_type: Import, match: { names_contains: copy } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import copy\n", after: "import copy\n" }
+
+- id: python.stdlib.csv_improvements_312
+  language: python
+  feature_name: "csv module improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [csv]
+  detection: { primary: { ast_type: Import, match: { names_contains: csv } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import csv\n", after: "import csv\n" }
+
+- id: python.stdlib.pprint_improvements
+  language: python
+  feature_name: "pprint improvements"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [pprint]
+  detection: { primary: { ast_type: Import, match: { names_contains: pprint } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import pprint\n", after: "import pprint\n" }
+
+- id: python.stdlib.fileinput_improvements
+  language: python
+  feature_name: "fileinput improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [fileinput]
+  detection: { primary: { ast_type: Import, match: { names_contains: fileinput } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import fileinput\n", after: "import fileinput\n" }
+
+- id: python.stdlib.winreg_improvements
+  language: python
+  feature_name: "winreg improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [winreg, windows]
+  detection: { primary: { ast_type: Import, match: { names_contains: winreg } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import winreg\n", after: "import winreg\n" }
+
+- id: python.stdlib.pydoc_improvements
+  language: python
+  feature_name: "pydoc improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [pydoc]
+  detection: { primary: { ast_type: Import, match: { names_contains: pydoc } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import pydoc\n", after: "import pydoc\n" }
+
+- id: python.stdlib.turtle_improvements
+  language: python
+  feature_name: "turtle module improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [turtle, graphics]
+  detection: { primary: { ast_type: Import, match: { names_contains: turtle } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import turtle\n", after: "import turtle\n" }
+
+- id: python.stdlib.profile_improvements
+  language: python
+  feature_name: "profile/cProfile improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [profile, cProfile]
+  detection: { primary: { ast_type: Import, match: { names_contains: cProfile } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import cProfile\n", after: "import cProfile\n" }
+
+- id: python.stdlib.netrc_improvements
+  language: python
+  feature_name: "netrc improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [netrc]
+  detection: { primary: { ast_type: Import, match: { names_contains: netrc } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import netrc\n", after: "import netrc\n" }
+
+- id: python.stdlib.quopri_improvements
+  language: python
+  feature_name: "quopri improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [quopri, encoding]
+  detection: { primary: { ast_type: Import, match: { names_contains: quopri } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import quopri\n", after: "import quopri\n" }

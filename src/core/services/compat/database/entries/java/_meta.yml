@@ -1,0 +1,19 @@
+language: java
+display_name: Java
+file_extensions: [".java"]
+parser: tree-sitter-java
+versions:
+  - version: "11"
+    status: lts
+  - version: "14"
+    status: eol
+  - version: "17"
+    status: lts
+  - version: "21"
+    status: lts
+version_format: "major"
+default_exclusions: ["target", "build", ".gradle"]
+package_registry:
+  name: Maven Central
+  api: "https://search.maven.org/solrsearch/select?q=g:{group}+AND+a:{artifact}"
+  version_field: "sourceCompatibility"

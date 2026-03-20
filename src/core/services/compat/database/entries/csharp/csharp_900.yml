@@ -1,0 +1,29 @@
+# C# batch — 900
+
+- id: csharp.9.module_initializers
+  language: csharp
+  feature_name: "module initializers"
+  introduced: "9"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [module, initializer, startup]
+  detection: { primary: { ast_type: attribute, match: { name: ModuleInitializer } } }
+  fix: { strategy: manual, manual_instructions: "Call initialization method from Program.Main." }
+  verification: { re_detect: true }
+  test: { before: "[ModuleInitializer] static void Init() {}\n", after: "static void Init() {} // Call from Main\n" }
+
+- id: csharp.10.interpolated_string_handler
+  language: csharp
+  feature_name: "interpolated string handler"
+  introduced: "10"
+  category: syntax
+  direction: downgrade
+  severity: warning
+  error_type: syntax_error
+  tags: [interpolation, handler, performance]
+  detection: { primary: { ast_type: attribute, match: { name: InterpolatedStringHandler } } }
+  fix: { strategy: manual, manual_instructions: "Use standard string interpolation." }
+  verification: { re_detect: true }
+  test: { before: "[InterpolatedStringHandler] ref struct MyHandler {}\n", after: "// Use standard string interpolation\n" }

@@ -1,0 +1,21 @@
+language: php
+display_name: PHP
+file_extensions: [".php"]
+parser: tree-sitter-php
+versions:
+  - version: "7.4"
+    status: eol
+  - version: "8.0"
+    status: eol
+  - version: "8.1"
+    status: security
+  - version: "8.2"
+    status: active
+  - version: "8.3"
+    status: active
+version_format: "major.minor"
+default_exclusions: ["vendor"]
+package_registry:
+  name: Packagist
+  api: "https://repo.packagist.org/p2/{vendor}/{package}.json"
+  version_field: "require.php"

@@ -1,0 +1,304 @@
+# PHP extended features
+
+# ── PHP 8.0 ──────────────────────────────────────────────────────
+
+- id: php.8_0.nullsafe_operator
+  language: php
+  feature_name: "null-safe operator (?->)"
+  introduced: "8.0"
+  category: syntax
+  description: "Short-circuit null check on method chains"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [nullsafe, operator, chain]
+  detection:
+    primary:
+      ast_type: nullsafe_member_access_expression
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with explicit null checks:
+        $country = $user?->address?->country;
+        →
+        $country = ($user !== null && $user->address !== null)
+            ? $user->address->country
+            : null;
+  verification:
+    re_detect: true
+  test:
+    before: |
+      $country = $user?->address?->country;
+    after: |
+      $country = ($user !== null && $user->address !== null) ? $user->address->country : null;
+
+- id: php.8_0.constructor_promotion
+  language: php
+  feature_name: "constructor promotion"
+  introduced: "8.0"
+  category: syntax
+  description: "Declare and assign properties in constructor parameters"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [constructor, promotion, class]
+  detection:
+    primary:
+      ast_type: property_promotion_parameter
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Expand into property declaration + constructor assignment:
+        public function __construct(private string $name, public int $age) {}
+        →
+        private string $name;
+        public int $age;
+        public function __construct(string $name, int $age) {
+            $this->name = $name;
+            $this->age = $age;
+        }
+  verification:
+    re_detect: true
+  test:
+    before: |
+      class User {
+          public function __construct(
+              private string $name,
+              public int $age,
+          ) {}
+      }
+    after: |
+      class User {
+          private string $name;
+          public int $age;
+          public function __construct(string $name, int $age) {
+              $this->name = $name;
+              $this->age = $age;
+          }
+      }
+
+- id: php.8_0.str_functions
+  language: php
+  feature_name: "str_contains/str_starts_with/str_ends_with"
+  introduced: "8.0"
+  category: stdlib
+  description: "New string functions for common operations"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [string, functions]
+  detection:
+    primary:
+      ast_type: function_call_expression
+      match:
+        function_in: [str_contains, str_starts_with, str_ends_with]
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with older equivalents:
+        str_contains($h, $n) → strpos($h, $n) !== false
+        str_starts_with($h, $n) → substr($h, 0, strlen($n)) === $n
+        str_ends_with($h, $n) → substr($h, -strlen($n)) === $n
+      Or use symfony/polyfill-php80.
+    backport:
+      package: "symfony/polyfill-php80"
+      install_command: "composer require symfony/polyfill-php80"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      if (str_contains($haystack, $needle)) { found(); }
+    after: |
+      if (strpos($haystack, $needle) !== false) { found(); }
+
+# ── PHP 8.1 ──────────────────────────────────────────────────────
+
+- id: php.8_1.intersection_types
+  language: php
+  feature_name: "intersection types (A&B)"
+  introduced: "8.1"
+  category: syntax
+  description: "Type must satisfy all specified types"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [types, intersection, syntax]
+  detection:
+    primary:
+      ast_type: intersection_type
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: "Remove intersection type or use PHPDoc @param"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      function process(Iterator&Countable $items): void { }
+    after: |
+      /** @param Iterator&Countable $items */
+      function process($items): void { }
+
+- id: php.8_1.fibers
+  language: php
+  feature_name: "Fiber class"
+  introduced: "8.1"
+  category: stdlib
+  description: "Lightweight cooperative concurrency"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [fiber, async, concurrency]
+  detection:
+    primary:
+      ast_type: object_creation_expression
+      match:
+        class: Fiber
+  fix:
+    strategy: manual
+    manual_instructions: "Use generators for cooperative concurrency or ReactPHP for async."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      $fiber = new Fiber(function(): void { Fiber::suspend('hello'); });
+    after: |
+      // Use generators or ReactPHP for async patterns
+
+# ── PHP 8.2 ──────────────────────────────────────────────────────
+
+- id: php.8_2.readonly_classes
+  language: php
+  feature_name: "readonly class"
+  introduced: "8.2"
+  category: syntax
+  description: "All properties in a readonly class are implicitly readonly"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [readonly, class, syntax]
+  detection:
+    primary:
+      ast_type: class_declaration
+      match:
+        modifiers_contains: readonly
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Remove readonly from class, add to each property:
+        readonly class Config { public string $name; public int $port; }
+        →
+        class Config { public readonly string $name; public readonly int $port; }
+      Note: readonly properties require PHP 8.1.
+  verification:
+    re_detect: true
+  test:
+    before: |
+      readonly class Config {
+          public function __construct(public string $name, public int $port) {}
+      }
+    after: |
+      class Config {
+          public function __construct(
+              public readonly string $name,
+              public readonly int $port,
+          ) {}
+      }
+
+- id: php.8_2.true_false_null_types
+  language: php
+  feature_name: "true/false/null standalone types"
+  introduced: "8.2"
+  category: syntax
+  description: "Use true, false, null as standalone type declarations"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [types, standalone, syntax]
+  detection:
+    primary:
+      ast_type: named_type
+      match:
+        name_in: [true, false, "null"]
+        context: type_declaration
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with bool or union type:
+        function isEnabled(): true { return true; }
+        → function isEnabled(): bool { return true; }
+  verification:
+    re_detect: true
+  test:
+    before: |
+      function alwaysTrue(): true { return true; }
+    after: |
+      function alwaysTrue(): bool { return true; }
+
+# ── PHP 8.3 ──────────────────────────────────────────────────────
+
+- id: php.8_3.typed_constants
+  language: php
+  feature_name: "typed class constants"
+  introduced: "8.3"
+  category: syntax
+  description: "Type declarations on class constants"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [constants, types, class]
+  detection:
+    primary:
+      ast_type: const_declaration
+      match:
+        has_type: true
+  fix:
+    strategy: manual
+    manual_instructions: "Remove the type declaration from the constant."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      class Config {
+          const string VERSION = '1.0.0';
+      }
+    after: |
+      class Config {
+          const VERSION = '1.0.0';
+      }
+
+- id: php.8_3.override_attribute
+  language: php
+  feature_name: "#[Override] attribute"
+  introduced: "8.3"
+  category: syntax
+  description: "Explicitly declare a method overrides a parent method"
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [override, attribute, method]
+  detection:
+    primary:
+      ast_type: attribute
+      match:
+        name: Override
+  fix:
+    strategy: manual
+    manual_instructions: "Remove the #[Override] attribute. Use PHPDoc @override instead."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      class Child extends Parent {
+          #[Override]
+          public function method(): void {}
+      }
+    after: |
+      class Child extends Parent {
+          /** @override */
+          public function method(): void {}
+      }

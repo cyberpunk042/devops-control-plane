@@ -1,0 +1,152 @@
+# Python — last 10 for 700
+
+- id: python.stdlib.compileall_improvements
+  language: python
+  feature_name: "compileall improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [compileall, bytecode]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: compileall } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import compileall\n", after: "import compileall\n" }
+
+- id: python.stdlib.cgi_deprecation
+  language: python
+  feature_name: "cgi module deprecation"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: deprecation_warning
+  tags: [cgi, deprecation]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: cgi } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import cgi\n", after: "import cgi\n" }
+
+- id: python.stdlib.mailbox_improvements
+  language: python
+  feature_name: "mailbox improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [mailbox, email]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: mailbox } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import mailbox\n", after: "import mailbox\n" }
+
+- id: python.stdlib.unicodedata_15
+  language: python
+  feature_name: "unicodedata Unicode 15"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [unicode, data, version]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: unicodedata } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import unicodedata\n", after: "import unicodedata\n" }
+
+- id: python.stdlib.tkinter_improvements
+  language: python
+  feature_name: "tkinter improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [tkinter, gui]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: tkinter } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import tkinter\n", after: "import tkinter\n" }
+
+- id: python.stdlib.urllib_parse_improvements
+  language: python
+  feature_name: "urllib.parse improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [urllib, parse, url]
+  detection:
+    primary: { ast_type: ImportFrom, match: { module: urllib.parse } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "from urllib.parse import urlparse\n", after: "from urllib.parse import urlparse\n" }
+
+- id: python.stdlib.tempfile_mkdtemp
+  language: python
+  feature_name: "tempfile improvements"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [tempfile, directory]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: tempfile } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import tempfile\n", after: "import tempfile\n" }
+
+- id: python.stdlib.shutil_improvements_311
+  language: python
+  feature_name: "shutil improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [shutil, files]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: shutil } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import shutil\n", after: "import shutil\n" }
+
+- id: python.stdlib.abc_abc_meta
+  language: python
+  feature_name: "ABCMeta improvements"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [abc, meta, abstract]
+  detection:
+    primary: { ast_type: ImportFrom, match: { module: abc, names_contains: ABCMeta } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "from abc import ABCMeta\n", after: "from abc import ABCMeta\n" }
+
+- id: python.stdlib.signal_strsignal
+  language: python
+  feature_name: "signal.strsignal()"
+  introduced: "3.8"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [signal, strsignal]
+  detection:
+    primary: { ast_type: Attribute, match: { value_id: signal, attr: strsignal } }
+  fix: { strategy: manual, manual_instructions: "Use signal name dict manually." }
+  verification: { re_detect: true }
+  test: { before: "name = signal.strsignal(sig)\n", after: "name = str(sig)\n" }

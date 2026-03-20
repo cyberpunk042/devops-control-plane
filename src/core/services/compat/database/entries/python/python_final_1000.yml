@@ -1,0 +1,141 @@
+# Python — THE FINAL entries for 1000
+
+- id: python.stdlib.xmlrpc_improvements
+  language: python
+  feature_name: "xmlrpc improvements"
+  introduced: "3.8"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [xmlrpc]
+  detection: { primary: { ast_type: Import, match: { names_contains: xmlrpc } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import xmlrpc\n", after: "import xmlrpc\n" }
+
+- id: python.stdlib.imaplib_improvements
+  language: python
+  feature_name: "imaplib improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [imaplib, email]
+  detection: { primary: { ast_type: Import, match: { names_contains: imaplib } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import imaplib\n", after: "import imaplib\n" }
+
+- id: python.stdlib.poplib_improvements
+  language: python
+  feature_name: "poplib improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [poplib, email]
+  detection: { primary: { ast_type: Import, match: { names_contains: poplib } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import poplib\n", after: "import poplib\n" }
+
+- id: python.stdlib.smtplib_improvements
+  language: python
+  feature_name: "smtplib improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [smtplib, email]
+  detection: { primary: { ast_type: Import, match: { names_contains: smtplib } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import smtplib\n", after: "import smtplib\n" }
+
+- id: python.stdlib.http_client_improvements
+  language: python
+  feature_name: "http.client improvements"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [http, client]
+  detection: { primary: { ast_type: ImportFrom, match: { module: http.client } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "from http.client import HTTPSConnection\n", after: "from http.client import HTTPSConnection\n" }
+
+- id: python.stdlib.html_parser_improvements
+  language: python
+  feature_name: "html.parser improvements"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [html, parser]
+  detection: { primary: { ast_type: ImportFrom, match: { module: html.parser } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "from html.parser import HTMLParser\n", after: "from html.parser import HTMLParser\n" }
+
+- id: python.stdlib.xml_etree_improvements
+  language: python
+  feature_name: "xml.etree.ElementTree improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [xml, etree]
+  detection: { primary: { ast_type: ImportFrom, match: { module: xml.etree.ElementTree } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "from xml.etree.ElementTree import parse\n", after: "from xml.etree.ElementTree import parse\n" }
+
+- id: python.stdlib.gettext_improvements
+  language: python
+  feature_name: "gettext improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [gettext, i18n]
+  detection: { primary: { ast_type: Import, match: { names_contains: gettext } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import gettext\n", after: "import gettext\n" }
+
+- id: python.stdlib.colorsys_improvements
+  language: python
+  feature_name: "colorsys improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [colorsys, color]
+  detection: { primary: { ast_type: Import, match: { names_contains: colorsys } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import colorsys\n", after: "import colorsys\n" }
+
+- id: python.stdlib.chunk_deprecation
+  language: python
+  feature_name: "chunk module deprecation"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: deprecation_warning
+  tags: [chunk, deprecated, audio]
+  detection: { primary: { ast_type: Import, match: { names_contains: chunk } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import chunk\n", after: "import chunk\n" }

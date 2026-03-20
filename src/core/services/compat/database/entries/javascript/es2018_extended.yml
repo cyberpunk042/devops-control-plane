@@ -1,0 +1,120 @@
+# JavaScript ES2018 features — extended
+
+- id: js.es2018.regex_named_groups
+  language: javascript
+  feature_name: "RegExp named capture groups"
+  introduced: "ES2018"
+  category: es2018
+  description: "Named groups in regex: (?<name>...)"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [regex, named, groups]
+  detection:
+    primary:
+      ast_type: regex
+      match:
+        has_named_group: true
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace named groups with numbered groups:
+        /(?<year>\d{4})-(?<month>\d{2})/.exec(date).groups.year
+        → /(\d{4})-(\d{2})/.exec(date)[1]
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const { year, month } = /(?<year>\d{4})-(?<month>\d{2})/.exec(date).groups;
+    after: |
+      const match = /(\d{4})-(\d{2})/.exec(date);
+      const year = match[1], month = match[2];
+
+- id: js.es2018.regex_lookbehind
+  language: javascript
+  feature_name: "RegExp lookbehind assertions"
+  introduced: "ES2018"
+  category: es2018
+  description: "Lookbehind in regex: (?<=...) and (?<!...)"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [regex, lookbehind]
+  detection:
+    primary:
+      ast_type: regex
+      match:
+        has_lookbehind: true
+  fix:
+    strategy: manual
+    manual_instructions: "Rewrite regex without lookbehind, or use a two-step match."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const price = str.match(/(?<=\$)\d+/)[0];
+    after: |
+      const match = str.match(/\$(\d+)/);
+      const price = match ? match[1] : null;
+
+- id: js.es2018.regex_dotall
+  language: javascript
+  feature_name: "RegExp dotAll flag (s)"
+  introduced: "ES2018"
+  category: es2018
+  description: "The s flag makes . match newlines"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [regex, dotall, flag]
+  detection:
+    primary:
+      ast_type: regex
+      match:
+        flags_contains: s
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace /pattern/s with /pattern/ using [\s\S] instead of .:
+        /foo.bar/s → /foo[\s\S]bar/
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const match = text.match(/start.*end/s);
+    after: |
+      const match = text.match(/start[\s\S]*end/);
+
+- id: js.es2018.promise_finally
+  language: javascript
+  feature_name: "Promise.prototype.finally()"
+  introduced: "ES2018"
+  category: es2018
+  description: "Callback that runs regardless of promise resolution"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [promise, finally, method]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: finally
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Polyfill:
+        Promise.prototype.finally = Promise.prototype.finally || function(fn) {
+          return this.then(
+            value => Promise.resolve(fn()).then(() => value),
+            reason => Promise.resolve(fn()).then(() => { throw reason; })
+          );
+        };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      fetch(url).then(handle).catch(logError).finally(cleanup);
+    after: |
+      fetch(url).then(handle).catch(logError).then(function() { cleanup(); }, function(e) { cleanup(); throw e; });

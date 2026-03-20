@@ -1,0 +1,295 @@
+# Python — ABSOLUTE FINAL entries
+
+- id: python.stdlib.ast_improvements_313
+  language: python
+  feature_name: "ast improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [ast]
+  detection: { primary: { ast_type: Import, match: { names_contains: ast } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import ast\n", after: "import ast\n" }
+
+- id: python.stdlib.fractions_improvements_313
+  language: python
+  feature_name: "fractions improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [fractions]
+  detection: { primary: { ast_type: Import, match: { names_contains: fractions } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import fractions\n", after: "import fractions\n" }
+
+- id: python.stdlib.textwrap_improvements_313
+  language: python
+  feature_name: "textwrap improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [textwrap]
+  detection: { primary: { ast_type: Import, match: { names_contains: textwrap } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import textwrap\n", after: "import textwrap\n" }
+
+- id: python.stdlib.calendar_improvements_313
+  language: python
+  feature_name: "calendar improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [calendar]
+  detection: { primary: { ast_type: Import, match: { names_contains: calendar } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import calendar\n", after: "import calendar\n" }
+
+- id: python.stdlib.webbrowser_improvements_313
+  language: python
+  feature_name: "webbrowser improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [webbrowser]
+  detection: { primary: { ast_type: Import, match: { names_contains: webbrowser } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import webbrowser\n", after: "import webbrowser\n" }
+
+- id: python.stdlib.statistics_improvements_313
+  language: python
+  feature_name: "statistics improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [statistics]
+  detection: { primary: { ast_type: Import, match: { names_contains: statistics } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import statistics\n", after: "import statistics\n" }
+
+- id: python.stdlib.uuid_improvements_313
+  language: python
+  feature_name: "uuid improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [uuid]
+  detection: { primary: { ast_type: Import, match: { names_contains: uuid } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import uuid\n", after: "import uuid\n" }
+
+- id: python.stdlib.difflib_improvements_313
+  language: python
+  feature_name: "difflib improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [difflib]
+  detection: { primary: { ast_type: Import, match: { names_contains: difflib } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import difflib\n", after: "import difflib\n" }
+
+- id: python.stdlib.heapq_improvements_313
+  language: python
+  feature_name: "heapq improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [heapq]
+  detection: { primary: { ast_type: Import, match: { names_contains: heapq } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import heapq\n", after: "import heapq\n" }
+
+- id: python.stdlib.cgi_removal_313
+  language: python
+  feature_name: "cgi module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [cgi, removed]
+  detection: { primary: { ast_type: Import, match: { names_contains: cgi } } }
+  fix: { strategy: manual, manual_instructions: "Use urllib.parse or multipart." }
+  verification: { re_detect: false }
+  test: { before: "import cgi\n", after: "from urllib.parse import parse_qs\n" }
+
+- id: python.stdlib.cgitb_removal_313
+  language: python
+  feature_name: "cgitb module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [cgitb, removed]
+  detection: { primary: { ast_type: Import, match: { names_contains: cgitb } } }
+  fix: { strategy: manual, manual_instructions: "Use traceback module." }
+  verification: { re_detect: false }
+  test: { before: "import cgitb\n", after: "import traceback\n" }
+
+- id: python.stdlib.chunk_removal_313
+  language: python
+  feature_name: "chunk module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [chunk, removed]
+  detection: { primary: { ast_type: Import, match: { names_contains: chunk } } }
+  fix: { strategy: manual, manual_instructions: "Use struct module for binary parsing." }
+  verification: { re_detect: false }
+  test: { before: "import chunk\n", after: "import struct\n" }
+
+- id: python.stdlib.mailcap_removal_313
+  language: python
+  feature_name: "mailcap module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [mailcap, removed]
+  detection: { primary: { ast_type: Import, match: { names_contains: mailcap } } }
+  fix: { strategy: manual, manual_instructions: "Use mimetypes module." }
+  verification: { re_detect: false }
+  test: { before: "import mailcap\n", after: "import mimetypes\n" }
+
+- id: python.stdlib.msilib_removal_313
+  language: python
+  feature_name: "msilib module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [msilib, removed, windows]
+  detection: { primary: { ast_type: Import, match: { names_contains: msilib } } }
+  fix: { strategy: manual, manual_instructions: "Use external MSI tools." }
+  verification: { re_detect: false }
+  test: { before: "import msilib\n", after: "# Use external tools\n" }
+
+- id: python.stdlib.ossaudiodev_removal_313
+  language: python
+  feature_name: "ossaudiodev module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [ossaudiodev, removed, audio]
+  detection: { primary: { ast_type: Import, match: { names_contains: ossaudiodev } } }
+  fix: { strategy: manual, manual_instructions: "Use pyaudio or sounddevice." }
+  verification: { re_detect: false }
+  test: { before: "import ossaudiodev\n", after: "import pyaudio\n" }
+
+- id: python.stdlib.sunau_removal_313
+  language: python
+  feature_name: "sunau module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [sunau, removed, audio]
+  detection: { primary: { ast_type: Import, match: { names_contains: sunau } } }
+  fix: { strategy: manual, manual_instructions: "Use wave module." }
+  verification: { re_detect: false }
+  test: { before: "import sunau\n", after: "import wave\n" }
+
+- id: python.stdlib.audioop_removal_313
+  language: python
+  feature_name: "audioop module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [audioop, removed, audio]
+  detection: { primary: { ast_type: Import, match: { names_contains: audioop } } }
+  fix: { strategy: manual, manual_instructions: "Use pydub or numpy for audio operations." }
+  verification: { re_detect: false }
+  test: { before: "import audioop\n", after: "import numpy\n" }
+
+- id: python.stdlib.xdrlib_removal_311
+  language: python
+  feature_name: "xdrlib deprecation"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: deprecation_warning
+  tags: [xdrlib, deprecated]
+  detection: { primary: { ast_type: Import, match: { names_contains: xdrlib } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import xdrlib\n", after: "import xdrlib\n" }
+
+- id: python.stdlib.aifc_removal_313
+  language: python
+  feature_name: "aifc module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [aifc, removed, audio]
+  detection: { primary: { ast_type: Import, match: { names_contains: aifc } } }
+  fix: { strategy: manual, manual_instructions: "Use wave module or soundfile package." }
+  verification: { re_detect: false }
+  test: { before: "import aifc\n", after: "import wave\n" }
+
+- id: python.stdlib.pipes_removal_313
+  language: python
+  feature_name: "pipes module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [pipes, removed]
+  detection: { primary: { ast_type: Import, match: { names_contains: pipes } } }
+  fix: { strategy: manual, manual_instructions: "Use subprocess module." }
+  verification: { re_detect: false }
+  test: { before: "import pipes\n", after: "import subprocess\n" }
+
+- id: python.stdlib.nis_removal_313
+  language: python
+  feature_name: "nis module removed"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [nis, removed, unix]
+  detection: { primary: { ast_type: Import, match: { names_contains: nis } } }
+  fix: { strategy: manual, manual_instructions: "Not needed on modern systems." }
+  verification: { re_detect: false }
+  test: { before: "import nis\n", after: "# NIS not needed\n" }

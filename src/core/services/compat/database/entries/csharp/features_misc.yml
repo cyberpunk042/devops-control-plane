@@ -1,0 +1,162 @@
+# C# misc features
+
+- id: csharp.8.async_streams
+  language: csharp
+  feature_name: "async streams (IAsyncEnumerable)"
+  introduced: "8"
+  category: syntax
+  description: "await foreach for async iteration"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [async, streams, iteration]
+  detection:
+    primary:
+      ast_type: await_foreach_statement
+  fix:
+    strategy: manual
+    manual_instructions: "Use Task<List<T>> and await the full collection."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      await foreach (var item in GetItemsAsync()) { process(item); }
+    after: |
+      foreach (var item in await GetItemsListAsync()) { process(item); }
+
+- id: csharp.8.indices_ranges
+  language: csharp
+  feature_name: "indices and ranges (^, ..)"
+  introduced: "8"
+  category: syntax
+  description: "Index from end (^) and range (..) operators"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [index, range, operator]
+  detection:
+    primary:
+      ast_type: range_expression
+    alternatives:
+      - ast_type: prefix_unary_expression
+        match:
+          operator: "^"
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace:
+        arr[^1] → arr[arr.Length - 1]
+        arr[1..3] → arr.Skip(1).Take(2).ToArray()
+  verification:
+    re_detect: true
+  test:
+    before: |
+      var last = arr[^1];
+      var slice = arr[1..3];
+    after: |
+      var last = arr[arr.Length - 1];
+      var slice = arr.Skip(1).Take(2).ToArray();
+
+- id: csharp.9.with_expressions
+  language: csharp
+  feature_name: "with expressions"
+  introduced: "9"
+  category: syntax
+  description: "Non-destructive mutation: record with { Prop = value }"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [with, record, copy]
+  detection:
+    primary:
+      ast_type: with_expression
+  fix:
+    strategy: manual
+    manual_instructions: "Create a new instance manually with changed properties."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      var p2 = p1 with { X = 10 };
+    after: |
+      var p2 = new Point(10, p1.Y);
+
+- id: csharp.10.lambda_attributes
+  language: csharp
+  feature_name: "lambda attributes and return types"
+  introduced: "10"
+  category: syntax
+  description: "Attributes and explicit return types on lambdas"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [lambda, attributes, return_type]
+  detection:
+    primary:
+      ast_type: lambda_expression
+      match:
+        has_attributes: true
+  fix:
+    strategy: manual
+    manual_instructions: "Move attributes to a named method."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      var fn = [Obsolete] int (int x) => x * 2;
+    after: |
+      [Obsolete] static int Double(int x) => x * 2;
+      var fn = new Func<int, int>(Double);
+
+- id: csharp.11.required_members
+  language: csharp
+  feature_name: "required members"
+  introduced: "11"
+  category: syntax
+  description: "Required keyword for properties and fields"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [required, property, field]
+  detection:
+    primary:
+      ast_type: property_declaration
+      match:
+        modifiers_contains: required
+  fix:
+    strategy: manual
+    manual_instructions: "Remove required modifier. Enforce in constructor."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      class User { public required string Name { get; init; } }
+    after: |
+      class User { public string Name { get; set; } }
+
+- id: csharp.12.inline_arrays
+  language: csharp
+  feature_name: "inline arrays"
+  introduced: "12"
+  category: syntax
+  description: "Fixed-size arrays stored inline in structs"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [inline, array, struct]
+  detection:
+    primary:
+      ast_type: attribute
+      match:
+        name: InlineArray
+  fix:
+    strategy: manual
+    manual_instructions: "Use fixed-size buffers or regular arrays."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      [InlineArray(4)]
+      struct Buffer4 { private int _element; }
+    after: |
+      struct Buffer4 { public int[] Elements; }

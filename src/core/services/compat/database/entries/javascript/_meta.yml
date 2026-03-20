@@ -1,0 +1,45 @@
+language: javascript
+display_name: JavaScript
+file_extensions: [".js", ".jsx", ".mjs", ".cjs"]
+parser: tree-sitter-javascript
+
+versions:
+  - version: "ES2015"
+    status: baseline
+  - version: "ES2016"
+    status: active
+  - version: "ES2017"
+    status: active
+  - version: "ES2018"
+    status: active
+  - version: "ES2019"
+    status: active
+  - version: "ES2020"
+    status: active
+  - version: "ES2021"
+    status: active
+  - version: "ES2022"
+    status: active
+  - version: "ES2023"
+    status: active
+  - version: "ES2024"
+    status: active
+
+version_format: "ES_year"
+
+default_exclusions:
+  - "node_modules"
+  - "dist"
+  - "build"
+  - ".next"
+  - "coverage"
+
+import_styles:
+  - "import {name} from '{module}'"
+  - "const {name} = require('{module}')"
+  - "import('{module}')"
+
+package_registry:
+  name: npm
+  api: "https://registry.npmjs.org/{package}"
+  version_field: "engines.node"

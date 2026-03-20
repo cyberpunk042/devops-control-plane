@@ -1,0 +1,252 @@
+# Python 3.10-3.11 stdlib additions (beyond what's already in stdlib.yml)
+
+# ── Python 3.11 ──────────────────────────────────────────────────
+
+- id: python.stdlib.taskgroup
+  language: python
+  feature_name: "asyncio.TaskGroup"
+  introduced: "3.11"
+  category: stdlib
+  description: "Structured concurrency with TaskGroup context manager"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_name
+  tags: [asyncio, taskgroup, concurrency]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: asyncio
+        names_contains: TaskGroup
+    exclude:
+      - context: type_checking_block
+        reason: "Not executed at runtime"
+  fix:
+    strategy: manual
+    manual_instructions: |
+      TaskGroup requires Python 3.11+. Options:
+        1. Use anyio.create_task_group() (backport)
+        2. Use asyncio.gather() for simpler cases:
+           async with TaskGroup() as tg:
+               tg.create_task(a())
+               tg.create_task(b())
+           →
+           await asyncio.gather(a(), b())
+    backport:
+      package: anyio
+      install_command: "pip install anyio"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      from asyncio import TaskGroup
+      async with TaskGroup() as tg:
+          tg.create_task(fetch_data())
+    after: |
+      import asyncio
+      await asyncio.gather(fetch_data())
+
+# tomllib.loads() is covered by python.stdlib.tomllib entry — fixing the import
+# makes all tomllib methods available via the backport.
+
+# ── Python 3.10 ──────────────────────────────────────────────────
+
+- id: python.stdlib.bisect_key
+  language: python
+  feature_name: "bisect key parameter"
+  introduced: "3.10"
+  category: stdlib
+  description: "key parameter added to bisect functions"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [bisect, key, sorting]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: bisect_left
+    alternatives:
+      - ast_type: Call
+        match:
+          func_attr: bisect_right
+      - ast_type: Call
+        match:
+          func_attr: insort_left
+      - ast_type: Call
+        match:
+          func_attr: insort_right
+  fix:
+    strategy: manual
+    manual_instructions: |
+      The key parameter for bisect functions requires 3.10+.
+      Pre-compute the key values instead:
+        bisect.bisect_left(data, target, key=lambda x: x.score)
+        →
+        scores = [x.score for x in data]
+        bisect.bisect_left(scores, target)
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import bisect
+      idx = bisect.bisect_left(data, target, key=lambda x: x.value)
+    after: |
+      import bisect
+      values = [x.value for x in data]
+      idx = bisect.bisect_left(values, target)
+
+- id: python.stdlib.dataclass_slots
+  language: python
+  feature_name: "dataclass slots=True"
+  introduced: "3.10"
+  category: stdlib
+  description: "__slots__ support for dataclasses"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [dataclass, slots, memory]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_id: dataclass
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Remove slots=True from @dataclass decorator:
+        @dataclass(slots=True)
+        →
+        @dataclass
+      And manually add __slots__ if needed:
+        class MyClass:
+            __slots__ = ('field1', 'field2')
+  verification:
+    re_detect: true
+  test:
+    before: |
+      @dataclass(slots=True)
+      class Point:
+          x: float
+          y: float
+    after: |
+      @dataclass
+      class Point:
+          __slots__ = ('x', 'y')
+          x: float
+          y: float
+
+- id: python.stdlib.dataclass_kw_only
+  language: python
+  feature_name: "dataclass kw_only=True"
+  introduced: "3.10"
+  category: stdlib
+  description: "Keyword-only fields in dataclasses"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [dataclass, keyword_only]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_id: dataclass
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Remove kw_only=True and use __post_init__ for validation:
+        @dataclass(kw_only=True)
+        →
+        @dataclass
+      Callers must use keyword arguments manually (no enforcement).
+  verification:
+    re_detect: true
+  test:
+    before: |
+      @dataclass(kw_only=True)
+      class Config:
+          host: str
+          port: int
+    after: |
+      @dataclass
+      class Config:
+          host: str
+          port: int
+
+- id: python.stdlib.zip_strict
+  language: python
+  feature_name: "zip(strict=True)"
+  introduced: "3.10"
+  category: stdlib
+  description: "zip with length check — raises ValueError if lengths differ"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [zip, strict, builtin]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_id: zip
+    exclude:
+      - reason: "zip() without strict=True is fine — only strict param is 3.10+"
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Remove strict=True and add manual length check:
+        for a, b in zip(xs, ys, strict=True):
+        →
+        assert len(xs) == len(ys), "zip strict: lengths differ"
+        for a, b in zip(xs, ys):
+      Or use itertools.zip_longest and check for sentinel.
+  verification:
+    re_detect: true
+  test:
+    before: |
+      for a, b in zip(keys, values, strict=True):
+          mapping[a] = b
+    after: |
+      if len(keys) != len(values):
+          raise ValueError("zip strict: lengths differ")
+      for a, b in zip(keys, values):
+          mapping[a] = b
+
+- id: python.stdlib.anext_builtin
+  language: python
+  feature_name: "anext() builtin"
+  introduced: "3.10"
+  category: stdlib
+  description: "Async version of next() builtin"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [async, builtin, iterator]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_id: anext
+    exclude: []
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with explicit __anext__ call:
+        value = await anext(aiter)
+        →
+        value = await aiter.__anext__()
+
+        value = await anext(aiter, default)
+        →
+        try:
+            value = await aiter.__anext__()
+        except StopAsyncIteration:
+            value = default
+  verification:
+    re_detect: true
+  test:
+    before: |
+      item = await anext(async_iterator)
+    after: |
+      item = await async_iterator.__anext__()

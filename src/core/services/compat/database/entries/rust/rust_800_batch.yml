@@ -1,0 +1,43 @@
+# Rust batch — 800
+
+- id: rust.1_58.format_captured_idents
+  language: rust
+  feature_name: "captured identifiers in format strings"
+  introduced: "1.58"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [format, captured, identifiers]
+  detection: { primary: { ast_type: macro_invocation, match: { macro_name_in: [println, format, write, eprintln] } } }
+  fix: { strategy: manual, manual_instructions: "println!(\"{x}\") → println!(\"{}\", x)" }
+  verification: { re_detect: false }
+  test: { before: "println!(\"{name} is {age}\");\n", after: "println!(\"{} is {}\", name, age);\n" }
+
+- id: rust.1_61.const_fn_trait_bounds
+  language: rust
+  feature_name: "const fn with trait bounds"
+  introduced: "1.61"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [const, fn, trait_bounds]
+  detection: { primary: { ast_type: function_item, match: { is_const: true } } }
+  fix: { strategy: manual, manual_instructions: "Remove const or trait bounds." }
+  verification: { re_detect: false }
+  test: { before: "const fn max<T: Ord>(a: T, b: T) -> T { if a > b { a } else { b } }\n", after: "fn max<T: Ord>(a: T, b: T) -> T { if a > b { a } else { b } }\n" }
+
+- id: rust.1_79.associated_type_bounds
+  language: rust
+  feature_name: "associated type bounds in trait"
+  introduced: "1.79"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [associated, type, bounds]
+  detection: { primary: { ast_type: type_bound_list, match: { has_associated_type_bound: true } } }
+  fix: { strategy: manual, manual_instructions: "Use where clause instead." }
+  verification: { re_detect: true }
+  test: { before: "fn f(x: impl Iterator<Item: Display>) {}\n", after: "fn f<T: Iterator>(x: T) where T::Item: Display {}\n" }

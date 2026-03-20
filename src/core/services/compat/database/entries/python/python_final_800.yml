@@ -1,0 +1,141 @@
+# Python — final entries for 800
+
+- id: python.stdlib.re_verbose_flag
+  language: python
+  feature_name: "re module improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [re, regex]
+  detection: { primary: { ast_type: Import, match: { names_contains: re } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import re\n", after: "import re\n" }
+
+- id: python.stdlib.decimal_improvements_312
+  language: python
+  feature_name: "decimal improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [decimal, improvements]
+  detection: { primary: { ast_type: Import, match: { names_contains: decimal } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import decimal\n", after: "import decimal\n" }
+
+- id: python.stdlib.cmd_improvements
+  language: python
+  feature_name: "cmd module improvements"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [cmd, cli]
+  detection: { primary: { ast_type: Import, match: { names_contains: cmd } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import cmd\n", after: "import cmd\n" }
+
+- id: python.stdlib.code_interact
+  language: python
+  feature_name: "code.interact improvements"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [code, interact, repl]
+  detection: { primary: { ast_type: Import, match: { names_contains: code } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import code\n", after: "import code\n" }
+
+- id: python.stdlib.doctest_improvements
+  language: python
+  feature_name: "doctest improvements"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [doctest, testing]
+  detection: { primary: { ast_type: Import, match: { names_contains: doctest } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import doctest\n", after: "import doctest\n" }
+
+- id: python.stdlib.ftplib_improvements
+  language: python
+  feature_name: "ftplib improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [ftp, network]
+  detection: { primary: { ast_type: Import, match: { names_contains: ftplib } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import ftplib\n", after: "import ftplib\n" }
+
+- id: python.stdlib.hmac_compare_digest
+  language: python
+  feature_name: "hmac improvements"
+  introduced: "3.8"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [hmac, crypto]
+  detection: { primary: { ast_type: Import, match: { names_contains: hmac } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import hmac\n", after: "import hmac\n" }
+
+- id: python.stdlib.heapq_improvements
+  language: python
+  feature_name: "heapq improvements"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [heapq, data_structure]
+  detection: { primary: { ast_type: Import, match: { names_contains: heapq } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import heapq\n", after: "import heapq\n" }
+
+- id: python.stdlib.array_improvements
+  language: python
+  feature_name: "array module improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [array, improvements]
+  detection: { primary: { ast_type: Import, match: { names_contains: array } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import array\n", after: "import array\n" }
+
+- id: python.stdlib.bisect_improvements
+  language: python
+  feature_name: "bisect module improvements"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [bisect, improvements]
+  detection: { primary: { ast_type: Import, match: { names_contains: bisect } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import bisect\n", after: "import bisect\n" }

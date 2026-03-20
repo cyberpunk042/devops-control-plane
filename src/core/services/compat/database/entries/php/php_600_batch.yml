@@ -1,0 +1,70 @@
+# PHP batch
+
+- id: php.8_0.throw_expression
+  language: php
+  feature_name: "throw as expression"
+  introduced: "8.0"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [throw, expression, syntax]
+  detection:
+    primary:
+      ast_type: throw_expression
+  fix:
+    strategy: manual
+    manual_instructions: "Convert to statement: $x = $y ?? throw new E → if ($y === null) throw new E; $x = $y;"
+  verification: { re_detect: true }
+  test:
+    before: |
+      $value = $input ?? throw new InvalidArgumentException();
+    after: |
+      if ($input === null) throw new InvalidArgumentException();
+      $value = $input;
+
+- id: php.8_1.never_return_type
+  language: php
+  feature_name: "never return type"
+  introduced: "8.1"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [never, return, type]
+  detection:
+    primary:
+      ast_type: named_type
+      match: { name: never }
+  fix:
+    strategy: manual
+    manual_instructions: "Remove never return type or replace with void."
+  verification: { re_detect: true }
+  test:
+    before: |
+      function abort(): never { exit(1); }
+    after: |
+      function abort(): void { exit(1); }
+
+- id: php.8_2.constants_in_traits
+  language: php
+  feature_name: "constants in traits"
+  introduced: "8.2"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [trait, constants, syntax]
+  detection:
+    primary:
+      ast_type: const_declaration
+      context: trait_body
+  fix:
+    strategy: manual
+    manual_instructions: "Move constants to a class or interface."
+  verification: { re_detect: true }
+  test:
+    before: |
+      trait HasVersion { const VERSION = '1.0'; }
+    after: |
+      interface HasVersion { const VERSION = '1.0'; }

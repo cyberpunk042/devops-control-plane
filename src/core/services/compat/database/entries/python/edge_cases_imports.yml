@@ -1,0 +1,257 @@
+# Import edge cases — handling various import patterns correctly
+
+- id: python.edge.import_patterns_comprehensive
+  language: python
+  feature_name: "import pattern edge cases"
+  introduced: "3.11"
+  category: stdlib
+  description: "Comprehensive import pattern handling"
+  direction: downgrade
+  severity: info
+  error_type: import_error
+  tags: [edge_case, import, patterns]
+  detection:
+    primary:
+      ast_type: ImportFrom
+      match:
+        module: datetime
+        names_contains: UTC
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  edge_cases:
+    - id: python.edge.import.multiline
+      category: transform_edge_case
+      description: "Multi-line import with parentheses"
+      handling: special_transform
+      test:
+        before: |
+          from datetime import (
+              datetime,
+              UTC,
+              timezone,
+          )
+        after: |
+          from datetime import (
+              datetime,
+              timezone,
+          )
+        notes: "Multi-line imports need special handling for commas and parentheses"
+
+    - id: python.edge.import.star
+      category: false_positive
+      description: "Star import — can't determine what's imported"
+      handling: exclude
+      test:
+        input: |
+          from datetime import *
+          now = datetime.now(UTC)
+        expected_findings: 0
+        notes: "Star import makes it impossible to know if UTC is from datetime"
+
+    - id: python.edge.import.dynamic
+      category: false_positive
+      description: "Dynamic import with importlib"
+      handling: exclude
+      test:
+        input: |
+          import importlib
+          dt = importlib.import_module("datetime")
+          utc = getattr(dt, "UTC", dt.timezone.utc)
+        expected_findings: 0
+        notes: "Dynamic import with safe getattr — can't statically analyze"
+
+    - id: python.edge.import.conditional_platform
+      category: context_dependent
+      description: "Platform-conditional import"
+      handling: exclude
+      test:
+        input: |
+          import platform
+          if platform.system() == "Linux":
+              from datetime import UTC
+        expected_findings: 1
+        notes: "Platform check is NOT a version check — still needs fixing"
+
+    - id: python.edge.import.nested_in_function
+      category: context_dependent
+      description: "Import inside a function body (lazy import)"
+      handling: special_transform
+      test:
+        before: |
+          def get_time():
+              from datetime import UTC
+              return datetime.now(UTC)
+        after: |
+          def get_time():
+              from datetime import timezone
+              return datetime.now(timezone.utc)
+        notes: "Lazy imports inside functions need the same fix"
+
+    - id: python.edge.import.reexport
+      category: transform_edge_case
+      description: "Re-exported name via __all__"
+      handling: special_transform
+      test:
+        before: |
+          from datetime import UTC
+          __all__ = ["UTC"]
+        after: |
+          from datetime import timezone
+          UTC = timezone.utc
+          __all__ = ["UTC"]
+        notes: "Re-exported names need a compatibility alias"
+
+    - id: python.edge.import.as_alias_used_in_annotation
+      category: context_dependent
+      description: "Aliased import used in annotation"
+      handling: special_transform
+      test:
+        before: |
+          from datetime import UTC as Utc
+          def foo(tz: Utc) -> None:
+              pass
+        after: |
+          from datetime import timezone
+          Utc = timezone.utc
+          def foo(tz: Utc) -> None:
+              pass
+
+    - id: python.edge.import.multiple_from_same_module
+      category: transform_edge_case
+      description: "Multiple imports from same module"
+      handling: special_transform
+      test:
+        before: |
+          from datetime import UTC
+          from datetime import datetime
+        after: |
+          from datetime import timezone
+          from datetime import datetime
+
+    - id: python.edge.import.in_try_else
+      category: context_dependent
+      description: "Import in try/else block (not except)"
+      handling: special_transform
+      test:
+        before: |
+          try:
+              check_compatibility()
+          except CompatError:
+              pass
+          else:
+              from datetime import UTC
+        after: |
+          try:
+              check_compatibility()
+          except CompatError:
+              pass
+          else:
+              from datetime import timezone
+
+    - id: python.edge.import.in_class_body
+      category: context_dependent
+      description: "Import inside class body"
+      handling: special_transform
+      test:
+        before: |
+          class TimeHelper:
+              from datetime import UTC
+              DEFAULT_TZ = UTC
+        after: |
+          class TimeHelper:
+              from datetime import timezone
+              DEFAULT_TZ = timezone.utc
+
+  test:
+    before: |
+      from datetime import UTC
+    after: |
+      from datetime import UTC
+
+- id: python.edge.backport_detection
+  language: python
+  feature_name: "backport package detection"
+  introduced: "3.11"
+  category: stdlib
+  description: "Detect existing backport patterns — don't flag"
+  direction: downgrade
+  severity: info
+  error_type: import_error
+  tags: [edge_case, backport, detection]
+  detection:
+    primary:
+      ast_type: Import
+      match:
+        names_contains: tomli
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  edge_cases:
+    - id: python.edge.backport.tomli_direct
+      category: false_positive
+      description: "Direct tomli import (backport, not tomllib)"
+      handling: exclude
+      test:
+        input: |
+          import tomli
+          data = tomli.load(f)
+        expected_findings: 0
+
+    - id: python.edge.backport.tomli_as_tomllib
+      category: false_positive
+      description: "tomli aliased as tomllib (standard backport pattern)"
+      handling: exclude
+      test:
+        input: |
+          import tomli as tomllib
+          data = tomllib.load(f)
+        expected_findings: 0
+
+    - id: python.edge.backport.exceptiongroup
+      category: false_positive
+      description: "exceptiongroup backport package"
+      handling: exclude
+      test:
+        input: |
+          from exceptiongroup import ExceptionGroup
+          raise ExceptionGroup("err", [ValueError()])
+        expected_findings: 0
+        notes: "Import from backport, not builtins"
+
+    - id: python.edge.backport.backports_strenum
+      category: false_positive
+      description: "backports.strenum package"
+      handling: exclude
+      test:
+        input: |
+          from backports.strenum import StrEnum
+          class Color(StrEnum): RED = "red"
+        expected_findings: 0
+
+    - id: python.edge.backport.backports_zoneinfo
+      category: false_positive
+      description: "backports.zoneinfo package"
+      handling: exclude
+      test:
+        input: |
+          from backports.zoneinfo import ZoneInfo
+          tz = ZoneInfo("UTC")
+        expected_findings: 0
+
+    - id: python.edge.backport.typing_extensions_all
+      category: false_positive
+      description: "Any import from typing_extensions"
+      handling: exclude
+      test:
+        input: |
+          from typing_extensions import Self, ParamSpec, TypeGuard, Never
+        expected_findings: 0
+
+  test:
+    before: |
+      import tomli
+    after: |
+      import tomli

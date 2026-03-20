@@ -1,0 +1,176 @@
+# Ruby version-specific features
+
+- id: ruby.3_0.pattern_matching
+  language: ruby
+  feature_name: "pattern matching (case/in)"
+  introduced: "3.0"
+  category: syntax
+  description: "Structural pattern matching with case/in"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [pattern, matching, syntax]
+  detection:
+    primary:
+      ast_type: case_match
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: "Rewrite as case/when with manual destructuring"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      case response
+      in { status: 200, body: }
+        process(body)
+      in { status: 404 }
+        not_found
+      end
+    after: |
+      case response[:status]
+      when 200
+        process(response[:body])
+      when 404
+        not_found
+      end
+
+- id: ruby.3_0.endless_method
+  language: ruby
+  feature_name: "endless method definition"
+  introduced: "3.0"
+  category: syntax
+  description: "def method = expression (single-expression methods)"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [method, syntax]
+  detection:
+    primary:
+      ast_type: method
+      match:
+        endless: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: expand_endless_method
+        find: {}
+        replace:
+          style: block_method
+  verification:
+    re_detect: true
+  test:
+    before: |
+      def double(x) = x * 2
+      def greeting = "Hello"
+    after: |
+      def double(x)
+        x * 2
+      end
+      def greeting
+        "Hello"
+      end
+
+- id: ruby.3_1.hash_shorthand
+  language: ruby
+  feature_name: "hash value omission ({x:})"
+  introduced: "3.1"
+  category: syntax
+  description: "Shorthand for {x: x} as {x:}"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [hash, shorthand, syntax]
+  detection:
+    primary:
+      ast_type: pair
+      match:
+        shorthand: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: expand_hash_shorthand
+        find: {}
+        replace:
+          style: explicit_value
+  verification:
+    re_detect: true
+  test:
+    before: |
+      name = "Alice"
+      age = 30
+      person = {name:, age:}
+    after: |
+      name = "Alice"
+      age = 30
+      person = {name: name, age: age}
+
+- id: ruby.3_2.data_class
+  language: ruby
+  feature_name: "Data class"
+  introduced: "3.2"
+  category: stdlib
+  description: "Immutable value objects via Data.define"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [data, immutable, value_object]
+  detection:
+    primary:
+      ast_type: call
+      match:
+        receiver: Data
+        method: define
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace Data.define with Struct + freeze:
+        Point = Data.define(:x, :y)
+        →
+        Point = Struct.new(:x, :y) do
+          def initialize(...)
+            super
+            freeze
+          end
+        end
+  verification:
+    re_detect: true
+  test:
+    before: |
+      Point = Data.define(:x, :y)
+      p = Point.new(x: 1, y: 2)
+    after: |
+      Point = Struct.new(:x, :y, keyword_init: true)
+      p = Point.new(x: 1, y: 2)
+
+- id: ruby.3_3.it_reference
+  language: ruby
+  feature_name: "it (implicit block parameter)"
+  introduced: "3.3"
+  category: syntax
+  description: "Use 'it' as implicit block parameter instead of |x| x"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [block, parameter, syntax]
+  detection:
+    primary:
+      ast_type: identifier
+      match:
+        name: it
+        context: block_body_without_params
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: add_block_param
+        find: {}
+        replace:
+          param_name: it
+  verification:
+    re_detect: true
+  test:
+    before: |
+      [1, 2, 3].map { it * 2 }
+    after: |
+      [1, 2, 3].map { |it| it * 2 }

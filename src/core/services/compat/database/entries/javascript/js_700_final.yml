@@ -1,0 +1,151 @@
+# JavaScript — final for 700
+
+- id: js.es2015.promise_then
+  language: javascript
+  feature_name: "Promise.prototype.then"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [promise, then]
+  detection:
+    primary: { ast_type: call_expression, match: { method: then } }
+  fix: { strategy: manual, manual_instructions: "Use callback pattern." }
+  verification: { re_detect: false }
+  test: { before: "p.then(ok, err);\n", after: "p.then(ok, err);\n" }
+
+- id: js.es2015.string_iterator_spread
+  language: javascript
+  feature_name: "string spread [...str]"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [string, spread, iterator]
+  detection:
+    primary: { ast_type: spread_element }
+  fix: { strategy: manual, manual_instructions: "[...str] → str.split('')" }
+  verification: { re_detect: false }
+  test: { before: "const chars = [...str];\n", after: "var chars = str.split('');\n" }
+
+- id: js.es2016.exponent_assign
+  language: javascript
+  feature_name: "**= operator"
+  introduced: "ES2016"
+  category: es2016
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [exponent, assignment]
+  detection:
+    primary: { ast_type: assignment_expression, match: { operator: "**=" } }
+  fix: { strategy: manual, manual_instructions: "x **= y → x = Math.pow(x, y)" }
+  verification: { re_detect: true }
+  test: { before: "x **= 3;\n", after: "x = Math.pow(x, 3);\n" }
+
+- id: js.es2018.async_generator_protocol
+  language: javascript
+  feature_name: "async iteration protocol"
+  introduced: "ES2018"
+  category: es2018
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [async, iterator, protocol]
+  detection:
+    primary: { ast_type: computed_property_name, match: { expression_contains: "Symbol.asyncIterator" } }
+  fix: { strategy: manual, manual_instructions: "Use callback-based async pattern." }
+  verification: { re_detect: true }
+  test: { before: "[Symbol.asyncIterator]() {}\n", after: "// callback pattern\n" }
+
+- id: js.es2020.optional_chaining_element
+  language: javascript
+  feature_name: "optional chaining element access (?.[])"
+  introduced: "ES2020"
+  category: es2020
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [optional, element, access]
+  detection:
+    primary: { ast_type: optional_chain_expression }
+  fix: { strategy: manual, manual_instructions: "obj?.[key] → obj && obj[key]" }
+  verification: { re_detect: false }
+  test: { before: "const val = obj?.[key];\n", after: "var val = obj && obj[key];\n" }
+
+- id: js.es2021.string_replaceall_regex
+  language: javascript
+  feature_name: "String.replaceAll with regex"
+  introduced: "ES2021"
+  category: es2021
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [string, replaceAll, regex]
+  detection:
+    primary: { ast_type: call_expression, match: { method: replaceAll } }
+  fix: { strategy: manual, manual_instructions: "Use .replace(/pattern/g, replacement)" }
+  verification: { re_detect: true }
+  test: { before: "str.replaceAll('a', 'b');\n", after: "str.replace(/a/g, 'b');\n" }
+
+- id: js.es2022.regexp_matchindices
+  language: javascript
+  feature_name: "RegExp match indices"
+  introduced: "ES2022"
+  category: es2022
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [regexp, match, indices]
+  detection:
+    primary: { ast_type: member_expression, match: { property: indices } }
+  fix: { strategy: manual, manual_instructions: "Calculate from match.index + match[0].length." }
+  verification: { re_detect: true }
+  test: { before: "match.indices[0];\n", after: "[match.index, match.index + match[0].length];\n" }
+
+- id: js.es2023.change_array_tosorted
+  language: javascript
+  feature_name: "Array.prototype.toSorted()"
+  introduced: "ES2023"
+  category: es2023
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [array, sort, copy]
+  detection:
+    primary: { ast_type: call_expression, match: { method: toSorted } }
+  fix: { strategy: manual, manual_instructions: "[...arr].sort(fn)" }
+  verification: { re_detect: true }
+  test: { before: "const sorted = arr.toSorted();\n", after: "var sorted = arr.slice().sort();\n" }
+
+- id: js.es2023.change_array_toreversed
+  language: javascript
+  feature_name: "Array.prototype.toReversed()"
+  introduced: "ES2023"
+  category: es2023
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [array, reverse, copy]
+  detection:
+    primary: { ast_type: call_expression, match: { method: toReversed } }
+  fix: { strategy: manual, manual_instructions: "[...arr].reverse()" }
+  verification: { re_detect: true }
+  test: { before: "const rev = arr.toReversed();\n", after: "var rev = arr.slice().reverse();\n" }
+
+- id: js.es2023.array_tospliced
+  language: javascript
+  feature_name: "Array.prototype.toSpliced()"
+  introduced: "ES2023"
+  category: es2023
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [array, splice, copy]
+  detection:
+    primary: { ast_type: call_expression, match: { method: toSpliced } }
+  fix: { strategy: manual, manual_instructions: "const copy = [...arr]; copy.splice(i, n, ...items);" }
+  verification: { re_detect: true }
+  test: { before: "const r = arr.toSpliced(1, 2);\n", after: "var r = arr.slice(); r.splice(1, 2);\n" }

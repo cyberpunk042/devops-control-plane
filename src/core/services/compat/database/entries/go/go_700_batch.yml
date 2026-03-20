@@ -1,0 +1,78 @@
+# Go batch — 700
+
+- id: go.1_18.workspace_use
+  language: go
+  feature_name: "go work use"
+  introduced: "1.18"
+  category: stdlib
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [workspace, modules]
+  detection:
+    primary: { ast_type: file, match: { filename: "go.work" } }
+  fix: { strategy: manual, manual_instructions: "Use replace directives in go.mod." }
+  verification: { re_detect: true }
+  test: { before: "go 1.18\nuse ./pkg\n", after: "// go.mod replace\n" }
+
+- id: go.1_20.crypto_ecdh
+  language: go
+  feature_name: "crypto/ecdh package"
+  introduced: "1.20"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [crypto, ecdh]
+  detection:
+    primary: { ast_type: import_spec, match: { path: '"crypto/ecdh"' } }
+  fix: { strategy: manual, manual_instructions: "Use crypto/elliptic manually." }
+  verification: { re_detect: true }
+  test: { before: "import \"crypto/ecdh\"\n", after: "import \"crypto/elliptic\"\n" }
+
+- id: go.1_21.once_func
+  language: go
+  feature_name: "sync.OnceFunc/OnceValue/OnceValues"
+  introduced: "1.21"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [sync, once, helper]
+  detection:
+    primary: { ast_type: call_expression, match: { package: sync, function_in: [OnceFunc, OnceValue, OnceValues] } }
+  fix: { strategy: manual, manual_instructions: "Use sync.Once with a wrapper." }
+  verification: { re_detect: true }
+  test: { before: "init := sync.OnceFunc(setup)\n", after: "var once sync.Once\nfunc init() { once.Do(setup) }\n" }
+
+- id: go.1_22.rangefunc_seq
+  language: go
+  feature_name: "iter.Seq type"
+  introduced: "1.23"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [iter, seq, iterator]
+  detection:
+    primary: { ast_type: import_spec, match: { path: '"iter"' } }
+  fix: { strategy: manual, manual_instructions: "Use callback-based iteration." }
+  verification: { re_detect: true }
+  test: { before: "import \"iter\"\n", after: "// callbacks\n" }
+
+- id: go.1_23.os_copyfs
+  language: go
+  feature_name: "os.CopyFS()"
+  introduced: "1.23"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [os, copyfs, filesystem]
+  detection:
+    primary: { ast_type: call_expression, match: { package: os, function: CopyFS } }
+  fix: { strategy: manual, manual_instructions: "Use filepath.WalkDir with manual copy." }
+  verification: { re_detect: true }
+  test: { before: "os.CopyFS(dst, srcFS)\n", after: "// Manual walk + copy\n" }

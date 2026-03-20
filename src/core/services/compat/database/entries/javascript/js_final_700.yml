@@ -1,0 +1,151 @@
+# JavaScript — final for 700
+
+- id: js.es2015.regexp_unicode
+  language: javascript
+  feature_name: "RegExp u flag"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [regexp, unicode, flag]
+  detection:
+    primary: { ast_type: regex, match: { flags_contains: u } }
+  fix: { strategy: manual, manual_instructions: "Remove u flag. May lose Unicode awareness." }
+  verification: { re_detect: true }
+  test: { before: "/\\u{1F600}/u.test(str);\n", after: "/\\uD83D\\uDE00/.test(str);\n" }
+
+- id: js.es2015.regexp_sticky
+  language: javascript
+  feature_name: "RegExp y flag (sticky)"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [regexp, sticky, flag]
+  detection:
+    primary: { ast_type: regex, match: { flags_contains: y } }
+  fix: { strategy: manual, manual_instructions: "Use lastIndex + g flag manually." }
+  verification: { re_detect: true }
+  test: { before: "const re = /\\w+/y;\n", after: "var re = /\\w+/g;\n" }
+
+- id: js.es2015.object_super
+  language: javascript
+  feature_name: "super in object literals"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [super, object, method]
+  detection:
+    primary: { ast_type: member_expression, match: { object: super } }
+  fix: { strategy: manual, manual_instructions: "Use Object.getPrototypeOf(this).method.call(this)." }
+  verification: { re_detect: true }
+  test: { before: "super.toString();\n", after: "Object.getPrototypeOf(this).toString.call(this);\n" }
+
+- id: js.es2017.object_values
+  language: javascript
+  feature_name: "Object.values()"
+  introduced: "ES2017"
+  category: es2017
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [object, values, static]
+  detection:
+    primary: { ast_type: call_expression, match: { object: Object, method: values } }
+  fix: { strategy: manual, manual_instructions: "Object.keys(obj).map(k => obj[k])" }
+  verification: { re_detect: true }
+  test: { before: "Object.values(obj);\n", after: "Object.keys(obj).map(function(k){return obj[k]});\n" }
+
+- id: js.es2018.rest_properties
+  language: javascript
+  feature_name: "rest properties in destructuring"
+  introduced: "ES2018"
+  category: es2018
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [rest, destructuring, object]
+  detection:
+    primary: { ast_type: rest_pattern, context: object_pattern }
+  fix: { strategy: manual, manual_instructions: "Manually extract remaining properties." }
+  verification: { re_detect: true }
+  test: { before: "const { a, ...rest } = obj;\n", after: "var a = obj.a; var rest = {}; for(var k in obj) if(k!=='a') rest[k]=obj[k];\n" }
+
+- id: js.es2019.optional_catch_2
+  language: javascript
+  feature_name: "catch without parameter"
+  introduced: "ES2019"
+  category: es2019
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [catch, optional]
+  detection:
+    primary: { ast_type: catch_clause, match: { parameter: null } }
+  fix: { strategy: manual, manual_instructions: "Add parameter: catch { } → catch(_) { }" }
+  verification: { re_detect: true }
+  test: { before: "try {} catch {}\n", after: "try {} catch(_) {}\n" }
+
+- id: js.es2020.nullish_coalescing_assign
+  language: javascript
+  feature_name: "??= operator"
+  introduced: "ES2021"
+  category: es2021
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [nullish, assignment, operator]
+  detection:
+    primary: { ast_type: assignment_expression, match: { operator: "??=" } }
+  fix: { strategy: manual, manual_instructions: "x ??= y → if (x === null || x === undefined) x = y;" }
+  verification: { re_detect: true }
+  test: { before: "x ??= defaults;\n", after: "if (x === null || x === undefined) x = defaults;\n" }
+
+- id: js.es2021.or_assign
+  language: javascript
+  feature_name: "||= operator"
+  introduced: "ES2021"
+  category: es2021
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [or, assignment, operator]
+  detection:
+    primary: { ast_type: assignment_expression, match: { operator: "||=" } }
+  fix: { strategy: manual, manual_instructions: "x ||= y → x = x || y;" }
+  verification: { re_detect: true }
+  test: { before: "config.name ||= 'default';\n", after: "config.name = config.name || 'default';\n" }
+
+- id: js.es2021.and_assign
+  language: javascript
+  feature_name: "&&= operator"
+  introduced: "ES2021"
+  category: es2021
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [and, assignment, operator]
+  detection:
+    primary: { ast_type: assignment_expression, match: { operator: "&&=" } }
+  fix: { strategy: manual, manual_instructions: "x &&= y → x = x && y;" }
+  verification: { re_detect: true }
+  test: { before: "config.debug &&= isDevMode();\n", after: "config.debug = config.debug && isDevMode();\n" }
+
+- id: js.es2024.temporal
+  language: javascript
+  feature_name: "Temporal API (proposal)"
+  introduced: "ES2025"
+  category: es2024
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [temporal, date, time]
+  detection:
+    primary: { ast_type: member_expression, match: { object: Temporal } }
+  fix: { strategy: manual, manual_instructions: "Use Luxon, date-fns, or moment.js." }
+  verification: { re_detect: true }
+  test: { before: "Temporal.Now.instant();\n", after: "new Date();\n" }

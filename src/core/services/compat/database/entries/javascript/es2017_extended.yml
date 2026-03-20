@@ -1,0 +1,153 @@
+# JavaScript ES2017 features — extended
+
+- id: js.es2017.string_padstart
+  language: javascript
+  feature_name: "String.prototype.padStart/padEnd"
+  introduced: "ES2017"
+  category: es2017
+  description: "Pad strings to a target length"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [string, pad, method]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method_in: [padStart, padEnd]
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Polyfill:
+        String.prototype.padStart = String.prototype.padStart || function(len, fill) {
+          fill = fill || ' ';
+          var s = this;
+          while (s.length < len) s = fill + s;
+          return s.slice(-len);
+        };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const padded = str.padStart(10, '0');
+    after: |
+      String.prototype.padStart = String.prototype.padStart || function(l,f){f=f||' ';var s=this;while(s.length<l)s=f+s;return s.slice(-l)};
+      var padded = str.padStart(10, '0');
+
+- id: js.es2017.object_getownpropertydescriptors
+  language: javascript
+  feature_name: "Object.getOwnPropertyDescriptors()"
+  introduced: "ES2017"
+  category: es2017
+  description: "Get all own property descriptors of an object"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [object, descriptors, method]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Object
+        method: getOwnPropertyDescriptors
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Polyfill:
+        Object.getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors || function(obj) {
+          var result = {};
+          Object.getOwnPropertyNames(obj).forEach(function(key) {
+            result[key] = Object.getOwnPropertyDescriptor(obj, key);
+          });
+          return result;
+        };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const descriptors = Object.getOwnPropertyDescriptors(obj);
+    after: |
+      Object.getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors || function(o){var r={};Object.getOwnPropertyNames(o).forEach(function(k){r[k]=Object.getOwnPropertyDescriptor(o,k)});return r};
+      var descriptors = Object.getOwnPropertyDescriptors(obj);
+
+- id: js.es2017.shared_array_buffer
+  language: javascript
+  feature_name: "SharedArrayBuffer"
+  introduced: "ES2017"
+  category: es2017
+  description: "Shared memory between workers"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [shared, memory, worker]
+  detection:
+    primary:
+      ast_type: new_expression
+      match:
+        constructor: SharedArrayBuffer
+  fix:
+    strategy: manual
+    manual_instructions: "No polyfill — SharedArrayBuffer requires engine support. Use message passing instead."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const sab = new SharedArrayBuffer(1024);
+    after: |
+      // Use postMessage for inter-worker communication
+
+- id: js.es2017.trailing_commas_params
+  language: javascript
+  feature_name: "trailing commas in function parameters"
+  introduced: "ES2017"
+  category: es2017
+  description: "Allow trailing comma after last function parameter"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [trailing, comma, syntax]
+  detection:
+    primary:
+      ast_type: formal_parameters
+      match:
+        has_trailing_comma: true
+  fix:
+    strategy: manual
+    manual_instructions: "Remove the trailing comma from parameter lists."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      function greet(name, age,) { return name; }
+    after: |
+      function greet(name, age) { return name; }
+
+- id: js.es2017.atomics
+  language: javascript
+  feature_name: "Atomics"
+  introduced: "ES2017"
+  category: es2017
+  description: "Atomic operations on shared memory"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [atomics, shared, memory]
+  detection:
+    primary:
+      ast_type: member_expression
+      match:
+        object: Atomics
+  fix:
+    strategy: manual
+    manual_instructions: "No polyfill — requires engine support. Redesign without shared memory."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      Atomics.store(int32, 0, 42);
+    after: |
+      // Redesign without shared memory atomics

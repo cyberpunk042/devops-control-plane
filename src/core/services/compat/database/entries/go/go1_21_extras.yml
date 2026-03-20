@@ -1,0 +1,122 @@
+# Go 1.21 extras
+
+- id: go.1_21.cmp_package
+  language: go
+  feature_name: "cmp package"
+  introduced: "1.21"
+  category: stdlib
+  description: "Comparison functions for ordered types"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_module
+  tags: [cmp, compare, stdlib]
+  detection:
+    primary:
+      ast_type: import_spec
+      match:
+        path: '"cmp"'
+  fix:
+    strategy: manual
+    manual_instructions: "Implement manual comparison functions or use golang.org/x/exp/constraints."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import "cmp"
+      result := cmp.Compare(a, b)
+    after: |
+      // Manual: if a < b return -1; if a > b return 1; return 0
+
+- id: go.1_21.context_afterfunc
+  language: go
+  feature_name: "context.AfterFunc()"
+  introduced: "1.21"
+  category: stdlib
+  description: "Run function when context is done"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [context, afterfunc, callback]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: context
+        function: AfterFunc
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Use goroutine watching ctx.Done():
+        context.AfterFunc(ctx, cleanup)
+        →
+        go func() { <-ctx.Done(); cleanup() }()
+  verification:
+    re_detect: true
+  test:
+    before: |
+      stop := context.AfterFunc(ctx, cleanup)
+    after: |
+      go func() { <-ctx.Done(); cleanup() }()
+
+- id: go.1_21.testing_slog
+  language: go
+  feature_name: "testing/slogtest"
+  introduced: "1.22"
+  category: stdlib
+  description: "Test package for slog handlers"
+  direction: downgrade
+  severity: warning
+  error_type: import_error
+  error_subtype: missing_module
+  tags: [testing, slog, handler]
+  detection:
+    primary:
+      ast_type: import_spec
+      match:
+        path: '"testing/slogtest"'
+  fix:
+    strategy: manual
+    manual_instructions: "Write custom handler tests."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import "testing/slogtest"
+    after: |
+      // Custom slog handler tests
+
+- id: go.1_22.math_rand_v2
+  language: go
+  feature_name: "math/rand/v2"
+  introduced: "1.22"
+  category: stdlib
+  description: "New random number generator v2 API"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  error_subtype: missing_module
+  tags: [math, rand, v2]
+  detection:
+    primary:
+      ast_type: import_spec
+      match:
+        path: '"math/rand/v2"'
+  fix:
+    strategy: replace_import
+    transforms:
+      - type: replace_import_statement
+        find:
+          import_pattern: '"math/rand/v2"'
+        replace:
+          import_statement: '"math/rand"'
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import "math/rand/v2"
+      n := rand.IntN(100)
+    after: |
+      import "math/rand"
+      n := rand.Intn(100)

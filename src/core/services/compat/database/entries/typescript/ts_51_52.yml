@@ -1,0 +1,93 @@
+# TypeScript 5.1-5.2
+
+- id: ts.5_1.return_undefined
+  language: typescript
+  feature_name: "undefined-returning functions"
+  introduced: "5.1"
+  category: ts5
+  description: "Functions with no return can be typed as returning undefined"
+  direction: downgrade
+  severity: info
+  error_type: type_error
+  tags: [undefined, return, function]
+  detection:
+    primary:
+      ast_type: function_declaration
+      match:
+        return_type: undefined
+  fix:
+    strategy: manual
+    manual_instructions: "Change return type to void."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      function log(msg: string): undefined { console.log(msg); }
+    after: |
+      function log(msg: string): void { console.log(msg); }
+
+- id: ts.5_1.getter_setter_unrelated
+  language: typescript
+  feature_name: "unrelated getter/setter types"
+  introduced: "5.1"
+  category: ts5
+  description: "Getter and setter can have unrelated types"
+  direction: downgrade
+  severity: warning
+  error_type: type_error
+  tags: [getter, setter, types]
+  detection:
+    primary:
+      ast_type: accessor_declaration
+      match:
+        mismatched_types: true
+  fix:
+    strategy: manual
+    manual_instructions: "Make getter and setter types compatible."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      class Box {
+        #value: number = 0;
+        get value(): number { return this.#value; }
+        set value(val: string | number) { this.#value = Number(val); }
+      }
+    after: |
+      class Box {
+        #value: number = 0;
+        get value(): number { return this.#value; }
+        set value(val: number) { this.#value = val; }
+      }
+
+- id: ts.5_2.decorator_metadata
+  language: typescript
+  feature_name: "decorator metadata"
+  introduced: "5.2"
+  category: ts5
+  description: "Symbol.metadata for decorator context"
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [decorator, metadata, symbol]
+  detection:
+    primary:
+      ast_type: member_expression
+      match:
+        object: Symbol
+        property: metadata
+  fix:
+    strategy: manual
+    manual_instructions: "Use a WeakMap for decorator metadata storage."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      function track(target: any, context: ClassMethodDecoratorContext) {
+        context.metadata[context.name] = true;
+      }
+    after: |
+      const metadata = new WeakMap();
+      function track(target: any) {
+        metadata.set(target, true);
+      }

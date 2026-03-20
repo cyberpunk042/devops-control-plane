@@ -1,0 +1,141 @@
+# JavaScript batch — 800
+
+- id: js.es2015.class_extends_expr
+  language: javascript
+  feature_name: "class extends expression"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [class, extends, expression]
+  detection: { primary: { ast_type: class_declaration, match: { has_extends: true } } }
+  fix: { strategy: manual, manual_instructions: "Use prototype chain." }
+  verification: { re_detect: true }
+  test: { before: "class Foo extends Bar {}\n", after: "function Foo(){Bar.call(this)}\nFoo.prototype=Object.create(Bar.prototype);\n" }
+
+- id: js.es2015.computed_method_names
+  language: javascript
+  feature_name: "computed method names"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [computed, method, name]
+  detection: { primary: { ast_type: method_definition, match: { has_computed_key: true } } }
+  fix: { strategy: manual, manual_instructions: "Use bracket notation after definition." }
+  verification: { re_detect: true }
+  test: { before: "const obj = { [key]() {} };\n", after: "var obj = {}; obj[key] = function() {};\n" }
+
+- id: js.es2015.new_target_meta
+  language: javascript
+  feature_name: "new.target meta-property"
+  introduced: "ES2015"
+  category: es2015
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [new, target, meta]
+  detection: { primary: { ast_type: meta_property, match: { meta: new } } }
+  fix: { strategy: manual, manual_instructions: "Use this instanceof check." }
+  verification: { re_detect: true }
+  test: { before: "if (!new.target) throw 'Use new';\n", after: "if (!(this instanceof Ctor)) throw 'Use new';\n" }
+
+- id: js.es2017.async_functions
+  language: javascript
+  feature_name: "async function declarations"
+  introduced: "ES2017"
+  category: es2017
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [async, function, declaration]
+  detection: { primary: { ast_type: function_declaration, match: { async: true } } }
+  fix: { strategy: manual, manual_instructions: "Use Promise chains." }
+  verification: { re_detect: true }
+  test: { before: "async function load() {}\n", after: "function load() { return Promise.resolve(); }\n" }
+
+- id: js.es2018.rest_object
+  language: javascript
+  feature_name: "object rest in destructuring"
+  introduced: "ES2018"
+  category: es2018
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [rest, object, destructuring]
+  detection: { primary: { ast_type: rest_pattern } }
+  fix: { strategy: manual, manual_instructions: "Manually extract remaining properties." }
+  verification: { re_detect: false }
+  test: { before: "const {a, ...rest} = obj;\n", after: "var a=obj.a; var rest={}; Object.keys(obj).forEach(function(k){if(k!=='a')rest[k]=obj[k]});\n" }
+
+- id: js.es2019.object_from_entries
+  language: javascript
+  feature_name: "Object.fromEntries()"
+  introduced: "ES2019"
+  category: es2019
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [object, fromEntries]
+  detection: { primary: { ast_type: call_expression, match: { object: Object, method: fromEntries } } }
+  fix: { strategy: manual, manual_instructions: "Use reduce." }
+  verification: { re_detect: true }
+  test: { before: "Object.fromEntries(pairs);\n", after: "pairs.reduce(function(o,p){o[p[0]]=p[1];return o},{});\n" }
+
+- id: js.es2020.globalthis_property
+  language: javascript
+  feature_name: "globalThis object"
+  introduced: "ES2020"
+  category: es2020
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [globalThis, global]
+  detection: { primary: { ast_type: identifier, match: { name: globalThis } } }
+  fix: { strategy: manual, manual_instructions: "Use typeof window!=='undefined'?window:global." }
+  verification: { re_detect: true }
+  test: { before: "globalThis.x = 1;\n", after: "(typeof window!=='undefined'?window:global).x=1;\n" }
+
+- id: js.es2021.numeric_separator_underscore
+  language: javascript
+  feature_name: "numeric separators"
+  introduced: "ES2021"
+  category: es2021
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [numeric, separator]
+  detection: { primary: { ast_type: number, match: { has_separator: true } } }
+  fix: { strategy: manual, manual_instructions: "Remove underscores." }
+  verification: { re_detect: true }
+  test: { before: "const n = 1_000_000;\n", after: "var n = 1000000;\n" }
+
+- id: js.es2022.top_level_await_module
+  language: javascript
+  feature_name: "top-level await in modules"
+  introduced: "ES2022"
+  category: es2022
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [top_level, await, module]
+  detection: { primary: { ast_type: await_expression, context: module_level } }
+  fix: { strategy: manual, manual_instructions: "Wrap in async IIFE." }
+  verification: { re_detect: true }
+  test: { before: "const data = await fetch(url);\n", after: "(async()=>{const data=await fetch(url)})();\n" }
+
+- id: js.es2024.set_union
+  language: javascript
+  feature_name: "Set.prototype.union()"
+  introduced: "ES2024"
+  category: es2024
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [set, union, method]
+  detection: { primary: { ast_type: call_expression, match: { method: union } } }
+  fix: { strategy: manual, manual_instructions: "new Set([...a, ...b])" }
+  verification: { re_detect: true }
+  test: { before: "const u = setA.union(setB);\n", after: "var u = new Set([...setA, ...setB]);\n" }

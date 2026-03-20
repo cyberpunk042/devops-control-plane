@@ -1,0 +1,82 @@
+# PHP 8.3 features
+
+- id: php.8_3.json_validate
+  language: php
+  feature_name: "json_validate()"
+  introduced: "8.3"
+  category: stdlib
+  description: "Validate JSON without decoding"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [json, validate, function]
+  detection:
+    primary:
+      ast_type: function_call_expression
+      match:
+        function: json_validate
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with json_decode + error check:
+        json_validate($str) → json_decode($str) !== null || $str === 'null'
+  verification:
+    re_detect: true
+  test:
+    before: |
+      if (json_validate($input)) { process($input); }
+    after: |
+      if (json_decode($input) !== null || $input === 'null') { process($input); }
+
+- id: php.8_3.dynamic_class_const_fetch
+  language: php
+  feature_name: "dynamic class constant fetch"
+  introduced: "8.3"
+  category: syntax
+  description: 'Enum::{$name} dynamic constant access'
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [class, constant, dynamic]
+  detection:
+    primary:
+      ast_type: dynamic_class_const_access
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: "Use constant() function: constant(Enum::class . '::' . $name)"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      $value = Color::{$name};
+    after: |
+      $value = constant(Color::class . '::' . $name);
+
+- id: php.8_3.readonly_amendments
+  language: php
+  feature_name: "readonly class amendments"
+  introduced: "8.3"
+  category: syntax
+  description: "Readonly properties can be reinitialized in clone"
+  direction: downgrade
+  severity: warning
+  error_type: behavioral_change
+  tags: [readonly, clone, class]
+  detection:
+    primary:
+      ast_type: clone_expression
+      match:
+        has_property_writes: true
+  fix:
+    strategy: manual
+    manual_instructions: "Use a factory method instead of clone with property writes."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      $copy = clone $original;
+      $copy->name = "new";
+    after: |
+      $copy = new User("new", $original->age);

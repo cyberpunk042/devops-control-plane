@@ -1,0 +1,145 @@
+# Runtime edge cases — patterns that are commonly mis-detected
+
+- id: python.edge.runtime_patterns
+  language: python
+  feature_name: "runtime pattern edge cases"
+  introduced: "3.9"
+  category: builtins
+  description: "Common runtime patterns that need careful detection"
+  direction: downgrade
+  severity: info
+  error_type: runtime_error
+  tags: [edge_case, runtime, patterns]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: removeprefix
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  edge_cases:
+    - id: python.edge.removeprefix_custom_class
+      category: false_positive
+      description: "Custom class with removeprefix method"
+      handling: exclude
+      test:
+        input: |
+          class MyString:
+              def removeprefix(self, prefix): return self
+          s = MyString()
+          s.removeprefix("x")
+        expected_findings: 1
+        notes: "We can't distinguish custom classes from str without type inference — accepted false positive"
+
+    - id: python.edge.method_name_in_string
+      category: false_positive
+      description: "Method name in a string constant"
+      handling: exclude
+      test:
+        input: |
+          METHODS = ["removeprefix", "removesuffix"]
+        expected_findings: 0
+        notes: "String containing method name is not a method call"
+
+    - id: python.edge.method_definition
+      category: false_positive
+      description: "Defining a method named removeprefix"
+      handling: exclude
+      test:
+        input: |
+          class MyStr:
+              def removeprefix(self, prefix):
+                  return self[len(prefix):]
+        expected_findings: 0
+        notes: "Defining the method is not using the feature"
+
+    - id: python.edge.dict_or_vs_bitwise_or
+      category: false_positive
+      description: "Bitwise OR on integers vs dict merge"
+      handling: exclude
+      test:
+        input: |
+          flags = FLAG_A | FLAG_B
+          mask = 0xFF | 0x0F
+        expected_findings: 0
+        notes: "Integer bitwise OR should not be flagged as dict merge (needs type inference)"
+
+    - id: python.edge.walrus_in_comprehension
+      category: transform_edge_case
+      description: "Walrus operator in list comprehension"
+      handling: special_transform
+      test:
+        before: |
+          results = [y for x in data if (y := f(x)) > 0]
+        after: |
+          results = []
+          for x in data:
+              y = f(x)
+              if y > 0:
+                  results.append(y)
+        notes: "Comprehension with walrus must be expanded to a loop"
+
+    - id: python.edge.walrus_in_assert
+      category: transform_edge_case
+      description: "Walrus in assert statement"
+      handling: special_transform
+      test:
+        before: |
+          assert (result := compute()) is not None, f"Got {result}"
+        after: |
+          result = compute()
+          assert result is not None, f"Got {result}"
+
+    - id: python.edge.match_case_enum
+      category: transform_edge_case
+      description: "match/case with enum values"
+      handling: special_transform
+      test:
+        before: |
+          match status:
+              case Status.OK:
+                  handle_ok()
+              case Status.ERROR:
+                  handle_error()
+        after: |
+          if status == Status.OK:
+              handle_ok()
+          elif status == Status.ERROR:
+              handle_error()
+
+    - id: python.edge.match_case_destructure
+      category: transform_edge_case
+      description: "match/case with structural pattern matching"
+      handling: special_transform
+      test:
+        before: |
+          match point:
+              case Point(x=0, y=0):
+                  print("origin")
+              case Point(x, y) if x == y:
+                  print("diagonal")
+        after: |
+          if isinstance(point, Point) and point.x == 0 and point.y == 0:
+              print("origin")
+          elif isinstance(point, Point) and point.x == point.y:
+              print("diagonal")
+
+    - id: python.edge.positional_only_with_default
+      category: transform_edge_case
+      description: "Positional-only params with defaults"
+      handling: special_transform
+      test:
+        before: |
+          def greet(name, /, greeting="Hello"):
+              return f"{greeting}, {name}"
+        after: |
+          def greet(name, greeting="Hello"):
+              return f"{greeting}, {name}"
+
+  test:
+    before: |
+      result = path.removeprefix("/home/")
+    after: |
+      result = path.removeprefix("/home/")

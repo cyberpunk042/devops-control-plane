@@ -1,0 +1,153 @@
+# C# 9-10 features — extras
+
+- id: csharp.9.top_level_statements
+  language: csharp
+  feature_name: "top-level statements"
+  introduced: "9"
+  category: syntax
+  description: "Write executable code without Main method boilerplate"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [top_level, main, entry_point]
+  detection:
+    primary:
+      ast_type: compilation_unit
+      match:
+        has_top_level_statements: true
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Wrap in Program class:
+        Console.WriteLine("Hello");
+        →
+        class Program { static void Main() { Console.WriteLine("Hello"); } }
+  verification:
+    re_detect: true
+  test:
+    before: |
+      Console.WriteLine("Hello, World!");
+    after: |
+      class Program {
+          static void Main() {
+              Console.WriteLine("Hello, World!");
+          }
+      }
+
+- id: csharp.9.target_typed_new
+  language: csharp
+  feature_name: "target-typed new"
+  introduced: "9"
+  category: syntax
+  description: "Omit type in new expression when type is known"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [new, target_typed, syntax]
+  detection:
+    primary:
+      ast_type: implicit_object_creation_expression
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: "Add explicit type: new() → new TypeName()"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      List<string> names = new();
+    after: |
+      List<string> names = new List<string>();
+
+- id: csharp.9.pattern_matching_enhanced
+  language: csharp
+  feature_name: "enhanced pattern matching"
+  introduced: "9"
+  category: syntax
+  description: "Relational, logical, and type patterns in switch"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [pattern, matching, switch]
+  detection:
+    primary:
+      ast_type: relational_pattern
+      match: {}
+    alternatives:
+      - ast_type: and_pattern
+        match: {}
+      - ast_type: or_pattern
+        match: {}
+      - ast_type: not_pattern
+        match: {}
+  fix:
+    strategy: manual
+    manual_instructions: "Rewrite as if/else chains with explicit comparisons."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      var tier = level switch {
+          >= 90 => "A",
+          >= 80 and < 90 => "B",
+          _ => "C"
+      };
+    after: |
+      string tier;
+      if (level >= 90) tier = "A";
+      else if (level >= 80) tier = "B";
+      else tier = "C";
+
+- id: csharp.10.constant_interpolated_strings
+  language: csharp
+  feature_name: "constant interpolated strings"
+  introduced: "10"
+  category: syntax
+  description: "Allow interpolated strings as const values"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [const, interpolation, string]
+  detection:
+    primary:
+      ast_type: interpolated_string_expression
+      context: const_declaration
+  fix:
+    strategy: manual
+    manual_instructions: "Replace with string concatenation: const string s = prefix + suffix;"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const string greeting = $"Hello, {name}";
+    after: |
+      const string greeting = "Hello, " + name;
+
+- id: csharp.10.record_structs
+  language: csharp
+  feature_name: "record struct"
+  introduced: "10"
+  category: syntax
+  description: "Value-type records with struct semantics"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [record, struct, value_type]
+  detection:
+    primary:
+      ast_type: record_struct_declaration
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: "Replace with regular struct implementing IEquatable<T>."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      public record struct Point(int X, int Y);
+    after: |
+      public struct Point : IEquatable<Point> {
+          public int X { get; }
+          public int Y { get; }
+          public Point(int x, int y) { X = x; Y = y; }
+      }

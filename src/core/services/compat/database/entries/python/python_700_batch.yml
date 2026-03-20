@@ -1,0 +1,153 @@
+# Python batch — 700
+
+- id: python.stdlib.configparser_converters
+  language: python
+  feature_name: "configparser converters"
+  introduced: "3.8"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [configparser]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: configparser } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import configparser\n", after: "import configparser\n" }
+
+- id: python.stdlib.pkgutil_resolve
+  language: python
+  feature_name: "pkgutil.resolve_name()"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [pkgutil, resolve]
+  detection:
+    primary: { ast_type: Attribute, match: { value_id: pkgutil, attr: resolve_name } }
+  fix: { strategy: manual, manual_instructions: "Use importlib.import_module + getattr." }
+  verification: { re_detect: true }
+  test: { before: "pkgutil.resolve_name('os.path')\n", after: "importlib.import_module('os.path')\n" }
+
+- id: python.stdlib.http_cookies_samesite
+  language: python
+  feature_name: "http.cookies SameSite"
+  introduced: "3.8"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [http, cookies, samesite]
+  detection:
+    primary: { ast_type: ImportFrom, match: { module: http.cookies } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "from http.cookies import SimpleCookie\n", after: "from http.cookies import SimpleCookie\n" }
+
+- id: python.stdlib.csv_dictreader
+  language: python
+  feature_name: "csv.DictReader improvements"
+  introduced: "3.8"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [csv, dictreader]
+  detection:
+    primary: { ast_type: ImportFrom, match: { module: csv } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "from csv import DictReader\n", after: "from csv import DictReader\n" }
+
+- id: python.stdlib.difflib_unified
+  language: python
+  feature_name: "difflib.unified_diff improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [difflib, diff]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: difflib } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import difflib\n", after: "import difflib\n" }
+
+- id: python.stdlib.glob_root_dir
+  language: python
+  feature_name: "glob.glob root_dir parameter"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [glob, root_dir]
+  detection:
+    primary: { ast_type: Call, match: { func_attr: glob } }
+  fix: { strategy: manual, manual_instructions: "Use os.chdir or manual path joining." }
+  verification: { re_detect: false }
+  test: { before: "glob.glob('*.py', root_dir='/src')\n", after: "glob.glob('/src/*.py')\n" }
+
+- id: python.stdlib.locale_delocalize
+  language: python
+  feature_name: "locale.delocalize()"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [locale, delocalize]
+  detection:
+    primary: { ast_type: Attribute, match: { value_id: locale, attr: delocalize } }
+  fix: { strategy: manual, manual_instructions: "Parse manually with locale.atof." }
+  verification: { re_detect: true }
+  test: { before: "locale.delocalize('1,234.56')\n", after: "locale.atof('1,234.56')\n" }
+
+- id: python.stdlib.marshal_version
+  language: python
+  feature_name: "marshal format version"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [marshal, version]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: marshal } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import marshal\n", after: "import marshal\n" }
+
+- id: python.stdlib.plistlib_improvements
+  language: python
+  feature_name: "plistlib improvements"
+  introduced: "3.8"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [plistlib, plist]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: plistlib } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import plistlib\n", after: "import plistlib\n" }
+
+- id: python.stdlib.rlcompleter_improvements
+  language: python
+  feature_name: "rlcompleter improvements"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [readline, completer]
+  detection:
+    primary: { ast_type: Import, match: { names_contains: rlcompleter } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import rlcompleter\n", after: "import rlcompleter\n" }

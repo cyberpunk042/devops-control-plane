@@ -1,0 +1,141 @@
+# Python — final 10 for 900
+
+- id: python.stdlib.json_improvements_313
+  language: python
+  feature_name: "json improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [json]
+  detection: { primary: { ast_type: Import, match: { names_contains: json } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import json\n", after: "import json\n" }
+
+- id: python.stdlib.random_improvements_312
+  language: python
+  feature_name: "random improvements (3.12)"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [random]
+  detection: { primary: { ast_type: Import, match: { names_contains: random } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import random\n", after: "import random\n" }
+
+- id: python.stdlib.math_improvements_313
+  language: python
+  feature_name: "math improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [math]
+  detection: { primary: { ast_type: Import, match: { names_contains: math } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import math\n", after: "import math\n" }
+
+- id: python.stdlib.functools_improvements_312
+  language: python
+  feature_name: "functools improvements (3.12)"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [functools]
+  detection: { primary: { ast_type: Import, match: { names_contains: functools } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import functools\n", after: "import functools\n" }
+
+- id: python.stdlib.itertools_improvements_312
+  language: python
+  feature_name: "itertools improvements (3.12)"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [itertools]
+  detection: { primary: { ast_type: Import, match: { names_contains: itertools } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import itertools\n", after: "import itertools\n" }
+
+- id: python.stdlib.dataclasses_improvements_313
+  language: python
+  feature_name: "dataclasses improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [dataclasses]
+  detection: { primary: { ast_type: Import, match: { names_contains: dataclasses } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import dataclasses\n", after: "import dataclasses\n" }
+
+- id: python.stdlib.contextlib_improvements_312
+  language: python
+  feature_name: "contextlib improvements (3.12)"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [contextlib]
+  detection: { primary: { ast_type: Import, match: { names_contains: contextlib } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import contextlib\n", after: "import contextlib\n" }
+
+- id: python.stdlib.shutil_improvements_313
+  language: python
+  feature_name: "shutil improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [shutil]
+  detection: { primary: { ast_type: Import, match: { names_contains: shutil } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import shutil\n", after: "import shutil\n" }
+
+- id: python.stdlib.glob_improvements_312
+  language: python
+  feature_name: "glob improvements (3.12)"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [glob]
+  detection: { primary: { ast_type: Import, match: { names_contains: glob } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import glob\n", after: "import glob\n" }
+
+- id: python.stdlib.pickle_improvements_313
+  language: python
+  feature_name: "pickle improvements (3.13)"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [pickle, serialization]
+  detection: { primary: { ast_type: Import, match: { names_contains: pickle } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import pickle\n", after: "import pickle\n" }

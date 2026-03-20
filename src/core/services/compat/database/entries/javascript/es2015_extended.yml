@@ -1,0 +1,251 @@
+# JavaScript ES2015 features — extended set
+
+- id: js.es2015.symbol
+  language: javascript
+  feature_name: "Symbol"
+  introduced: "ES2015"
+  category: es2015
+  description: "Unique symbol primitive type"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [symbol, primitive]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        function: Symbol
+  fix:
+    strategy: manual
+    manual_instructions: "No polyfill for Symbol semantics. Use unique string keys instead."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const KEY = Symbol('myKey');
+    after: |
+      const KEY = '__symbol_myKey__';
+
+- id: js.es2015.map_set
+  language: javascript
+  feature_name: "Map/Set"
+  introduced: "ES2015"
+  category: es2015
+  description: "Built-in Map and Set collections"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [map, set, collection]
+  detection:
+    primary:
+      ast_type: new_expression
+      match:
+        constructor_in: [Map, Set, WeakMap, WeakSet]
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Use a polyfill: require('core-js/features/map') and require('core-js/features/set')
+      Or use plain objects for Map-like behavior and arrays for Set-like behavior.
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const cache = new Map();
+      const seen = new Set();
+    after: |
+      require('core-js/features/map');
+      require('core-js/features/set');
+      const cache = new Map();
+      const seen = new Set();
+
+- id: js.es2015.object_assign
+  language: javascript
+  feature_name: "Object.assign()"
+  introduced: "ES2015"
+  category: es2015
+  description: "Copy properties between objects"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [object, assign, copy]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Object
+        method: assign
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Polyfill:
+        Object.assign = Object.assign || function(target) {
+          for (var i = 1; i < arguments.length; i++) {
+            var source = arguments[i];
+            for (var key in source) {
+              if (Object.prototype.hasOwnProperty.call(source, key)) {
+                target[key] = source[key];
+              }
+            }
+          }
+          return target;
+        };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const merged = Object.assign({}, defaults, options);
+    after: |
+      Object.assign = Object.assign || function(t){for(var i=1;i<arguments.length;i++){var s=arguments[i];for(var k in s){if(Object.prototype.hasOwnProperty.call(s,k))t[k]=s[k]}}return t};
+      var merged = Object.assign({}, defaults, options);
+
+- id: js.es2015.iterator_protocol
+  language: javascript
+  feature_name: "Iterator protocol (Symbol.iterator)"
+  introduced: "ES2015"
+  category: es2015
+  description: "Custom iterables via Symbol.iterator"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [iterator, symbol, protocol]
+  detection:
+    primary:
+      ast_type: computed_property_name
+      match:
+        expression_contains: "Symbol.iterator"
+  fix:
+    strategy: manual
+    manual_instructions: "Remove iterator protocol. Use explicit toArray() method or callback pattern."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      class Range {
+        [Symbol.iterator]() { return { next() { ... } }; }
+      }
+    after: |
+      class Range {
+        toArray() { var result = []; ...; return result; }
+      }
+
+- id: js.es2015.computed_properties
+  language: javascript
+  feature_name: "computed property names"
+  introduced: "ES2015"
+  category: es2015
+  description: "Dynamic property names in object literals: {[expr]: value}"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [object, computed, property]
+  detection:
+    primary:
+      ast_type: computed_property_name
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Build the object manually:
+        const obj = { [key]: value };
+        → var obj = {}; obj[key] = value;
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const obj = { [dynamicKey]: value };
+    after: |
+      var obj = {};
+      obj[dynamicKey] = value;
+
+- id: js.es2015.generator_function
+  language: javascript
+  feature_name: "generator function (function*)"
+  introduced: "ES2015"
+  category: es2015
+  description: "Generator functions with yield"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [generator, yield, function]
+  detection:
+    primary:
+      ast_type: generator_function
+      match: {}
+    alternatives:
+      - ast_type: generator_function_declaration
+        match: {}
+  fix:
+    strategy: manual
+    manual_instructions: "Rewrite as a state machine or use a callback pattern."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      function* range(n) { for (let i = 0; i < n; i++) yield i; }
+    after: |
+      function range(n) { var result = []; for (var i = 0; i < n; i++) result.push(i); return result; }
+
+- id: js.es2015.string_includes
+  language: javascript
+  feature_name: "String.prototype.includes()"
+  introduced: "ES2015"
+  category: es2015
+  description: "Check if string contains a substring"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [string, includes, method]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: includes
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_method_call
+        find:
+          method: includes
+        replace:
+          template: "{receiver}.indexOf({arg}) !== -1"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      if (text.includes('hello')) { found(); }
+    after: |
+      if (text.indexOf('hello') !== -1) { found(); }
+
+- id: js.es2015.string_startswith
+  language: javascript
+  feature_name: "String.prototype.startsWith/endsWith"
+  introduced: "ES2015"
+  category: es2015
+  description: "Check string prefix/suffix"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [string, startswith, endswith]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method_in: [startsWith, endsWith]
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with indexOf/substring:
+        s.startsWith(p) → s.indexOf(p) === 0
+        s.endsWith(p) → s.indexOf(p, s.length - p.length) !== -1
+  verification:
+    re_detect: true
+  test:
+    before: |
+      if (url.startsWith('https://')) { secure(); }
+    after: |
+      if (url.indexOf('https://') === 0) { secure(); }

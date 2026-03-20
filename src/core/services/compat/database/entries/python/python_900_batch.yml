@@ -1,0 +1,281 @@
+# Python batch — 900
+
+- id: python.stdlib.mmap_improvements
+  language: python
+  feature_name: "mmap improvements"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [mmap]
+  detection: { primary: { ast_type: Import, match: { names_contains: mmap } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import mmap\n", after: "import mmap\n" }
+
+- id: python.stdlib.binascii_improvements
+  language: python
+  feature_name: "binascii improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [binascii]
+  detection: { primary: { ast_type: Import, match: { names_contains: binascii } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import binascii\n", after: "import binascii\n" }
+
+- id: python.stdlib.cmath_improvements
+  language: python
+  feature_name: "cmath improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [cmath, complex]
+  detection: { primary: { ast_type: Import, match: { names_contains: cmath } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import cmath\n", after: "import cmath\n" }
+
+- id: python.stdlib.operator_improvements
+  language: python
+  feature_name: "operator module improvements"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [operator]
+  detection: { primary: { ast_type: Import, match: { names_contains: operator } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import operator\n", after: "import operator\n" }
+
+- id: python.stdlib.numbers_improvements
+  language: python
+  feature_name: "numbers module improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [numbers, abc]
+  detection: { primary: { ast_type: Import, match: { names_contains: numbers } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import numbers\n", after: "import numbers\n" }
+
+- id: python.stdlib.atexit_improvements
+  language: python
+  feature_name: "atexit improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [atexit, cleanup]
+  detection: { primary: { ast_type: Import, match: { names_contains: atexit } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import atexit\n", after: "import atexit\n" }
+
+- id: python.stdlib.fnmatch_improvements
+  language: python
+  feature_name: "fnmatch improvements"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [fnmatch, glob]
+  detection: { primary: { ast_type: Import, match: { names_contains: fnmatch } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import fnmatch\n", after: "import fnmatch\n" }
+
+- id: python.stdlib.grp_improvements
+  language: python
+  feature_name: "grp module improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [grp, unix, groups]
+  detection: { primary: { ast_type: Import, match: { names_contains: grp } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import grp\n", after: "import grp\n" }
+
+- id: python.stdlib.pwd_improvements
+  language: python
+  feature_name: "pwd module improvements"
+  introduced: "3.9"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [pwd, unix, users]
+  detection: { primary: { ast_type: Import, match: { names_contains: pwd } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import pwd\n", after: "import pwd\n" }
+
+- id: python.stdlib.posixpath_improvements
+  language: python
+  feature_name: "posixpath improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [posixpath, path]
+  detection: { primary: { ast_type: Import, match: { names_contains: posixpath } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import posixpath\n", after: "import posixpath\n" }
+
+- id: python.stdlib.ntpath_improvements
+  language: python
+  feature_name: "ntpath improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [ntpath, windows, path]
+  detection: { primary: { ast_type: Import, match: { names_contains: ntpath } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import ntpath\n", after: "import ntpath\n" }
+
+- id: python.stdlib.linecache_improvements
+  language: python
+  feature_name: "linecache improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [linecache, source]
+  detection: { primary: { ast_type: Import, match: { names_contains: linecache } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import linecache\n", after: "import linecache\n" }
+
+- id: python.stdlib.pickletools_improvements
+  language: python
+  feature_name: "pickletools improvements"
+  introduced: "3.13"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [pickletools, pickle]
+  detection: { primary: { ast_type: Import, match: { names_contains: pickletools } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import pickletools\n", after: "import pickletools\n" }
+
+- id: python.stdlib.shelve_improvements
+  language: python
+  feature_name: "shelve improvements"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [shelve, database]
+  detection: { primary: { ast_type: Import, match: { names_contains: shelve } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import shelve\n", after: "import shelve\n" }
+
+- id: python.stdlib.mailcap_deprecation
+  language: python
+  feature_name: "mailcap deprecation"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: deprecation_warning
+  tags: [mailcap, deprecated]
+  detection: { primary: { ast_type: Import, match: { names_contains: mailcap } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import mailcap\n", after: "import mailcap\n" }
+
+- id: python.stdlib.imghdr_deprecation
+  language: python
+  feature_name: "imghdr deprecation"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: deprecation_warning
+  tags: [imghdr, deprecated, image]
+  detection: { primary: { ast_type: Import, match: { names_contains: imghdr } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import imghdr\n", after: "import imghdr\n" }
+
+- id: python.stdlib.sndhdr_deprecation
+  language: python
+  feature_name: "sndhdr deprecation"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: deprecation_warning
+  tags: [sndhdr, deprecated, audio]
+  detection: { primary: { ast_type: Import, match: { names_contains: sndhdr } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import sndhdr\n", after: "import sndhdr\n" }
+
+- id: python.stdlib.nntplib_deprecation
+  language: python
+  feature_name: "nntplib deprecation"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: deprecation_warning
+  tags: [nntplib, deprecated, nntp]
+  detection: { primary: { ast_type: Import, match: { names_contains: nntplib } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import nntplib\n", after: "import nntplib\n" }
+
+- id: python.stdlib.telnetlib_deprecation
+  language: python
+  feature_name: "telnetlib deprecation"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: deprecation_warning
+  tags: [telnetlib, deprecated, telnet]
+  detection: { primary: { ast_type: Import, match: { names_contains: telnetlib } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import telnetlib\n", after: "import telnetlib\n" }
+
+- id: python.stdlib.smtpd_deprecation
+  language: python
+  feature_name: "smtpd deprecation"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: deprecation_warning
+  tags: [smtpd, deprecated, smtp]
+  detection: { primary: { ast_type: Import, match: { names_contains: smtpd } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "import smtpd\n", after: "import smtpd\n" }

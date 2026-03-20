@@ -1,0 +1,46 @@
+# C# — 700 batch
+
+- id: csharp.9.nint_nuint
+  language: csharp
+  feature_name: "nint/nuint native integers"
+  introduced: "9"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [nint, native, integer]
+  detection:
+    primary: { ast_type: predefined_type, match: { keyword_in: [nint, nuint] } }
+  fix: { strategy: manual, manual_instructions: "Replace nint with IntPtr, nuint with UIntPtr." }
+  verification: { re_detect: true }
+  test: { before: "nint size = 42;\n", after: "IntPtr size = (IntPtr)42;\n" }
+
+- id: csharp.10.extended_property_patterns
+  language: csharp
+  feature_name: "extended property patterns"
+  introduced: "10"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [pattern, property, extended]
+  detection:
+    primary: { ast_type: subpattern, match: { has_dot_path: true } }
+  fix: { strategy: manual, manual_instructions: "Nest patterns: { A.B: val } → { A: { B: val } }" }
+  verification: { re_detect: true }
+  test: { before: "if (obj is { Address.City: \"NYC\" })\n", after: "if (obj is { Address: { City: \"NYC\" } })\n" }
+
+- id: csharp.12.alias_any_type
+  language: csharp
+  feature_name: "alias any type with using"
+  introduced: "12"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [using, alias, any_type]
+  detection:
+    primary: { ast_type: using_directive, match: { has_type_alias: true } }
+  fix: { strategy: manual, manual_instructions: "Define a wrapper class or use the full type name." }
+  verification: { re_detect: true }
+  test: { before: "using Point = (int X, int Y);\n", after: "// Use explicit tuple type\n" }

@@ -1,0 +1,177 @@
+# Python builtin method features — methods added to builtin types per version
+
+# ── Python 3.9 ──────────────────────────────────────────────────
+
+- id: python.builtins.str_removeprefix
+  language: python
+  feature_name: "str.removeprefix()"
+  introduced: "3.9"
+  category: builtins
+  description: "Remove a prefix from a string if present"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [string, method, removeprefix]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: removeprefix
+    alternatives:
+      - ast_type: Attribute
+        match:
+          attr: removeprefix
+        context: not_definition
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_method_call
+        find:
+          method: removeprefix
+        replace:
+          template: "{receiver}[len({arg}):]  if {receiver}.startswith({arg}) else {receiver}"
+          extract:
+            receiver: call_receiver
+            arg: call_args_0
+  verification:
+    re_detect: true
+    syntax_check: true
+  edge_cases:
+    - id: python.removeprefix.complex_receiver
+      category: transform_edge_case
+      description: "Method called on a complex expression (function call)"
+      handling: special_transform
+      test:
+        before: |
+          result = get_path().removeprefix("/home/")
+        after: |
+          _tmp = get_path()
+          result = _tmp[len("/home/"):]  if _tmp.startswith("/home/") else _tmp
+        notes: "Complex receivers need a temp variable to avoid double evaluation"
+
+    - id: python.removeprefix.chained
+      category: transform_edge_case
+      description: "Chained removeprefix calls"
+      handling: special_transform
+      test:
+        before: |
+          result = path.removeprefix("/home/").removeprefix("user/")
+        after: |
+          _tmp = path[len("/home/"):]  if path.startswith("/home/") else path
+          result = _tmp[len("user/"):]  if _tmp.startswith("user/") else _tmp
+  test:
+    before: |
+      result = path.removeprefix("/home/")
+    after: |
+      result = path[len("/home/"):]  if path.startswith("/home/") else path
+
+
+- id: python.builtins.str_removesuffix
+  language: python
+  feature_name: "str.removesuffix()"
+  introduced: "3.9"
+  category: builtins
+  description: "Remove a suffix from a string if present"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [string, method, removesuffix]
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: removesuffix
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_method_call
+        find:
+          method: removesuffix
+        replace:
+          template: "{receiver}[:-len({arg})]  if {receiver}.endswith({arg}) else {receiver}"
+          extract:
+            receiver: call_receiver
+            arg: call_args_0
+  verification:
+    re_detect: true
+    syntax_check: true
+  test:
+    before: |
+      result = filename.removesuffix(".txt")
+    after: |
+      result = filename[:-len(".txt")]  if filename.endswith(".txt") else filename
+
+
+- id: python.builtins.dict_merge_operator
+  language: python
+  feature_name: "dict merge operator (|)"
+  introduced: "3.9"
+  category: builtins
+  description: "Merge two dicts with | operator (PEP 584)"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: unsupported_operator
+  tags: [dict, merge, operator]
+  detection:
+    primary:
+      ast_type: BinOp
+      match:
+        op_type: BitOr
+      context: runtime
+    exclude:
+      - context: annotation
+        reason: "X | Y in annotations is union type syntax (separate entry), not dict merge"
+      - context: type_checking_block
+        reason: "TYPE_CHECKING block — not runtime"
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_binary_op
+        find:
+          operator: "|"
+          context: dict_merge
+        replace:
+          template: "{**{left}, **{right}}"
+  verification:
+    re_detect: true
+    syntax_check: true
+  edge_cases:
+    - id: python.dict_merge.update_operator
+      category: transform_edge_case
+      description: "In-place dict update with |="
+      handling: special_transform
+      test:
+        before: |
+          config |= extra
+        after: |
+          config.update(extra)
+        notes: "|= becomes .update() — modifies in place"
+
+    - id: python.dict_merge.not_dict
+      category: false_positive
+      description: "Bitwise OR on non-dict types (int | int)"
+      handling: exclude
+      test:
+        input: |
+          flags = FLAG_A | FLAG_B
+        expected_findings: 0
+        notes: "Bitwise OR on integers is NOT dict merge — needs type inference to distinguish"
+
+    - id: python.dict_merge.annotation_union
+      category: false_positive
+      description: "X | Y in type annotation is union type, not dict merge"
+      handling: exclude
+      test:
+        input: |
+          def foo(x: int | str) -> None:
+              pass
+        expected_findings: 0
+        notes: "Annotation context X | Y is covered by python.typing.union_pipe"
+  test:
+    before: |
+      merged = defaults | overrides
+    after: |
+      merged = {**defaults, **overrides}

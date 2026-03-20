@@ -1,0 +1,233 @@
+# JavaScript ES2015 object/function features
+
+- id: js.es2015.shorthand_properties
+  language: javascript
+  feature_name: "shorthand property names"
+  introduced: "ES2015"
+  category: es2015
+  description: "Object literal shorthand: {x, y} instead of {x: x, y: y}"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [object, shorthand, property]
+  detection:
+    primary:
+      ast_type: shorthand_property_identifier
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: "Expand shorthand: {x, y} → {x: x, y: y}"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const obj = { name, age, email };
+    after: |
+      var obj = { name: name, age: age, email: email };
+
+- id: js.es2015.shorthand_methods
+  language: javascript
+  feature_name: "shorthand method definitions"
+  introduced: "ES2015"
+  category: es2015
+  description: "Method shorthand in objects: { method() {} }"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [object, method, shorthand]
+  detection:
+    primary:
+      ast_type: method_definition
+      match:
+        shorthand: true
+  fix:
+    strategy: manual
+    manual_instructions: "Expand: { method() {} } → { method: function() {} }"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const obj = { greet() { return 'hi'; } };
+    after: |
+      var obj = { greet: function() { return 'hi'; } };
+
+- id: js.es2015.rest_parameters
+  language: javascript
+  feature_name: "rest parameters (...args)"
+  introduced: "ES2015"
+  category: es2015
+  description: "Collect remaining arguments into an array"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [rest, parameters, function]
+  detection:
+    primary:
+      ast_type: rest_pattern
+      context: function_params
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Use arguments object:
+        function fn(...args) { }
+        → function fn() { var args = Array.prototype.slice.call(arguments); }
+  verification:
+    re_detect: true
+  test:
+    before: |
+      function sum(...numbers) { return numbers.reduce((a, b) => a + b, 0); }
+    after: |
+      function sum() { var numbers = Array.prototype.slice.call(arguments); return numbers.reduce(function(a,b){return a+b}, 0); }
+
+- id: js.es2015.octal_binary_literals
+  language: javascript
+  feature_name: "binary/octal literals (0b/0o)"
+  introduced: "ES2015"
+  category: es2015
+  description: "Binary (0b1010) and octal (0o777) number literals"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [number, binary, octal, literal]
+  detection:
+    primary:
+      ast_type: number
+      match:
+        has_binary_or_octal: true
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with decimal or parseInt:
+        0b1010 → 10
+        0o777 → 511
+        Or: parseInt('1010', 2), parseInt('777', 8)
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const mask = 0b11110000;
+      const perm = 0o755;
+    after: |
+      var mask = 240;
+      var perm = 493;
+
+- id: js.es2015.modules_import_export
+  language: javascript
+  feature_name: "ES modules (import/export)"
+  introduced: "ES2015"
+  category: es2015
+  description: "Native module system with import/export"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [module, import, export, esm]
+  detection:
+    primary:
+      ast_type: import_statement
+      match: {}
+    alternatives:
+      - ast_type: export_statement
+        match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Convert to CommonJS:
+        import { foo } from './bar' → const { foo } = require('./bar')
+        export function fn() {} → module.exports.fn = function() {}
+        export default class → module.exports = class
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import { readFile } from 'fs';
+      export function process(data) { return data; }
+    after: |
+      const { readFile } = require('fs');
+      module.exports.process = function(data) { return data; };
+
+- id: js.es2015.string_codepoint
+  language: javascript
+  feature_name: "String.prototype.codePointAt/fromCodePoint"
+  introduced: "ES2015"
+  category: es2015
+  description: "Unicode code point methods"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [string, unicode, codepoint]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method_in: [codePointAt, fromCodePoint]
+  fix:
+    strategy: manual
+    manual_instructions: "Use charCodeAt for BMP characters. For supplementary, use surrogate pair calculation."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const cp = str.codePointAt(0);
+    after: |
+      var cp = str.charCodeAt(0);
+
+- id: js.es2015.object_is
+  language: javascript
+  feature_name: "Object.is()"
+  introduced: "ES2015"
+  category: es2015
+  description: "Same-value equality (NaN === NaN, +0 !== -0)"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [object, is, equality]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Object
+        method: is
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Polyfill:
+        Object.is = Object.is || function(x, y) {
+          if (x === y) return x !== 0 || 1/x === 1/y;
+          return x !== x && y !== y;
+        };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      Object.is(NaN, NaN);
+    after: |
+      Object.is = Object.is || function(x,y){if(x===y)return x!==0||1/x===1/y;return x!==x&&y!==y};
+      Object.is(NaN, NaN);
+
+- id: js.es2015.object_keys_values_entries
+  language: javascript
+  feature_name: "Object.keys/values/entries refinements"
+  introduced: "ES2015"
+  category: es2015
+  description: "Object.keys guaranteed to return own enumerable properties"
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [object, keys, values]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Object
+        method: keys
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: |
+      Object.keys(obj);
+    after: |
+      Object.keys(obj);

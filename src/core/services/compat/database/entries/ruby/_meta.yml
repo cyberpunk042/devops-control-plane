@@ -1,0 +1,21 @@
+language: ruby
+display_name: Ruby
+file_extensions: [".rb", ".rake"]
+parser: tree-sitter-ruby
+versions:
+  - version: "2.7"
+    status: eol
+  - version: "3.0"
+    status: eol
+  - version: "3.1"
+    status: security
+  - version: "3.2"
+    status: active
+  - version: "3.3"
+    status: active
+version_format: "major.minor"
+default_exclusions: ["vendor/bundle", ".bundle"]
+package_registry:
+  name: RubyGems
+  api: "https://rubygems.org/api/v1/versions/{package}.json"
+  version_field: "required_ruby_version"

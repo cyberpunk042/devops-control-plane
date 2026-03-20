@@ -1,0 +1,183 @@
+# Go 1.19-1.20 features
+
+# ── Go 1.19 ──────────────────────────────────────────────────────
+
+- id: go.1_19.atomic_types
+  language: go
+  feature_name: "sync/atomic type wrappers"
+  introduced: "1.19"
+  category: stdlib
+  description: "Type-safe atomic wrappers: atomic.Int64, atomic.Bool, etc."
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [atomic, sync, concurrency]
+  detection:
+    primary:
+      ast_type: qualified_type
+      match:
+        package: atomic
+        type_in: [Int32, Int64, Uint32, Uint64, Bool, Pointer, Value]
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with raw atomic operations:
+        var counter atomic.Int64
+        counter.Add(1)
+        →
+        var counter int64
+        atomic.AddInt64(&counter, 1)
+  verification:
+    re_detect: true
+  test:
+    before: |
+      var count atomic.Int64
+      count.Add(1)
+    after: |
+      var count int64
+      atomic.AddInt64(&count, 1)
+
+- id: go.1_19.sort_find
+  language: go
+  feature_name: "sort.Find()"
+  introduced: "1.19"
+  category: stdlib
+  description: "Binary search returning the index and found status"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [sort, search, binary]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: sort
+        function: Find
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with sort.Search:
+        i, found := sort.Find(n, cmpFunc)
+        →
+        i := sort.Search(n, func(i int) bool { return cmpFunc(i) >= 0 })
+        found := i < n && cmpFunc(i) == 0
+  verification:
+    re_detect: true
+  test:
+    before: |
+      i, found := sort.Find(len(data), func(i int) int {
+          return strings.Compare(target, data[i])
+      })
+    after: |
+      i := sort.Search(len(data), func(i int) bool {
+          return strings.Compare(target, data[i]) >= 0
+      })
+      found := i < len(data) && data[i] == target
+
+# ── Go 1.20 ──────────────────────────────────────────────────────
+
+- id: go.1_20.errors_unwrap_multiple
+  language: go
+  feature_name: "errors.Join / multi-error wrapping"
+  introduced: "1.20"
+  category: stdlib
+  description: "Wrapping multiple errors with %w in fmt.Errorf, errors.Join"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [errors, wrapping, multiple]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: errors
+        function: Join
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Use a multi-error library:
+        go get github.com/hashicorp/go-multierror
+        errors.Join(err1, err2)
+        → multierror.Append(err1, err2)
+    backport:
+      package: "github.com/hashicorp/go-multierror"
+      install_command: "go get github.com/hashicorp/go-multierror"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      err := errors.Join(validateErr, saveErr)
+    after: |
+      err := multierror.Append(validateErr, saveErr)
+
+- id: go.1_20.context_with_cause
+  language: go
+  feature_name: "context.WithCancelCause"
+  introduced: "1.20"
+  category: stdlib
+  description: "Cancel context with a specific cause error"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [context, cancel, cause]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: context
+        function_in: [WithCancelCause, WithDeadlineCause, WithTimeoutCause]
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with standard context.WithCancel:
+        ctx, cancel := context.WithCancelCause(parent)
+        cancel(myError)
+        →
+        ctx, cancel := context.WithCancel(parent)
+        cancel()
+        // Store the cause separately if needed
+  verification:
+    re_detect: true
+  test:
+    before: |
+      ctx, cancel := context.WithCancelCause(parentCtx)
+      defer cancel(nil)
+    after: |
+      ctx, cancel := context.WithCancel(parentCtx)
+      defer cancel()
+
+- id: go.1_20.slice_to_array
+  language: go
+  feature_name: "slice to array conversion"
+  introduced: "1.20"
+  category: syntax
+  description: "Direct conversion from slice to array: [4]byte(slice)"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [slice, array, conversion]
+  detection:
+    primary:
+      ast_type: type_conversion_expression
+      match:
+        target_type: array
+        source_type: slice
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Use copy instead:
+        arr := [4]byte(slice)
+        →
+        var arr [4]byte
+        copy(arr[:], slice)
+  verification:
+    re_detect: true
+  test:
+    before: |
+      arr := [4]byte(data[:4])
+    after: |
+      var arr [4]byte
+      copy(arr[:], data[:4])

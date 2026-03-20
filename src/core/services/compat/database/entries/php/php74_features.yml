@@ -1,0 +1,133 @@
+# PHP 7.4 features (for downgrade from 7.4)
+
+- id: php.7_4.typed_properties
+  language: php
+  feature_name: "typed properties"
+  introduced: "7.4"
+  category: syntax
+  description: "Type declarations on class properties"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [types, property, class]
+  detection:
+    primary:
+      ast_type: property_declaration
+      match:
+        has_type: true
+  fix:
+    strategy: manual
+    manual_instructions: "Remove property types. Use PHPDoc @var annotations."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      class User { public string $name; public int $age; }
+    after: |
+      class User { /** @var string */ public $name; /** @var int */ public $age; }
+
+- id: php.7_4.arrow_functions
+  language: php
+  feature_name: "arrow functions (fn =>)"
+  introduced: "7.4"
+  category: syntax
+  description: "Short closure syntax with implicit capture"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [arrow, function, closure]
+  detection:
+    primary:
+      ast_type: arrow_function
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with regular closure:
+        fn($x) => $x * 2
+        → function($x) { return $x * 2; }
+      Add use() for captured variables.
+  verification:
+    re_detect: true
+  test:
+    before: |
+      $double = fn($x) => $x * 2;
+    after: |
+      $double = function($x) { return $x * 2; };
+
+- id: php.7_4.null_coalescing_assignment
+  language: php
+  feature_name: "null coalescing assignment (??=)"
+  introduced: "7.4"
+  category: syntax
+  description: "Assign only if null: $x ??= default"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [null, coalescing, assignment]
+  detection:
+    primary:
+      ast_type: assignment_expression
+      match:
+        operator: "??="
+  fix:
+    strategy: manual
+    manual_instructions: "$x ??= val → $x = $x ?? val"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      $config['debug'] ??= false;
+    after: |
+      $config['debug'] = $config['debug'] ?? false;
+
+- id: php.7_4.spread_in_array
+  language: php
+  feature_name: "spread operator in array expression"
+  introduced: "7.4"
+  category: syntax
+  description: "Unpack arrays in array literals: [...$arr]"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [spread, array, unpack]
+  detection:
+    primary:
+      ast_type: spread_element
+      context: array
+  fix:
+    strategy: manual
+    manual_instructions: "Use array_merge: [...$a, ...$b] → array_merge($a, $b)"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      $merged = [...$defaults, ...$custom];
+    after: |
+      $merged = array_merge($defaults, $custom);
+
+- id: php.7_4.numeric_literal_separator
+  language: php
+  feature_name: "numeric literal separator"
+  introduced: "7.4"
+  category: syntax
+  description: "Underscores in numeric literals: 1_000_000"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [number, separator, underscore]
+  detection:
+    primary:
+      ast_type: integer
+      match:
+        has_separator: true
+  fix:
+    strategy: manual
+    manual_instructions: "Remove underscores: 1_000_000 → 1000000"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      $million = 1_000_000;
+    after: |
+      $million = 1000000;

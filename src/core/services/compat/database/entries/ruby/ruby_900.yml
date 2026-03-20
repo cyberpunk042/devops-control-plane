@@ -1,0 +1,57 @@
+# Ruby batch — 900
+
+- id: ruby.3_0.symbol_to_proc_arity
+  language: ruby
+  feature_name: "Symbol#to_proc with arity"
+  introduced: "3.0"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [symbol, to_proc, arity]
+  detection: { primary: { ast_type: call, match: { method: to_proc } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: ":upcase.to_proc\n", after: ":upcase.to_proc\n" }
+
+- id: ruby.3_1.integer_try_convert
+  language: ruby
+  feature_name: "Integer.try_convert improvements"
+  introduced: "3.1"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [integer, convert]
+  detection: { primary: { ast_type: call, match: { receiver: Integer } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "Integer.try_convert(val)\n", after: "Integer(val) rescue nil\n" }
+
+- id: ruby.3_2.io_buffer
+  language: ruby
+  feature_name: "IO::Buffer"
+  introduced: "3.2"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [io, buffer, memory]
+  detection: { primary: { ast_type: call, match: { receiver: IO, method: Buffer } } }
+  fix: { strategy: manual, manual_instructions: "Use String#bytes or manual buffer." }
+  verification: { re_detect: true }
+  test: { before: "buf = IO::Buffer.new(1024)\n", after: "buf = \"\\0\" * 1024\n" }
+
+- id: ruby.3_3.warning_categories
+  language: ruby
+  feature_name: "Warning[:performance]"
+  introduced: "3.3"
+  category: stdlib
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags: [warning, performance, category]
+  detection: { primary: { ast_type: call, match: { receiver: Warning } } }
+  fix: { strategy: no_fix_needed }
+  verification: { re_detect: false }
+  test: { before: "Warning[:performance] = false\n", after: "# Not available\n" }

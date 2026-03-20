@@ -9453,6 +9453,13 @@ select option {
 .plan-step-content                     { flex: 1; min-width: 0; }
 .plan-step-label                       { font-size: 0.85rem; }
 .plan-step.done .plan-step-label       { text-decoration: line-through; color: var(--text-muted); }
+.plan-step.blocked                     { opacity: 0.7; background: color-mix(in srgb, var(--warning) 5%, transparent); }
+.plan-step.blocked .plan-step-label    { color: var(--warning); }
+.plan-step.attention                   { background: color-mix(in srgb, var(--warning) 8%, transparent);
+                                         border-left: 3px solid var(--warning); }
+.plan-step.failed                      { background: color-mix(in srgb, var(--danger) 8%, transparent);
+                                         border-left: 3px solid var(--danger); }
+.plan-step.failed .plan-step-label     { color: var(--danger); }
 .plan-step-desc                        { font-size: 0.78rem; color: var(--text-muted);
                                          margin-top: 0.15rem; line-height: 1.4; }
 .plan-step-date                        { font-size: 0.72rem; color: var(--text-muted); }

@@ -1,0 +1,23 @@
+language: typescript
+display_name: TypeScript
+file_extensions: [".ts", ".tsx"]
+parser: tree-sitter-typescript
+versions:
+  - version: "4.0"
+    status: eol
+  - version: "4.5"
+    status: eol
+  - version: "4.9"
+    status: eol
+  - version: "5.0"
+    status: active
+  - version: "5.3"
+    status: active
+  - version: "5.5"
+    status: active
+version_format: "major.minor"
+default_exclusions: ["node_modules", "dist", "build"]
+package_registry:
+  name: npm
+  api: "https://registry.npmjs.org/{package}"
+  version_field: "engines.node"

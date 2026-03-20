@@ -1,0 +1,129 @@
+# JavaScript ES2022 features — extended
+
+- id: js.es2022.private_fields
+  language: javascript
+  feature_name: "class private fields (#)"
+  introduced: "ES2022"
+  category: es2022
+  description: "Private class fields with # prefix"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [class, private, fields]
+  detection:
+    primary:
+      ast_type: private_property_identifier
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace #private with _private convention or WeakMap:
+        class Counter { #count = 0; increment() { this.#count++; } }
+        → class Counter { constructor() { this._count = 0; } increment() { this._count++; } }
+      For true privacy, use WeakMap or closure pattern.
+  verification:
+    re_detect: true
+  test:
+    before: |
+      class Counter {
+        #count = 0;
+        increment() { this.#count++; }
+        get value() { return this.#count; }
+      }
+    after: |
+      class Counter {
+        constructor() { this._count = 0; }
+        increment() { this._count++; }
+        get value() { return this._count; }
+      }
+
+- id: js.es2022.private_methods
+  language: javascript
+  feature_name: "class private methods (#method)"
+  introduced: "ES2022"
+  category: es2022
+  description: "Private class methods with # prefix"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [class, private, methods]
+  detection:
+    primary:
+      ast_type: method_definition
+      match:
+        has_private_name: true
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Rename #method to _method:
+        class Foo { #helper() {} use() { this.#helper(); } }
+        → class Foo { _helper() {} use() { this._helper(); } }
+  verification:
+    re_detect: true
+  test:
+    before: |
+      class Service {
+        #validate(data) { return data.length > 0; }
+        process(data) { if (this.#validate(data)) { work(data); } }
+      }
+    after: |
+      class Service {
+        _validate(data) { return data.length > 0; }
+        process(data) { if (this._validate(data)) { work(data); } }
+      }
+
+- id: js.es2022.in_private
+  language: javascript
+  feature_name: "private field 'in' check (#field in obj)"
+  introduced: "ES2022"
+  category: es2022
+  description: "Check if private field exists on an object"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [private, in, check]
+  detection:
+    primary:
+      ast_type: binary_expression
+      match:
+        operator: in
+        left_type: private_property_identifier
+  fix:
+    strategy: manual
+    manual_instructions: "Use try/catch or duck typing instead."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      if (#brand in obj) { handle(obj); }
+    after: |
+      try { obj.brand; handle(obj); } catch(e) {}
+
+- id: js.es2022.regexp_d_flag
+  language: javascript
+  feature_name: "RegExp d flag (hasIndices)"
+  introduced: "ES2022"
+  category: es2022
+  description: "Match indices in regex results"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [regex, indices, flag]
+  detection:
+    primary:
+      ast_type: regex
+      match:
+        flags_contains: d
+  fix:
+    strategy: manual
+    manual_instructions: "Remove d flag and calculate indices manually from match index + length."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const match = /(?<name>\w+)/d.exec(str);
+      const [start, end] = match.indices.groups.name;
+    after: |
+      const match = /(?<name>\w+)/.exec(str);
+      const start = match.index;
+      const end = start + match[0].length;

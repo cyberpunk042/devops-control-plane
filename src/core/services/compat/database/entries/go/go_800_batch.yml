@@ -1,0 +1,72 @@
+# Go batch — 800
+
+- id: go.1_18.any_comparable
+  language: go
+  feature_name: "any and comparable predeclared"
+  introduced: "1.18"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [any, comparable, predeclared]
+  detection: { primary: { ast_type: type_identifier, match: { name_in: [any, comparable] } } }
+  fix: { strategy: manual, manual_instructions: "Replace any with interface{}, comparable with manual checks." }
+  verification: { re_detect: true }
+  test: { before: "func f(x any) {}\n", after: "func f(x interface{}) {}\n" }
+
+- id: go.1_20.unsafe_slice_string
+  language: go
+  feature_name: "unsafe.SliceData/StringData"
+  introduced: "1.20"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [unsafe, slice, string]
+  detection: { primary: { ast_type: call_expression, match: { package: unsafe, function_in: [SliceData, StringData, String, Slice] } } }
+  fix: { strategy: manual, manual_instructions: "Use reflect.SliceHeader." }
+  verification: { re_detect: true }
+  test: { before: "ptr := unsafe.SliceData(s)\n", after: "// Use reflect.SliceHeader\n" }
+
+- id: go.1_22.net_http_path_value
+  language: go
+  feature_name: "http.Request.PathValue()"
+  introduced: "1.22"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [http, path, value]
+  detection: { primary: { ast_type: call_expression, match: { method: PathValue } } }
+  fix: { strategy: manual, manual_instructions: "Use chi or gorilla/mux r.URL.Query()." }
+  verification: { re_detect: true }
+  test: { before: "id := r.PathValue(\"id\")\n", after: "// Use chi: chi.URLParam(r, \"id\")\n" }
+
+- id: go.1_23.range_closure
+  language: go
+  feature_name: "range over closure"
+  introduced: "1.23"
+  category: syntax
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [range, closure, iterator]
+  detection: { primary: { ast_type: for_statement, match: { range_over_func: true } } }
+  fix: { strategy: manual, manual_instructions: "Use explicit callback pattern." }
+  verification: { re_detect: true }
+  test: { before: "for v := range genFunc {}\n", after: "genFunc(func(v int) bool { return true })\n" }
+
+- id: go.1_21.log_slog_default
+  language: go
+  feature_name: "slog.SetDefault()"
+  introduced: "1.21"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [slog, default, logger]
+  detection: { primary: { ast_type: call_expression, match: { package: slog, function: SetDefault } } }
+  fix: { strategy: manual, manual_instructions: "Use log.SetOutput() or custom logger." }
+  verification: { re_detect: true }
+  test: { before: "slog.SetDefault(logger)\n", after: "log.SetOutput(os.Stdout)\n" }

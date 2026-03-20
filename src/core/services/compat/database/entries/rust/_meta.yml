@@ -1,0 +1,34 @@
+language: rust
+display_name: Rust
+file_extensions: [".rs"]
+parser: tree-sitter-rust
+
+versions:
+  - version: "1.56"
+    status: eol
+  - version: "1.60"
+    status: eol
+  - version: "1.65"
+    status: eol
+  - version: "1.70"
+    status: eol
+  - version: "1.75"
+    status: active
+  - version: "1.80"
+    status: active
+
+version_format: "major.minor.patch"
+
+default_exclusions:
+  - "target"
+  - ".cargo"
+
+import_styles:
+  - "use {path};"
+  - "use {path}::{name};"
+  - "mod {name};"
+
+package_registry:
+  name: "crates.io"
+  api: "https://crates.io/api/v1/crates/{package}"
+  version_field: "rust_version"

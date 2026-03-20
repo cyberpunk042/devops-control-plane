@@ -1,0 +1,623 @@
+# JavaScript ES2015–ES2019 features (the big backward compat targets)
+
+# ── ES2015 (ES6) ─────────────────────────────────────────────────
+
+- id: js.es2015.arrow_function
+  language: javascript
+  feature_name: "arrow function (=>)"
+  introduced: "ES2015"
+  category: es2015
+  description: "Arrow function expressions with lexical this binding"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [function, arrow, syntax]
+  detection:
+    primary:
+      ast_type: arrow_function
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with function expression. Careful with 'this' binding:
+        const fn = (a, b) => a + b;
+        → const fn = function(a, b) { return a + b; };
+
+        obj.method = () => this.value;
+        → var self = this; obj.method = function() { return self.value; };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const add = (a, b) => a + b;
+      const greet = name => `Hello ${name}`;
+    after: |
+      var add = function(a, b) { return a + b; };
+      var greet = function(name) { return 'Hello ' + name; };
+
+- id: js.es2015.template_literal
+  language: javascript
+  feature_name: "template literal"
+  introduced: "ES2015"
+  category: es2015
+  description: "Template strings with backtick syntax and ${} interpolation"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [string, template, interpolation]
+  detection:
+    primary:
+      ast_type: template_string
+      match: {}
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_template_to_concat
+        find: {}
+        replace:
+          style: string_concatenation
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const msg = `Hello ${name}, you are ${age} years old`;
+    after: |
+      var msg = 'Hello ' + name + ', you are ' + age + ' years old';
+
+- id: js.es2015.let_const
+  language: javascript
+  feature_name: "let/const declarations"
+  introduced: "ES2015"
+  category: es2015
+  description: "Block-scoped variable declarations"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [variable, scope, declaration]
+  detection:
+    primary:
+      ast_type: lexical_declaration
+      match: {}
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: replace_let_const_with_var
+        find: {}
+        replace:
+          keyword: var
+  verification:
+    re_detect: true
+  test:
+    before: |
+      let count = 0;
+      const MAX = 100;
+    after: |
+      var count = 0;
+      var MAX = 100;
+
+- id: js.es2015.destructuring
+  language: javascript
+  feature_name: "destructuring assignment"
+  introduced: "ES2015"
+  category: es2015
+  description: "Object and array destructuring in declarations and assignments"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [destructuring, assignment, syntax]
+  detection:
+    primary:
+      ast_type: object_pattern
+      match: {}
+    alternatives:
+      - ast_type: array_pattern
+        match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with individual property access:
+        const { name, age } = person;
+        → var name = person.name; var age = person.age;
+
+        const [first, ...rest] = items;
+        → var first = items[0]; var rest = items.slice(1);
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const { name, age } = user;
+      const [first, second] = list;
+    after: |
+      var name = user.name;
+      var age = user.age;
+      var first = list[0];
+      var second = list[1];
+
+- id: js.es2015.class_declaration
+  language: javascript
+  feature_name: "class declaration"
+  introduced: "ES2015"
+  category: es2015
+  description: "Class syntax with constructor, methods, and extends"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [class, oop, syntax]
+  detection:
+    primary:
+      ast_type: class_declaration
+      match: {}
+    alternatives:
+      - ast_type: class
+        match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Rewrite as constructor function + prototype:
+        class Animal {
+          constructor(name) { this.name = name; }
+          speak() { return this.name; }
+        }
+        →
+        function Animal(name) { this.name = name; }
+        Animal.prototype.speak = function() { return this.name; };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      class Dog extends Animal {
+        bark() { return 'woof'; }
+      }
+    after: |
+      function Dog() { Animal.call(this); }
+      Dog.prototype = Object.create(Animal.prototype);
+      Dog.prototype.bark = function() { return 'woof'; };
+
+- id: js.es2015.default_params
+  language: javascript
+  feature_name: "default parameter values"
+  introduced: "ES2015"
+  category: es2015
+  description: "Function parameters with default values"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [function, parameters, default]
+  detection:
+    primary:
+      ast_type: assignment_pattern
+      context: function_params
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Move defaults into function body:
+        function greet(name = 'World') { ... }
+        → function greet(name) { if (name === undefined) name = 'World'; ... }
+  verification:
+    re_detect: true
+  test:
+    before: |
+      function greet(name = 'World') { return 'Hello ' + name; }
+    after: |
+      function greet(name) { if (name === undefined) name = 'World'; return 'Hello ' + name; }
+
+- id: js.es2015.spread_operator
+  language: javascript
+  feature_name: "spread operator (...)"
+  introduced: "ES2015"
+  category: es2015
+  description: "Spread elements in arrays and function calls"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [spread, operator, syntax]
+  detection:
+    primary:
+      ast_type: spread_element
+      match: {}
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with explicit alternatives:
+        Array spread: [...arr1, ...arr2] → arr1.concat(arr2)
+        Function call: fn(...args) → fn.apply(null, args)
+        Object spread (ES2018): {...obj} → Object.assign({}, obj)
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const merged = [...arr1, ...arr2];
+      fn(...args);
+    after: |
+      var merged = arr1.concat(arr2);
+      fn.apply(null, args);
+
+- id: js.es2015.promise
+  language: javascript
+  feature_name: "Promise"
+  introduced: "ES2015"
+  category: es2015
+  description: "Native Promise for asynchronous operations"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [promise, async]
+  detection:
+    primary:
+      ast_type: new_expression
+      match:
+        constructor: Promise
+    alternatives:
+      - ast_type: member_expression
+        match:
+          object: Promise
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Use a Promise polyfill:
+        npm install es6-promise
+        require('es6-promise').polyfill();
+      Or use core-js: require('core-js/features/promise');
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const p = new Promise((resolve, reject) => { resolve(42); });
+    after: |
+      require('es6-promise').polyfill();
+      var p = new Promise(function(resolve, reject) { resolve(42); });
+
+- id: js.es2015.for_of
+  language: javascript
+  feature_name: "for...of loop"
+  introduced: "ES2015"
+  category: es2015
+  description: "Iterate over iterable objects"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [loop, iteration, syntax]
+  detection:
+    primary:
+      ast_type: for_in_statement
+      match:
+        kind: of
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Replace with for loop:
+        for (const item of arr) { ... }
+        → for (var i = 0; i < arr.length; i++) { var item = arr[i]; ... }
+  verification:
+    re_detect: true
+  test:
+    before: |
+      for (const item of items) { process(item); }
+    after: |
+      for (var i = 0; i < items.length; i++) { var item = items[i]; process(item); }
+
+# ── ES2016 ───────────────────────────────────────────────────────
+
+- id: js.es2016.array_includes
+  language: javascript
+  feature_name: "Array.prototype.includes()"
+  introduced: "ES2016"
+  category: es2016
+  description: "Check if array contains a value"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [array, includes, method]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: includes
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_method_call
+        find:
+          method: includes
+        replace:
+          template: "{receiver}.indexOf({arg}) !== -1"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      if (list.includes(item)) { found(); }
+    after: |
+      if (list.indexOf(item) !== -1) { found(); }
+
+- id: js.es2016.exponentiation
+  language: javascript
+  feature_name: "exponentiation operator (**)"
+  introduced: "ES2016"
+  category: es2016
+  description: "x ** y exponentiation"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [math, operator, exponentiation]
+  detection:
+    primary:
+      ast_type: binary_expression
+      match:
+        operator: "**"
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_binary_op
+        find:
+          operator: "**"
+        replace:
+          template: "Math.pow({left}, {right})"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const result = base ** exponent;
+    after: |
+      var result = Math.pow(base, exponent);
+
+# ── ES2017 ───────────────────────────────────────────────────────
+
+- id: js.es2017.async_await
+  language: javascript
+  feature_name: "async/await"
+  introduced: "ES2017"
+  category: es2017
+  description: "Async functions with await keyword"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [async, await, promise]
+  detection:
+    primary:
+      ast_type: function_declaration
+      match:
+        async: true
+    alternatives:
+      - ast_type: arrow_function
+        match:
+          async: true
+      - ast_type: method_definition
+        match:
+          async: true
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Rewrite as Promise.then() chains:
+        async function fetch() {
+          const resp = await get(url);
+          const data = await resp.json();
+          return data;
+        }
+        →
+        function fetch() {
+          return get(url).then(function(resp) {
+            return resp.json();
+          }).then(function(data) {
+            return data;
+          });
+        }
+  verification:
+    re_detect: true
+  test:
+    before: |
+      async function getData() {
+        const resp = await fetch(url);
+        return await resp.json();
+      }
+    after: |
+      function getData() {
+        return fetch(url).then(function(resp) {
+          return resp.json();
+        });
+      }
+
+- id: js.es2017.object_entries
+  language: javascript
+  feature_name: "Object.entries()/Object.values()"
+  introduced: "ES2017"
+  category: es2017
+  description: "Get [key, value] pairs or values from an object"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [object, entries, values]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Object
+        method_in: [entries, values]
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Polyfill:
+        Object.entries = Object.entries || function(obj) {
+          return Object.keys(obj).map(function(k) { return [k, obj[k]]; });
+        };
+        Object.values = Object.values || function(obj) {
+          return Object.keys(obj).map(function(k) { return obj[k]; });
+        };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      for (const [key, value] of Object.entries(config)) { use(key, value); }
+    after: |
+      Object.keys(config).forEach(function(key) { var value = config[key]; use(key, value); });
+
+# ── ES2018 ───────────────────────────────────────────────────────
+
+- id: js.es2018.object_spread
+  language: javascript
+  feature_name: "object rest/spread"
+  introduced: "ES2018"
+  category: es2018
+  description: "Spread and rest operators for objects: {...obj}"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [object, spread, rest]
+  detection:
+    primary:
+      ast_type: spread_element
+      context: object
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: rewrite_object_spread
+        find: {}
+        replace:
+          template: "Object.assign({}, {args})"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const merged = { ...defaults, ...overrides };
+    after: |
+      var merged = Object.assign({}, defaults, overrides);
+
+- id: js.es2018.async_iteration
+  language: javascript
+  feature_name: "for await...of"
+  introduced: "ES2018"
+  category: es2018
+  description: "Async iteration over async iterables"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [async, iteration, loop]
+  detection:
+    primary:
+      ast_type: for_in_statement
+      match:
+        await: true
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Rewrite with manual async iteration:
+        for await (const chunk of stream) { process(chunk); }
+        →
+        (async function() {
+          var iterator = stream[Symbol.asyncIterator]();
+          var result;
+          while (!(result = await iterator.next()).done) {
+            process(result.value);
+          }
+        })();
+  verification:
+    re_detect: true
+  test:
+    before: |
+      for await (const chunk of readStream()) { handle(chunk); }
+    after: |
+      var iter = readStream()[Symbol.asyncIterator]();
+      var next; while(!(next = await iter.next()).done) { handle(next.value); }
+
+# ── ES2019 ───────────────────────────────────────────────────────
+
+- id: js.es2019.optional_catch
+  language: javascript
+  feature_name: "optional catch binding"
+  introduced: "ES2019"
+  category: es2019
+  description: "catch without error parameter: catch { }"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [try, catch, syntax]
+  detection:
+    primary:
+      ast_type: catch_clause
+      match:
+        parameter: null
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: add_catch_param
+        find: {}
+        replace:
+          param_name: _unused
+  verification:
+    re_detect: true
+  test:
+    before: |
+      try { risky(); } catch { fallback(); }
+    after: |
+      try { risky(); } catch (_unused) { fallback(); }
+
+- id: js.es2019.flat_flatmap
+  language: javascript
+  feature_name: "Array.prototype.flat/flatMap"
+  introduced: "ES2019"
+  category: es2019
+  description: "Flatten nested arrays"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [array, flat, method]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method_in: [flat, flatMap]
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Polyfill flat:
+        Array.prototype.flat = Array.prototype.flat || function(depth) {
+          depth = depth || 1;
+          return this.reduce(function(acc, val) {
+            return acc.concat(depth > 0 && Array.isArray(val) ? val.flat(depth - 1) : val);
+          }, []);
+        };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const flat = nested.flat(2);
+    after: |
+      const flat = nested.reduce(function(a, v) { return a.concat(Array.isArray(v) ? v.flat(1) : v); }, []);
+
+- id: js.es2019.object_fromentries
+  language: javascript
+  feature_name: "Object.fromEntries()"
+  introduced: "ES2019"
+  category: es2019
+  description: "Create object from [key, value] pairs"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [object, entries, method]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Object
+        method: fromEntries
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Polyfill:
+        Object.fromEntries = Object.fromEntries || function(entries) {
+          var obj = {};
+          entries.forEach(function(pair) { obj[pair[0]] = pair[1]; });
+          return obj;
+        };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const obj = Object.fromEntries(entries);
+    after: |
+      var obj = {};
+      entries.forEach(function(pair) { obj[pair[0]] = pair[1]; });

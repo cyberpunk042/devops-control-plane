@@ -1,0 +1,99 @@
+# Go 1.18 extras
+
+- id: go.1_18.workspace
+  language: go
+  feature_name: "go work (workspaces)"
+  introduced: "1.18"
+  category: stdlib
+  description: "Multi-module workspace support via go.work"
+  direction: downgrade
+  severity: warning
+  error_type: runtime_error
+  tags: [workspace, modules, go_work]
+  detection:
+    primary:
+      ast_type: file
+      match:
+        filename: "go.work"
+  fix:
+    strategy: manual
+    manual_instructions: "Remove go.work file — use replace directives in go.mod instead."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      go 1.18
+      use (
+          ./module-a
+          ./module-b
+      )
+    after: |
+      // Use replace directives in individual go.mod files
+
+- id: go.1_18.comparable_constraint
+  language: go
+  feature_name: "comparable constraint"
+  introduced: "1.18"
+  category: syntax
+  description: "comparable predeclared constraint for generic types"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [comparable, generics, constraint]
+  detection:
+    primary:
+      ast_type: type_constraint
+      match:
+        name: comparable
+  fix:
+    strategy: manual
+    manual_instructions: "Remove comparable constraint — use interface{} with runtime equality checks."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      func Contains[T comparable](s []T, v T) bool {
+          for _, x := range s { if x == v { return true } }
+          return false
+      }
+    after: |
+      func ContainsString(s []string, v string) bool {
+          for _, x := range s { if x == v { return true } }
+          return false
+      }
+
+- id: go.1_22.http_servemux_method
+  language: go
+  feature_name: "ServeMux method patterns"
+  introduced: "1.22"
+  category: stdlib
+  description: "HTTP method in ServeMux patterns: GET /api/users"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [http, servemux, routing]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: HandleFunc
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Use a third-party router (chi, gorilla/mux) or check method manually:
+        mux.HandleFunc("GET /api/users", handler)
+        →
+        mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+            if r.Method != "GET" { http.Error(w, "method not allowed", 405); return }
+            handler(w, r)
+        })
+  verification:
+    re_detect: false
+  test:
+    before: |
+      mux.HandleFunc("GET /api/users", listUsers)
+    after: |
+      mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+          if r.Method != "GET" { http.Error(w, "method not allowed", 405); return }
+          listUsers(w, r)
+      })

@@ -1,0 +1,170 @@
+# Python — push to 700
+
+- id: python.stdlib.asyncio_cancelling
+  language: python
+  feature_name: "Task.cancelling()/uncancel()"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [asyncio, cancel, task]
+  detection:
+    primary: { ast_type: Call, match: { func_attr: cancelling } }
+    alternatives:
+      - { ast_type: Call, match: { func_attr: uncancel } }
+  fix: { strategy: manual, manual_instructions: "Use try/except CancelledError." }
+  verification: { re_detect: true }
+  test: { before: "task.cancelling()\n", after: "# Use try/except\n" }
+
+- id: python.stdlib.asyncio_runner_311
+  language: python
+  feature_name: "asyncio.Runner"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [asyncio, runner]
+  detection:
+    primary: { ast_type: ImportFrom, match: { module: asyncio, names_contains: Runner } }
+  fix: { strategy: manual, manual_instructions: "Use asyncio.run() instead." }
+  verification: { re_detect: true }
+  test: { before: "from asyncio import Runner\n", after: "import asyncio\n" }
+
+- id: python.stdlib.typing_assert_type_312
+  language: python
+  feature_name: "typing.assert_type (3.11)"
+  introduced: "3.11"
+  category: typing
+  direction: downgrade
+  severity: warning
+  error_type: import_error
+  tags: [typing, assert_type]
+  detection:
+    primary: { ast_type: ImportFrom, match: { module: typing, names_contains: assert_type } }
+    exclude: [{ context: type_checking_block }]
+  fix:
+    strategy: replace_import
+    transforms:
+      - type: replace_import_name
+        find: { import_module: typing, import_name: assert_type }
+        replace: { import_name: "" }
+      - type: add_import
+        import_statement: "from typing_extensions import assert_type"
+        condition: not_already_present
+    backport: { package: typing-extensions }
+  verification: { re_detect: true }
+  test: { before: "from typing import assert_type\n", after: "from typing_extensions import assert_type\n" }
+
+- id: python.stdlib.os_splice
+  language: python
+  feature_name: "os.splice()"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [os, splice, linux]
+  detection:
+    primary: { ast_type: Attribute, match: { value_id: os, attr: splice } }
+  fix: { strategy: manual, manual_instructions: "Use read/write loop." }
+  verification: { re_detect: true }
+  test: { before: "os.splice(fd_in, fd_out, count)\n", after: "# read/write loop\n" }
+
+- id: python.stdlib.math_cbrt
+  language: python
+  feature_name: "math.cbrt()"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [math, cbrt, cube_root]
+  detection:
+    primary: { ast_type: Attribute, match: { value_id: math, attr: cbrt } }
+  fix: { strategy: manual, manual_instructions: "x ** (1/3) or math.pow(x, 1/3)" }
+  verification: { re_detect: true }
+  test: { before: "r = math.cbrt(27)\n", after: "r = 27 ** (1/3)\n" }
+
+- id: python.stdlib.math_exp2
+  language: python
+  feature_name: "math.exp2()"
+  introduced: "3.11"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [math, exp2]
+  detection:
+    primary: { ast_type: Attribute, match: { value_id: math, attr: exp2 } }
+  fix: { strategy: manual, manual_instructions: "2 ** x or math.pow(2, x)" }
+  verification: { re_detect: true }
+  test: { before: "r = math.exp2(10)\n", after: "r = 2 ** 10\n" }
+
+- id: python.stdlib.statistics_correlation
+  language: python
+  feature_name: "statistics.correlation()"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [statistics, correlation]
+  detection:
+    primary: { ast_type: ImportFrom, match: { module: statistics, names_contains: correlation } }
+  fix: { strategy: manual, manual_instructions: "Implement manually or use numpy." }
+  verification: { re_detect: true }
+  test: { before: "from statistics import correlation\n", after: "# Use numpy.corrcoef\n" }
+
+- id: python.stdlib.statistics_linear_regression
+  language: python
+  feature_name: "statistics.linear_regression()"
+  introduced: "3.10"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [statistics, regression]
+  detection:
+    primary: { ast_type: ImportFrom, match: { module: statistics, names_contains: linear_regression } }
+  fix: { strategy: manual, manual_instructions: "Use numpy or scipy." }
+  verification: { re_detect: true }
+  test: { before: "from statistics import linear_regression\n", after: "# Use numpy\n" }
+
+- id: python.stdlib.calendar_day_enum
+  language: python
+  feature_name: "calendar.Day enum"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [calendar, day, enum]
+  detection:
+    primary: { ast_type: ImportFrom, match: { module: calendar, names_contains: Day } }
+  fix: { strategy: manual, manual_instructions: "Use integer constants." }
+  verification: { re_detect: true }
+  test: { before: "from calendar import Day\n", after: "# Use integers\n" }
+
+- id: python.stdlib.sys_last_exc
+  language: python
+  feature_name: "sys.last_exc"
+  introduced: "3.12"
+  category: stdlib
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [sys, exception, last]
+  detection:
+    primary: { ast_type: Attribute, match: { value_id: sys, attr: last_exc } }
+  fix: { strategy: manual, manual_instructions: "Use sys.last_value instead." }
+  verification: { re_detect: true }
+  test: { before: "exc = sys.last_exc\n", after: "exc = sys.last_value\n" }

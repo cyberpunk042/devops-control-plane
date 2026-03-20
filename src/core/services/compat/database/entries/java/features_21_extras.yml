@@ -1,0 +1,115 @@
+# Java 21 extras
+
+- id: java.21.sequenced_collections
+  language: java
+  feature_name: "SequencedCollection/SequencedMap"
+  introduced: "21"
+  category: api
+  description: "Collections with defined encounter order"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [collections, sequenced, api]
+  detection:
+    primary:
+      ast_type: type_identifier
+      match:
+        name_in: [SequencedCollection, SequencedSet, SequencedMap]
+  fix:
+    strategy: manual
+    manual_instructions: "Use List/LinkedHashSet/LinkedHashMap which have encounter order."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      SequencedCollection<String> items = new ArrayList<>();
+      items.addFirst("a");
+    after: |
+      List<String> items = new ArrayList<>();
+      items.add(0, "a");
+
+- id: java.21.unnamed_variables
+  language: java
+  feature_name: "unnamed variables (_)"
+  introduced: "21"
+  category: syntax
+  description: "Use _ for unused variables (preview)"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [unnamed, variable, underscore]
+  detection:
+    primary:
+      ast_type: variable_declarator
+      match:
+        name: "_"
+  fix:
+    strategy: manual
+    manual_instructions: "Replace _ with a named variable like 'unused' or 'ignored'."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      for (var _ : list) { count++; }
+    after: |
+      for (var ignored : list) { count++; }
+
+- id: java.17.random_generator
+  language: java
+  feature_name: "RandomGenerator interface"
+  introduced: "17"
+  category: api
+  description: "New random number generator API"
+  direction: downgrade
+  severity: error
+  error_type: import_error
+  tags: [random, generator, api]
+  detection:
+    primary:
+      ast_type: import_declaration
+      match:
+        path_contains: "java.util.random.RandomGenerator"
+  fix:
+    strategy: manual
+    manual_instructions: "Use java.util.Random instead."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import java.util.random.RandomGenerator;
+      var rng = RandomGenerator.getDefault();
+    after: |
+      import java.util.Random;
+      var rng = new Random();
+
+- id: java.14.instanceof_pattern_switch
+  language: java
+  feature_name: "pattern matching in switch (preview)"
+  introduced: "17"
+  category: syntax
+  description: "Use pattern matching in switch cases"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [switch, pattern, instanceof]
+  detection:
+    primary:
+      ast_type: switch_expression
+      match:
+        has_pattern_label: true
+  fix:
+    strategy: manual
+    manual_instructions: "Rewrite as if/else if chain with instanceof checks."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      return switch (obj) {
+          case Integer i -> "int: " + i;
+          case String s -> "str: " + s;
+          default -> "other";
+      };
+    after: |
+      if (obj instanceof Integer) return "int: " + (Integer) obj;
+      else if (obj instanceof String) return "str: " + (String) obj;
+      else return "other";

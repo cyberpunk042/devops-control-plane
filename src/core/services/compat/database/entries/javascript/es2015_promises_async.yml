@@ -1,0 +1,218 @@
+# JavaScript Promise/async patterns across versions
+
+- id: js.es2015.promise_race
+  language: javascript
+  feature_name: "Promise.race()"
+  introduced: "ES2015"
+  category: es2015
+  description: "Race between multiple promises"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [promise, race, async]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Promise
+        method: race
+  fix:
+    strategy: manual
+    manual_instructions: "Use es6-promise polyfill or callback-based race pattern."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const first = await Promise.race([fetch(url1), fetch(url2)]);
+    after: |
+      require('es6-promise').polyfill();
+      var first = await Promise.race([fetch(url1), fetch(url2)]);
+
+- id: js.es2015.promise_all
+  language: javascript
+  feature_name: "Promise.all()"
+  introduced: "ES2015"
+  category: es2015
+  description: "Wait for all promises to resolve"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [promise, all, async]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Promise
+        method: all
+  fix:
+    strategy: manual
+    manual_instructions: "Use es6-promise polyfill."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const results = await Promise.all([p1, p2, p3]);
+    after: |
+      require('es6-promise').polyfill();
+      var results = await Promise.all([p1, p2, p3]);
+
+- id: js.es2015.promise_resolve_reject
+  language: javascript
+  feature_name: "Promise.resolve/reject"
+  introduced: "ES2015"
+  category: es2015
+  description: "Create resolved/rejected promises"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [promise, resolve, reject]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Promise
+        method_in: [resolve, reject]
+  fix:
+    strategy: manual
+    manual_instructions: "Use es6-promise polyfill."
+  verification:
+    re_detect: true
+  test:
+    before: |
+      return Promise.resolve(42);
+    after: |
+      require('es6-promise').polyfill();
+      return Promise.resolve(42);
+
+- id: js.es2020.promise_allsettled_2
+  language: javascript
+  feature_name: "Promise.allSettled() usage patterns"
+  introduced: "ES2020"
+  category: es2020
+  description: "Common allSettled patterns for error handling"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  tags: [promise, allsettled, error_handling]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Promise
+        method: allSettled
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Implement manually:
+        const results = await Promise.all(
+          promises.map(p => p.then(
+            v => ({status: 'fulfilled', value: v}),
+            e => ({status: 'rejected', reason: e})
+          ))
+        );
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const results = await Promise.allSettled(tasks);
+      const failures = results.filter(r => r.status === 'rejected');
+    after: |
+      const results = await Promise.all(tasks.map(function(p) {
+        return p.then(function(v) { return {status:'fulfilled',value:v}; },
+                      function(e) { return {status:'rejected',reason:e}; });
+      }));
+
+- id: js.es2015.iterator_for_of
+  language: javascript
+  feature_name: "for...of with iterables"
+  introduced: "ES2015"
+  category: es2015
+  description: "Iterate over any iterable (Set, Map, generators, etc.)"
+  direction: downgrade
+  severity: error
+  error_type: syntax_error
+  tags: [iterator, for_of, iterable]
+  detection:
+    primary:
+      ast_type: for_in_statement
+      match:
+        kind: of
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Convert to forEach or index-based loop:
+        for (const [k, v] of map) { ... }
+        → map.forEach(function(v, k) { ... });
+  verification:
+    re_detect: true
+  test:
+    before: |
+      for (const item of set) { process(item); }
+    after: |
+      set.forEach(function(item) { process(item); });
+
+- id: js.es2015.string_repeat
+  language: javascript
+  feature_name: "String.prototype.repeat()"
+  introduced: "ES2015"
+  category: es2015
+  description: "Repeat a string N times"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_method
+  tags: [string, repeat, method]
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: repeat
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Polyfill:
+        String.prototype.repeat = String.prototype.repeat || function(n) {
+          return new Array(n + 1).join(this);
+        };
+  verification:
+    re_detect: true
+  test:
+    before: |
+      const stars = '*'.repeat(10);
+    after: |
+      var stars = new Array(11).join('*');
+
+- id: js.es2015.number_epsilon
+  language: javascript
+  feature_name: "Number.EPSILON/MAX_SAFE_INTEGER/MIN_SAFE_INTEGER"
+  introduced: "ES2015"
+  category: es2015
+  description: "Number constants for precision and safety"
+  direction: downgrade
+  severity: error
+  error_type: runtime_error
+  error_subtype: missing_name
+  tags: [number, constants, precision]
+  detection:
+    primary:
+      ast_type: member_expression
+      match:
+        object: Number
+        property_in: [EPSILON, MAX_SAFE_INTEGER, MIN_SAFE_INTEGER]
+  fix:
+    strategy: manual
+    manual_instructions: |
+      Define constants:
+        Number.EPSILON = Number.EPSILON || 2.220446049250313e-16;
+        Number.MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER || 9007199254740991;
+  verification:
+    re_detect: true
+  test:
+    before: |
+      if (Math.abs(a - b) < Number.EPSILON) { equal(); }
+    after: |
+      Number.EPSILON = Number.EPSILON || 2.220446049250313e-16;
+      if (Math.abs(a - b) < Number.EPSILON) { equal(); }
