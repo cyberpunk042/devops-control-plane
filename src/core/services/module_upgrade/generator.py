@@ -280,10 +280,9 @@ def _enrich_with_compat_analysis(
             elif aid.startswith("edit_") or aid == "generate_module_toml":
                 config_steps.append(step)
             elif aid == "setup_test_env":
-                venv_steps.append(step)
+                venv_steps.insert(0, step)  # Venv FIRST in the group
             elif aid == "run_pip_install" or aid == "run_npm_install":
-                # Install goes AFTER venv setup
-                venv_steps.append(step)
+                venv_steps.append(step)  # Install AFTER venv
             elif aid.startswith("run_") or aid.startswith("scaffold_") or aid.startswith("generate_smart"):
                 test_steps.append(step)
             elif aid == "update_ci_matrix":

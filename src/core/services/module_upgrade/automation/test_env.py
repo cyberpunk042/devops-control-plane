@@ -382,11 +382,27 @@ def _detect_compat_failures(output: str, target: str) -> list[dict]:
                 }
             elif error_type == "module_error":
                 module = match.group(1)
-                hint = {
-                    "feature": module,
-                    "since": "?",
-                    "fix": f"Module '{module}' is not available in the target Python version",
-                }
+                # Check if it's a pip package (not a stdlib version feature)
+                _stdlib = {"os", "sys", "re", "json", "pathlib", "typing", "collections",
+                           "functools", "itertools", "logging", "subprocess", "shutil",
+                           "time", "datetime", "hashlib", "io", "abc", "dataclasses",
+                           "enum", "math", "random", "string", "copy", "inspect", "ast",
+                           "unittest", "argparse", "csv", "sqlite3", "xml", "html", "http",
+                           "urllib", "email", "socket", "threading", "asyncio", "contextlib",
+                           "traceback", "warnings", "tempfile", "glob", "struct", "pickle",
+                           "platform", "importlib", "uuid", "pdb", "textwrap", "calendar"}
+                if module.split(".")[0] not in _stdlib:
+                    hint = {
+                        "feature": module,
+                        "since": "package",
+                        "fix": f"Missing package — run: pip install {module}",
+                    }
+                else:
+                    hint = {
+                        "feature": module,
+                        "since": "?",
+                        "fix": f"Module '{module}' is not available in the target Python version",
+                    }
             elif error_type == "attribute_error":
                 obj_type = match.group(1)
                 attr = match.group(2)
