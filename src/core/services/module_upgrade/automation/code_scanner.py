@@ -159,6 +159,19 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
         except Exception:
             pass
 
+        # Collect backport packages introduced by fixes (for discover_missing_deps step)
+        backport_pkgs: list[str] = []
+        seen_backports: set[str] = set()
+        for fr in fix_result.file_results:
+            for r in fr.results:
+                if r.success and r.finding_feature_id:
+                    entry = compat.registry.get(r.finding_feature_id)
+                    if entry and entry.fix.backport and entry.fix.backport.package:
+                        pkg = entry.fix.backport.package
+                        if pkg not in seen_backports:
+                            seen_backports.add(pkg)
+                            backport_pkgs.append(pkg)
+
         summary_parts = [f"Fixed {fix_result.verified_fixes}/{len(fixable)} finding(s)"]
         summary_parts.append(f"in {fix_result.files_fixed} file(s)")
         if fix_result.files_rolled_back > 0:
@@ -179,6 +192,9 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
             for fid, cnt in sorted(fail_by_feature.items()):
                 summary_parts.append(f"{fid}({cnt})")
 
+        if backport_pkgs:
+            summary_parts.append(f"| new deps needed: {', '.join(backport_pkgs)}")
+
         return {
             "ok": True,
             "summary": " ".join(summary_parts),
@@ -188,6 +204,7 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
             "files_rolled_back": fix_result.files_rolled_back,
             "duration_ms": fix_result.duration_ms,
             "failed_details": file_details[:20] if file_details else [],
+            "backport_packages": backport_pkgs,
         }
 
     except Exception as exc:
