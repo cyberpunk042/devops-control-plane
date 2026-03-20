@@ -2260,33 +2260,6 @@
             // Failure — show result in modal instead of just a toast
             let html = '';
 
-            // Auto-fix disabled — show enable toggle
-            if (data.requires_setting === 'compat_auto_fix_enabled') {
-                html += _adm('warning', 'Auto-fix is disabled',
-                    'The compat engine can automatically fix code for version compatibility, '
-                    + 'but this requires explicit opt-in since it modifies source files.');
-                html += `<div style="margin:0.75rem 0;display:flex;align-items:center;gap:0.5rem">`;
-                html += `<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">`;
-                html += `<input type="checkbox" id="compat-auto-fix-toggle" onchange="_toggleAutoFix(this.checked,'${esc(moduleName)}','${esc(stepId)}',${stepIndex})">`;
-                html += `<span style="font-size:0.85rem">Enable auto-fix mode and apply changes</span>`;
-                html += `</label>`;
-                html += `</div>`;
-                html += `<div style="font-size:0.78rem;color:var(--text-muted)">`;
-                html += `When enabled, the compat engine will modify source files to replace `;
-                html += `incompatible patterns with compatible alternatives. All changes are `;
-                html += `verified and rolled back if verification fails.`;
-                html += `</div>`;
-
-                modalOpen({
-                    title: '🔧 Auto-fix requires opt-in',
-                    replace: true,
-                    body: html,
-                    size: 'lg',
-                    footerButtons: [{ label: 'Close', onclick: 'modalClose()' }],
-                });
-                return;
-            }
-
             // Test output
             if (data.output) {
                 html += `<div class="plan-preview-summary">${esc(data.summary || 'Step failed')}</div>`;
@@ -2334,24 +2307,6 @@
     window._wizardMarkDone_close = function(moduleName, stepId, stepIndex) {
         _wizardMarkDone(moduleName, stepId, stepIndex);
         modalClose();
-    };
-
-    window._toggleAutoFix = async function(enabled, moduleName, stepId, stepIndex) {
-        try {
-            const resp = await fetch('/api/server/settings', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ compat_auto_fix_enabled: enabled }),
-            });
-            if (resp.ok && enabled) {
-                toast('🔧 Auto-fix enabled — applying...', 'info');
-                modalClose();
-                // Re-run the step now that auto-fix is enabled
-                _modalApplyStep(moduleName, stepId, stepIndex);
-            }
-        } catch (e) {
-            toast('❌ Failed to update setting: ' + e.message, 'error');
-        }
     };
 
     window.modulePlanRunBatch = function(moduleName, fromIdx, toIdx) {
