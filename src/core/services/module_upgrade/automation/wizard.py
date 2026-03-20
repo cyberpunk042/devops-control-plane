@@ -346,8 +346,8 @@ def wizard_batch(
             failed_step = idx
             break
 
-        # Determine mode: fix steps use preview when auto_fix is OFF
-        _FIX_PREFIXES = ("fix_compat_auto", "add_future_annotations")
+        # Determine mode: steps that modify files use preview when auto_fix is OFF
+        _FIX_PREFIXES = ("fix_compat_auto", "add_future_annotations", "discover_missing_deps")
         base_aid = automation_id.split("__")[0] if "__" in automation_id else automation_id
         is_fix_step = base_aid in _FIX_PREFIXES
         mode = "execute"

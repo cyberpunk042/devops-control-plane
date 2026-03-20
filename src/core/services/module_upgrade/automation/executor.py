@@ -603,7 +603,13 @@ def _check_already_done(automation_id: str, ctx) -> dict | None:
     elif automation_id == "setup_test_env":
         target = ctx.target_floor
         venv_dir = ctx.project_root / ".venvs" / f"{ctx.module_name}-{target}"
-        if (venv_dir / "bin" / "python").is_file():
+        venv_python = venv_dir / "bin" / "python"
+        if venv_python.is_file():
+            # Check if requirements.txt is newer than the venv — if so, re-run to install new deps
+            module_dir = ctx.project_root / ctx.module_path
+            req_file = module_dir / "requirements.txt"
+            if req_file.is_file() and req_file.stat().st_mtime > venv_python.stat().st_mtime:
+                return None  # requirements changed since venv was created — re-run
             return {"ok": True, "summary": f"Venv already exists at .venvs/{ctx.module_name}-{target}/ — skipped"}
 
     return None  # not done, proceed normally
