@@ -219,6 +219,72 @@ def handle_setup_test_env(ctx: UpgradeContext, mode: str) -> dict:
         )
         installed.append("pytest")
 
+        # Discover and install missing deps — scan code imports,
+        # find packages not in requirements.txt, install them
+        try:
+            from src.core.services.system_posture.bridges.module_intel import (
+                _scan_module_imports,
+            )
+            from src.core.services.module_upgrade.automation.dep_checker import (
+                _get_import_to_pkg,
+            )
+
+            module_imports = _scan_module_imports(module_dir)
+            if module_imports:
+                host_mapping = _get_import_to_pkg()
+
+                # Read existing requirements
+                existing_pkgs: set[str] = set()
+                req_path = module_dir / "requirements.txt"
+                if req_path.is_file():
+                    import re as _re
+                    for line in req_path.read_text(encoding="utf-8").split("\n"):
+                        line = line.strip()
+                        if line and not line.startswith("#") and not line.startswith("-"):
+                            pkg_match = _re.match(r"^([a-zA-Z0-9_.-]+)", line)
+                            if pkg_match:
+                                existing_pkgs.add(pkg_match.group(1).lower().replace("_", "-"))
+
+                # Find missing
+                missing_pkgs: list[str] = []
+                for imp in module_imports:
+                    pkg = host_mapping.get(imp, imp)
+                    pkg_normalized = pkg.lower().replace("_", "-")
+                    if pkg_normalized not in existing_pkgs:
+                        missing_pkgs.append(pkg)
+
+                if missing_pkgs:
+                    # Install missing packages in the venv
+                    result = subprocess.run(
+                        [venv_pip, "install"] + missing_pkgs,
+                        capture_output=True, text=True, timeout=300,
+                    )
+                    if result.returncode == 0:
+                        installed.append(f"discovered: {', '.join(missing_pkgs)}")
+
+                        # Also add to requirements.txt so pip install step works
+                        if req_path.is_file():
+                            content = req_path.read_text(encoding="utf-8").rstrip("\n")
+                            for pkg in missing_pkgs:
+                                # Get installed version for pinning
+                                ver = ""
+                                try:
+                                    ver_result = subprocess.run(
+                                        [venv_pip, "show", pkg],
+                                        capture_output=True, text=True, timeout=10,
+                                    )
+                                    for vline in ver_result.stdout.split("\n"):
+                                        if vline.startswith("Version:"):
+                                            ver = vline.split(":", 1)[1].strip()
+                                            break
+                                except Exception:
+                                    pass
+                                content += f"\n{pkg}>={ver}" if ver else f"\n{pkg}"
+                            req_path.write_text(content + "\n", encoding="utf-8")
+                            installed.append(f"updated requirements.txt (+{len(missing_pkgs)})")
+        except Exception as exc:
+            logger.debug("Missing dep discovery failed: %s", exc)
+
         rel_venv = str(venv_dir.relative_to(ctx.project_root))
         return {
             "ok": True,
@@ -357,8 +423,9 @@ def handle_run_isolated_tests(ctx: UpgradeContext, mode: str) -> dict:
         }
 
         # Detect common compat failures and suggest fixes
+        # Pass module_name so already-fixed features are filtered out
         if not ok:
-            compat_hints = _detect_compat_failures(output, target)
+            compat_hints = _detect_compat_failures(output, target, module_name=ctx.module_name)
             if compat_hints:
                 res["compat_hints"] = compat_hints
 
@@ -382,13 +449,31 @@ _ERROR_PATTERNS = [
 ]
 
 
-def _detect_compat_failures(output: str, target: str) -> list[dict]:
+def _detect_compat_failures(output: str, target: str, module_name: str = "") -> list[dict]:
     """Scan test output for Python version compat failures.
 
     Matches error messages against common patterns, then looks up
     the compat database for feature information and fix availability.
+
+    Filters out features that have already been fixed (no remaining
+    findings in the compat analysis for this module).
     """
     import re
+
+    # Get remaining compat findings to filter out already-fixed features
+    already_fixed_features: set[str] = set()
+    remaining_features: set[str] = set()
+    if module_name:
+        try:
+            from src.core.services.mediator import get_mediator
+            m = get_mediator()
+            analysis_data = m.peek(f"compat.analysis.{module_name}")
+            if analysis_data and analysis_data.get("data"):
+                for f in analysis_data["data"].findings:
+                    if f.severity in ("error", "warning"):
+                        remaining_features.add(f.feature_name.lower())
+        except Exception:
+            pass
 
     hints = []
     seen_features = set()
@@ -445,6 +530,15 @@ def _detect_compat_failures(output: str, target: str) -> list[dict]:
                 }
 
             if hint and hint["feature"] not in seen_features:
+                # Skip compat features that have already been fixed
+                # (no remaining findings in the analysis for this module)
+                if remaining_features and hint["since"] != "package":
+                    feature_lower = hint["feature"].lower()
+                    if feature_lower not in remaining_features:
+                        # This feature was fixed — don't show it as a hint
+                        seen_features.add(hint["feature"])
+                        continue
+
                 # Try to enrich from compat database
                 try:
                     from src.core.services.mediator import get_mediator
