@@ -309,11 +309,14 @@ def wizard_batch(
     step_ids: list[str],
     step_labels: list[str],
     project_root: Path,
+    auto_fix: bool = False,
 ) -> Generator[dict, None, None]:
     """Run multiple automation steps sequentially with SSE streaming.
 
     Each step runs through the executor. Progress, logs, and errors
     are streamed live. Stops on first failure.
+
+    auto_fix: When True, fix handlers modify source files. When False, they preview only.
     """
     total = len(step_ids)
     yield {"type": "wizard_start", "title": f"Running {total} automation steps", "total_steps": total}
@@ -324,6 +327,9 @@ def wizard_batch(
     registry = get_handler_registry()
     completed = 0
     failed_step = None
+
+    # Set auto_fix on context so fix handlers know whether to modify files
+    ctx.auto_fix = auto_fix
 
     for idx, (step_id, label) in enumerate(zip(step_ids, step_labels)):
         automation_id = step_id.split(":")[0] if ":" in step_id else ""

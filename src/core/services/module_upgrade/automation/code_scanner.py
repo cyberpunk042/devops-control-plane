@@ -90,43 +90,38 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
 
         files = sorted(set(f.file for f in fixable))
 
+        # Build preview data (used for both preview mode AND auto_fix=False gate)
+        compat = _m.get("compat.orchestrator")["data"]
+
+        by_feature: dict[str, list] = {}
+        for f in fixable:
+            by_feature.setdefault(f.feature_name, []).append(f)
+
+        feature_previews = []
+        for feature_name, findings in sorted(by_feature.items()):
+            entry = compat.registry.get(findings[0].feature_id)
+
+            preview = {
+                "feature": feature_name,
+                "version": findings[0].version,
+                "count": len(findings),
+                "files": [f"{f.file}:{f.line}" for f in findings[:5]],
+                "more_files": max(0, len(findings) - 5),
+                "fix_strategy": findings[0].fix_strategy,
+            }
+
+            if entry and entry.test:
+                if entry.test.before:
+                    preview["before"] = entry.test.before.strip()
+                if entry.test.after:
+                    preview["after"] = entry.test.after.strip()
+            if entry and entry.description:
+                preview["description"] = entry.description
+
+            feature_previews.append(preview)
+
+        # Preview mode — always return preview
         if mode == "preview":
-            # Build rich preview with file locations and before/after examples
-            from src.core.services.mediator import get_mediator
-            _m2 = get_mediator()
-            compat = _m2.get("compat.orchestrator")["data"]
-
-            by_feature: dict[str, list] = {}
-            for f in fixable:
-                by_feature.setdefault(f.feature_name, []).append(f)
-
-            feature_previews = []
-            for feature_name, findings in sorted(by_feature.items()):
-                feature_files = sorted(set(f.file for f in findings))
-                entry = compat.registry.get(findings[0].feature_id)
-
-                preview = {
-                    "feature": feature_name,
-                    "version": findings[0].version,
-                    "count": len(findings),
-                    "files": [f"{f.file}:{f.line}" for f in findings[:5]],
-                    "more_files": max(0, len(findings) - 5),
-                    "fix_strategy": findings[0].fix_strategy,
-                }
-
-                # Add before/after from database entry test case
-                if entry and entry.test:
-                    if entry.test.before:
-                        preview["before"] = entry.test.before.strip()
-                    if entry.test.after:
-                        preview["after"] = entry.test.after.strip()
-
-                # Add description from entry
-                if entry and entry.description:
-                    preview["description"] = entry.description
-
-                feature_previews.append(preview)
-
             return {
                 "ok": True,
                 "can_apply": True,
@@ -137,8 +132,18 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
                 "by_feature": feature_previews,
             }
 
-        # Execute — use compat fix engine
-        compat = _m.get("compat.orchestrator")["data"]
+        # Execute mode — check auto_fix flag
+        if not getattr(ctx, "auto_fix", False):
+            return {
+                "ok": True,
+                "can_apply": True,
+                "preview_type": "compat_fix_preview",
+                "summary": f"Preview: {len(fixable)} finding(s) in {len(files)} file(s) — enable auto-fix to apply",
+                "total_findings": len(fixable),
+                "total_files": len(files),
+                "by_feature": feature_previews,
+                "auto_fix_required": True,
+            }
         module_dir = ctx.project_root / ctx.module_path
 
         fix_result = compat.fix.fix_module(
@@ -292,7 +297,17 @@ def handle_add_future_annotations(ctx: UpgradeContext, mode: str) -> dict:
                 "findings": files_needing_future,
             }
 
-        # Execute — use compat fix engine (single loop, no double-apply)
+        # Execute — check auto_fix flag
+        if not getattr(ctx, "auto_fix", False):
+            return {
+                "ok": True,
+                "can_apply": True,
+                "preview_type": "findings",
+                "summary": f"Preview: {len(files_needing)} file(s) need __future__ — enable auto-fix to apply",
+                "findings": files_needing_future,
+                "auto_fix_required": True,
+            }
+
         _compat_data = _m.peek("compat.orchestrator")
         if _compat_data is None:
             raise RuntimeError("compat orchestrator not loaded")

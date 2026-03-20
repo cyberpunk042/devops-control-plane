@@ -12,6 +12,7 @@
 
     // ── Constants ──────────────────────────────────────────────
     let _lastPosture = null;
+    let _autoFixEnabled = false;  // Off by default — user must enable via checkbox
 
     // ── Rank → CSS class mapping ─────────────────────────────
     const RANK_CSS = {
@@ -1880,7 +1881,7 @@
             body += _adm('warning', 'Plan overdue', `The target date (${esc(planDate)}) has passed but the floor hasn't reached ≥${esc(target)} yet.`);
         }
 
-        // Batch button container — dynamically updated by _refreshPlanState()
+        // Batch button + auto-fix toggle container — dynamically updated by _refreshPlanState()
         body += `<div id="plan-batch-container" data-module="${esc(moduleName)}"></div>`;
 
         // Checklist
@@ -2246,7 +2247,7 @@
             const resp = await fetch('/api/posture/module-step-execute', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute' }),
+                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute', auto_fix: _autoFixEnabled }),
             });
             const data = await resp.json();
 
@@ -2513,7 +2514,13 @@
             const last = batchIndices[batchIndices.length - 1];
             const count = batchIndices.length;
             const label = `▶ Run ${count} automatable steps`;
-            batchContainer.innerHTML = `<button class="plan-run-all" onclick="modulePlanRunBatch('${esc(moduleName)}',${first},${last})">${label}</button>`;
+            batchContainer.innerHTML = `<div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">`
+                + `<button class="plan-run-all" onclick="modulePlanRunBatch('${esc(moduleName)}',${first},${last})">${label}</button>`
+                + `<label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.78rem;color:var(--text-secondary)">`
+                + `<input type="checkbox" ${_autoFixEnabled ? 'checked' : ''} onchange="_autoFixEnabled = this.checked">`
+                + `🔧 Auto-fix mode`
+                + `</label>`
+                + `</div>`;
         } else {
             // 0 or 1 step — no batch button needed (use the individual 🔧)
             batchContainer.innerHTML = '';
@@ -2555,7 +2562,7 @@
 
         const isBatch = wizardType === 'batch';
         const payload = isBatch
-            ? { module: moduleName, wizard_type: 'batch', step_ids: stepIds, step_labels: stepLabels }
+            ? { module: moduleName, wizard_type: 'batch', step_ids: stepIds, step_labels: stepLabels, auto_fix: _autoFixEnabled }
             : { module: moduleName, step_id: stepId, wizard_type: wizardType };
 
         streamSSE('/api/posture/module-wizard', payload, {
@@ -3174,7 +3181,7 @@
             const resp = await fetch('/api/posture/module-step-execute', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute' }),
+                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute', auto_fix: _autoFixEnabled }),
             });
             const data = await resp.json();
             if (data.ok) {
@@ -3219,7 +3226,7 @@
             await fetch('/api/posture/module-step-execute', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute' }),
+                body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'execute', auto_fix: _autoFixEnabled }),
             });
         } catch (e) { /* best effort */ }
 

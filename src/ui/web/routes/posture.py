@@ -1356,7 +1356,8 @@ def posture_module_step_execute():  # type: ignore[no-untyped-def]
         from src.core.services.module_upgrade.automation.executor import execute_step
 
         project_root = _Path(current_app.config.get("PROJECT_ROOT", "."))
-        result = execute_step(module_name, step_id, mode, project_root)
+        auto_fix = body.get("auto_fix", False)
+        result = execute_step(module_name, step_id, mode, project_root, auto_fix=auto_fix)
 
         status_code = 200 if result.get("ok") else 400
         return jsonify(result), status_code
@@ -1434,7 +1435,8 @@ def posture_module_wizard():  # type: ignore[no-untyped-def]
                         yield _sse({"type": "done", "ok": False,
                                     "error": "No step_ids provided"})
                         return
-                    for event in wizard_batch(ctx, step_ids, step_labels, project_root):
+                    auto_fix = body.get("auto_fix", False)
+                    for event in wizard_batch(ctx, step_ids, step_labels, project_root, auto_fix=auto_fix):
                         yield _sse(event)
 
                 else:

@@ -66,6 +66,9 @@ class UpgradeContext:
     has_build_gradle: bool = False
     has_csproj: bool = False
 
+    # Execution control
+    auto_fix: bool = False            # When True, fix handlers modify files. When False, preview only.
+
 
 def build_context(
     module_name: str,

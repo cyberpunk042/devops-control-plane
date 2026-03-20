@@ -45,6 +45,7 @@ def execute_step(
     step_id: str,
     mode: str,
     project_root: Path,
+    auto_fix: bool = False,
 ) -> dict:
     """Execute an automation step in preview or execute mode.
 
@@ -53,6 +54,8 @@ def execute_step(
         step_id: Step ID (format: automation_id:suffix).
         mode: "preview" or "execute".
         project_root: Absolute path to project root.
+        auto_fix: When True, fix handlers are allowed to modify files.
+                  When False, fix handlers return preview even in execute mode.
 
     Returns:
         Result dict with at minimum:
@@ -91,6 +94,7 @@ def execute_step(
         return {"ok": False, "error": "No version plan found for module"}
 
     ctx = build_context(module_name, target, project_root)
+    ctx.auto_fix = auto_fix
 
     # ── Smart state: skip handler if artifact already exists ─────
     # Returns a clean ok result (no findings) so the normal
