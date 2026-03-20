@@ -614,12 +614,17 @@ def handle_discover_missing_deps(ctx: UpgradeContext, mode: str) -> dict:
                     "summary": "All imports are covered by requirements.txt",
                     "findings": []}
 
-        # Preview
+        # Build BEFORE/AFTER diff of requirements.txt
+        current_content = req_file.read_text(encoding="utf-8").rstrip("\n") if req_file.is_file() else ""
+        new_lines = "\n".join(m["line"] for m in missing)
+        new_content = (current_content + "\n" + new_lines).strip()
+
+        # Also build per-package findings for detail
         findings = []
         for m in missing:
             findings.append({
                 "feature": f"{m['import_name']} → {m['package']}",
-                "file": f"requirements.txt (add: {m['line']})",
+                "file": f"requirements.txt",
                 "version": m["version"] or "latest",
             })
 
@@ -627,10 +632,13 @@ def handle_discover_missing_deps(ctx: UpgradeContext, mode: str) -> dict:
             return {
                 "ok": True,
                 "can_apply": True,
-                "preview_type": "findings",
+                "preview_type": "diff",
                 "summary": f"{len(missing)} package(s) imported but not in requirements.txt",
+                "file": str(req_file.relative_to(ctx.project_root)),
+                "old_value": current_content,
+                "new_value": new_content,
                 "findings": findings,
-                "missing_packages": missing,
+                "detail": "Code imports these packages but they're not in requirements.txt. Apply to add them.",
             }
 
         # Execute — append missing packages to requirements.txt
