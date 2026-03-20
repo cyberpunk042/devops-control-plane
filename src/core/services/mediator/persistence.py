@@ -245,14 +245,15 @@ def save_index_shard(
 _CONSOLIDATED_CACHE = "_consolidated.pkl"
 
 
-def load_all_nodes(project_root: Path) -> dict[str, Any]:
+def load_all_nodes(project_root: Path) -> tuple[dict[str, Any], bool]:
     """Load ALL persisted node data from disk.
 
-    Fast path: loads a consolidated pickle if it's newer than all
-    individual JSON shards (single file read, ~50ms for 14MB).
+    Fast path: loads a consolidated pickle that contains REHYDRATED data
+    (actual dataclass objects, not raw dicts). Skips JSON parsing and
+    rehydration entirely.
 
-    Slow path: falls back to reading individual JSON shards and
-    rebuilds the consolidated pickle for next restart.
+    Slow path: falls back to reading individual JSON shards. Returns
+    raw dicts that need rehydration by the caller.
 
     Parameters
     ----------
@@ -261,28 +262,21 @@ def load_all_nodes(project_root: Path) -> dict[str, Any]:
 
     Returns
     -------
-    dict[str, Any]
-        Map of mediator path -> loaded data.
+    tuple[dict[str, Any], bool]
+        (data_dict, already_rehydrated)
+        - data_dict: Map of mediator path -> loaded data.
+        - already_rehydrated: True if data contains dataclass objects
+          (from pickle). False if data contains raw JSON dicts (needs
+          _rehydrate_shards).
     """
     import pickle
 
     sdir = _state_dir(project_root)
     if not sdir.is_dir():
         logger.info("[persistence] no shard directory — cold start")
-        return {}
+        return {}, False
 
-    # Log meta info if available (optional)
-    meta = _load_meta(project_root)
-    if meta is not None:
-        age_s = time.time() - meta.saved_at
-        logger.info(
-            "[persistence] meta: %.1fs old, %d files, %d symbols, "
-            "%d peek pages",
-            age_s, meta.scan_file_count, meta.symbol_count,
-            meta.peek_page_count,
-        )
-
-    # ── Fast path: consolidated pickle ──────────────────────
+    # ── Fast path: consolidated pickle (rehydrated) ─────────
     pkl_path = sdir / _CONSOLIDATED_CACHE
     if pkl_path.is_file():
         try:
@@ -305,9 +299,9 @@ def load_all_nodes(project_root: Path) -> dict[str, Any]:
                     "[persistence] loaded %d nodes from consolidated cache (%dms)",
                     len(loaded), elapsed_ms,
                 )
-                return loaded
+                return loaded, True  # Already rehydrated — skip _rehydrate_shards
             else:
-                logger.debug("[persistence] consolidated cache stale — rebuilding from JSON shards")
+                logger.debug("[persistence] consolidated cache stale — rebuilding")
         except Exception as exc:
             logger.warning("[persistence] consolidated cache load failed: %s", exc)
 
@@ -319,19 +313,12 @@ def load_all_nodes(project_root: Path) -> dict[str, Any]:
             continue
 
         stem = json_file.stem
-
-        # Map legacy shard names to mediator paths
         mediator_path = LEGACY_SHARD_NAMES.get(stem, stem)
 
         try:
             with open(json_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             loaded[mediator_path] = data
-            size_kb = json_file.stat().st_size / 1024
-            logger.debug(
-                "[persistence] loaded %s (%.1fKB)",
-                mediator_path, size_kb,
-            )
         except Exception as exc:
             logger.warning(
                 "[persistence] failed to load %s: %s",
@@ -343,18 +330,23 @@ def load_all_nodes(project_root: Path) -> dict[str, Any]:
             "[persistence] loaded %d nodes from JSON shards (slow path)",
             len(loaded),
         )
-        # Save consolidated cache for fast reload next time
-        _save_consolidated(sdir, loaded)
     else:
         logger.info("[persistence] no persisted data found — cold start")
 
-    return loaded
+    return loaded, False  # Needs rehydration
 
 
-def _save_consolidated(sdir: Path, data: dict[str, Any]) -> None:
-    """Save consolidated pickle cache for fast hydration on next restart."""
+def save_consolidated(project_root: Path, data: dict[str, Any]) -> None:
+    """Save consolidated pickle with REHYDRATED data for fast startup.
+
+    Called by hydrate_cache() AFTER _rehydrate_shards() so the pickle
+    contains actual dataclass objects (FileEntry, IndexSymbolEntry),
+    not raw JSON dicts. This eliminates both JSON parsing AND
+    dataclass conversion on subsequent startups.
+    """
     import pickle
 
+    sdir = _state_dir(project_root)
     pkl_path = sdir / _CONSOLIDATED_CACHE
     try:
         tmp = pkl_path.with_suffix(".tmp")
@@ -362,10 +354,7 @@ def _save_consolidated(sdir: Path, data: dict[str, Any]) -> None:
             pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
         tmp.rename(pkl_path)
         size_kb = pkl_path.stat().st_size / 1024
-        logger.info(
-            "[persistence] saved consolidated cache (%.1fKB)",
-            size_kb,
-        )
+        logger.info("[persistence] saved consolidated cache (%.1fKB)", size_kb)
     except Exception as exc:
         logger.warning("[persistence] failed to save consolidated cache: %s", exc)
 
@@ -422,14 +411,16 @@ def hydrate_cache(
     int
         Number of cache entries injected.
     """
-    all_data = load_all_nodes(project_root)
+    all_data, already_rehydrated = load_all_nodes(project_root)
     if not all_data:
         logger.info("[persistence] cold start — nothing to hydrate")
         return 0
 
-    # Rehydrate index dataclass objects from JSON dicts.
-    # JSON flattens dataclasses; downstream resolvers expect attribute access.
-    _rehydrate_shards(all_data)
+    # Rehydrate index dataclass objects from JSON dicts — ONLY if loaded
+    # from individual JSON shards (slow path). The consolidated pickle
+    # already contains rehydrated dataclass objects.
+    if not already_rehydrated:
+        _rehydrate_shards(all_data)
 
     injected = 0
 
@@ -480,8 +471,15 @@ def hydrate_cache(
                 "[persistence] failed to derive from scan: %s", exc,
             )
 
+    # Save consolidated pickle with REHYDRATED data for fast startup next time.
+    # Only save if we loaded from JSON shards (slow path) — the pickle from
+    # the fast path is already up to date.
+    if not already_rehydrated and all_data:
+        save_consolidated(project_root, all_data)
+
     logger.info(
-        "[persistence] hydrated %d cache entries from disk",
+        "[persistence] hydrated %d cache entries from disk%s",
         injected,
+        " (from consolidated cache)" if already_rehydrated else " (from JSON shards)",
     )
     return injected

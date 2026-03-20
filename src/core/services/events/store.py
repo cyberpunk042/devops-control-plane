@@ -196,74 +196,119 @@ class EventStore:
 
     # ── Maintenance ───────────────────────────────────────────────
 
+    _SNAPSHOT_FILE = "_snapshot.pkl"
+
     def load_cold(self, days: int = 30) -> None:
         """Pre-load recent cold events into hot cache (startup warm-up).
 
-        Uses a snapshot cache (.state/events/_snapshot.pkl) for fast reload.
-        On first run or when new JSONL data exists after the snapshot,
-        re-parses only the delta and updates the snapshot.
+        Delta-driven: persists a snapshot of the hot cache + byte offsets
+        per JSONL file. On restart, loads the snapshot (fast), then reads
+        only NEW lines appended after the snapshot was saved.
+
+        First run: full JSONL parse, saves snapshot for next time.
+        Subsequent runs: snapshot load (<50ms) + delta parse (~0ms if clean shutdown).
         """
         import pickle
 
-        snapshot_path = self._events_dir / "_snapshot.pkl"
+        snapshot_path = self._events_dir / self._SNAPSHOT_FILE
         cutoff = time.time() - (days * 86400)
-        snapshot_loaded = False
-        snapshot_ts = 0.0
+        file_offsets: dict[str, int] = {}  # filename → byte offset already processed
 
-        # ── Try loading the snapshot first (fast path) ──────────
+        # ── Step 1: Load snapshot (fast path) ─────────────────
+        snapshot_loaded = False
         if snapshot_path.is_file():
             try:
+                t0 = time.time()
                 with snapshot_path.open("rb") as f:
                     snapshot = pickle.load(f)
-                events = snapshot.get("events", [])
-                snapshot_ts = snapshot.get("saved_at", 0.0)
-                snapshot_seq = snapshot.get("seq", 0)
 
-                # Filter to cutoff window
+                events = snapshot.get("events", [])
+                snapshot_seq = snapshot.get("seq", 0)
+                file_offsets = snapshot.get("file_offsets", {})
+
+                # Filter to cutoff window (drop events older than `days`)
                 events = [e for e in events if e.ts >= cutoff]
 
                 with self._lock:
                     self._hot.extend(events)
                     self._seq = max(self._seq, snapshot_seq)
+
                 snapshot_loaded = True
+                elapsed_ms = int((time.time() - t0) * 1000)
                 logger.info(
-                    "EventStore: loaded %d events from snapshot (%.1fs old)",
-                    len(events), time.time() - snapshot_ts,
+                    "EventStore: snapshot loaded — %d events in %dms "
+                    "(tracking %d file offsets)",
+                    len(events), elapsed_ms, len(file_offsets),
                 )
             except Exception as exc:
-                logger.warning("EventStore: snapshot load failed: %s", exc)
-                snapshot_loaded = False
+                logger.warning("EventStore: snapshot load failed, full reload: %s", exc)
+                file_offsets = {}
 
-        # ── Load only JSONL lines newer than the snapshot ──────
-        # If no snapshot, load everything (full cold start)
-        since_ts = snapshot_ts if snapshot_loaded else cutoff
-        cold = self._read_cold(since_ts)
+        # ── Step 2: Read delta from JSONL files ───────────────
+        # Only parse bytes AFTER the recorded offset per file.
+        # Files not in the offset map are parsed fully.
+        delta_loaded = 0
+        new_offsets: dict[str, int] = {}
 
-        if cold:
-            with self._lock:
-                existing_ids = {e.id for e in self._hot}
-                loaded = 0
-                max_seq = self._seq
-                for e in cold:
-                    if e.id not in existing_ids:
-                        self._hot.append(e)
-                        existing_ids.add(e.id)
-                        loaded += 1
-                    try:
-                        seq = int(e.id.split("-")[1])
-                        max_seq = max(max_seq, seq)
-                    except (IndexError, ValueError):
-                        pass
-                self._seq = max_seq
-            if loaded > 0:
-                logger.info("EventStore: loaded %d new events from JSONL (delta)",
-                            loaded)
+        if self._events_dir.exists():
+            for jsonl_file in sorted(self._events_dir.glob("*.jsonl")):
+                fname = jsonl_file.name
+                try:
+                    file_size = jsonl_file.stat().st_size
+                except OSError:
+                    continue
 
-        # ── Save updated snapshot for next restart ────────────
-        self._save_snapshot(snapshot_path)
+                prev_offset = file_offsets.get(fname, 0)
+                new_offsets[fname] = file_size  # track current end
 
-    def _save_snapshot(self, snapshot_path: Path) -> None:
-        """Persist the hot cache as a pickle snapshot for fast reload."""
+                if file_size <= prev_offset:
+                    continue  # no new data in this file
+
+                # Parse only the new bytes
+                try:
+                    with jsonl_file.open("r", encoding="utf-8") as f:
+                        if prev_offset > 0:
+                            f.seek(prev_offset)
+
+                        new_events = []
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                d = json.loads(line)
+                                evt = Event.from_dict(d)
+                                if evt.ts >= cutoff:
+                                    new_events.append(evt)
+                            except Exception:
+                                continue
+
+                    if new_events:
+                        with self._lock:
+                            existing_ids = {e.id for e in self._hot}
+                            for e in new_events:
+                                if e.id not in existing_ids:
+                                    self._hot.append(e)
+                                    existing_ids.add(e.id)
+                                    delta_loaded += 1
+                                try:
+                                    seq = int(e.id.split("-")[1])
+                                    self._seq = max(self._seq, seq)
+                                except (IndexError, ValueError):
+                                    pass
+                except Exception:
+                    continue
+
+        if delta_loaded > 0:
+            logger.info("EventStore: delta loaded %d new events from JSONL", delta_loaded)
+        elif not snapshot_loaded:
+            logger.info("EventStore: cold start — no snapshot, no events")
+
+        # ── Step 3: Save snapshot for next restart ────────────
+        self._save_snapshot(snapshot_path, new_offsets)
+
+    def _save_snapshot(self, snapshot_path: Path, file_offsets: dict[str, int]) -> None:
+        """Persist hot cache + file offsets as pickle snapshot."""
         import pickle
 
         try:
@@ -275,10 +320,12 @@ class EventStore:
             with tmp.open("wb") as f:
                 pickle.dump({
                     "events": events,
-                    "saved_at": time.time(),
                     "seq": seq,
+                    "saved_at": time.time(),
+                    "file_offsets": file_offsets,
                 }, f, protocol=pickle.HIGHEST_PROTOCOL)
             tmp.rename(snapshot_path)
-            logger.debug("EventStore: snapshot saved (%d events)", len(events))
+            logger.debug("EventStore: snapshot saved (%d events, %d file offsets)",
+                         len(events), len(file_offsets))
         except Exception as exc:
             logger.warning("EventStore: snapshot save failed: %s", exc)
