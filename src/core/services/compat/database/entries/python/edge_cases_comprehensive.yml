@@ -243,6 +243,48 @@
       def foo(x: int | str) -> None:
           pass
 
+# ── datetime.UTC attribute access ────────────────────────────────
+
+- id: python.stdlib.datetime_utc_attribute
+  language: python
+  feature_name: "datetime.UTC"
+  introduced: "3.11"
+  category: stdlib
+  description: "datetime.UTC shorthand added in Python 3.11"
+  direction: downgrade
+  severity: error
+  error_type: attribute_error
+  tags: [datetime, utc, attribute]
+  detection:
+    primary:
+      ast_type: Attribute
+      match:
+        value_id: datetime
+        attr: UTC
+    exclude:
+      - context: type_checking_block
+        reason: Not executed at runtime
+      - context: string_literal
+        reason: Not actual code
+  fix:
+    strategy: rewrite_expression
+    transforms:
+      - type: replace_attribute
+        find:
+          object: datetime
+          attribute: UTC
+        replace:
+          expression: "datetime.timezone.utc"
+  verification:
+    re_detect: true
+  test:
+    before: |
+      import datetime
+      now = datetime.datetime.now(datetime.UTC)
+    after: |
+      import datetime
+      now = datetime.datetime.now(datetime.timezone.utc)
+
 # ── Import aliasing edge cases ───────────────────────────────────
 
 - id: python.edge.import_aliasing

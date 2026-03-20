@@ -522,6 +522,9 @@ class FixEngine:
         if t_type == "rewrite_binary_op":
             return self._transform_rewrite_binary_op(source, transform)
 
+        if t_type == "replace_attribute":
+            return self._transform_replace_attribute(source, transform)
+
         if t_type == "replace_identifier":
             return self._transform_replace_identifier(source, transform)
 
@@ -968,6 +971,55 @@ class FixEngine:
                 prefix = lines[start_idx][:col_start]
                 suffix = lines[end_idx][col_end:]
                 lines[start_idx:end_idx + 1] = [prefix + new_text + suffix]
+
+        return "\n".join(lines)
+
+    def _transform_replace_attribute(self, source: str, transform: Transform) -> str | None:
+        """Replace an attribute access: datetime.UTC → datetime.timezone.utc.
+
+        Uses AST to find Attribute nodes matching object.attribute pattern.
+        """
+        obj_name = transform.find.get("object", "")
+        attr_name = transform.find.get("attribute", "")
+        new_expr = transform.replace.get("expression", "")
+
+        if not obj_name or not attr_name or not new_expr:
+            return None
+
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return None
+
+        lines = source.split("\n")
+        replacements: list[tuple[int, int, int, int, str]] = []
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Attribute):
+                continue
+            if node.attr != attr_name:
+                continue
+            # Check the value is a Name matching obj_name
+            if not isinstance(node.value, ast.Name) or node.value.id != obj_name:
+                continue
+
+            replacements.append((
+                node.lineno, node.col_offset,
+                node.end_lineno or node.lineno,
+                node.end_col_offset or (node.col_offset + len(obj_name) + 1 + len(attr_name)),
+                new_expr,
+            ))
+
+        if not replacements:
+            return None
+
+        for lineno, col_start, end_lineno, col_end, new_text in sorted(
+            replacements, reverse=True
+        ):
+            if lineno == end_lineno:
+                line_idx = lineno - 1
+                line = lines[line_idx]
+                lines[line_idx] = line[:col_start] + new_text + line[col_end:]
 
         return "\n".join(lines)
 
