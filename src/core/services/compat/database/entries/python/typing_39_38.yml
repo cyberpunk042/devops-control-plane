@@ -1,18 +1,17 @@
-# Python typing features — 3.8-3.9 additions via typing module
-
-# ── Python 3.9 ──────────────────────────────────────────────────
-
 - id: python.typing.annotated_39
   language: python
-  feature_name: "typing.Annotated (3.9)"
-  introduced: "3.9"
+  feature_name: typing.Annotated (3.9)
+  introduced: '3.9'
   category: typing
-  description: "Annotated type for metadata on type hints (PEP 593)"
+  description: Annotated type for metadata on type hints (PEP 593)
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, annotated, metadata]
+  tags:
+  - typing
+  - annotated
+  - metadata
   detection:
     primary:
       ast_type: ImportFrom
@@ -20,46 +19,50 @@
         module: typing
         names_contains: Annotated
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: Annotated
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import Annotated"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: Annotated
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import Annotated
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "3.11.0"
+      min_version: 3.11.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import Annotated
-      Name = Annotated[str, "max_length=50"]
-    after: |
-      from typing_extensions import Annotated
+    before: 'from typing import Annotated
+
       Name = Annotated[str, "max_length=50"]
 
-# ── Python 3.8 ──────────────────────────────────────────────────
+      '
+    after: 'from typing_extensions import Annotated
 
+      Name = Annotated[str, "max_length=50"]
+
+      '
 - id: python.typing.runtime_checkable
   language: python
-  feature_name: "typing.runtime_checkable"
-  introduced: "3.8"
+  feature_name: typing.runtime_checkable
+  introduced: '3.8'
   category: typing
-  description: "Decorator to make Protocol checkable with isinstance"
+  description: Decorator to make Protocol checkable with isinstance
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, protocol, runtime]
+  tags:
+  - typing
+  - protocol
+  - runtime
   detection:
     primary:
       ast_type: ImportFrom
@@ -67,81 +70,82 @@
         module: typing
         names_contains: runtime_checkable
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: runtime_checkable
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import runtime_checkable"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: runtime_checkable
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import runtime_checkable
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "3.8.0"
+      min_version: 3.8.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import Protocol, runtime_checkable
-      @runtime_checkable
-      class Readable(Protocol):
-          def read(self) -> str: ...
-    after: |
-      from typing_extensions import runtime_checkable
-      from typing import Protocol
-      @runtime_checkable
-      class Readable(Protocol):
-          def read(self) -> str: ...
-
+    before: "from typing import Protocol, runtime_checkable\n@runtime_checkable\n\
+      class Readable(Protocol):\n    def read(self) -> str: ...\n"
+    after: "from typing_extensions import runtime_checkable\nfrom typing import Protocol\n\
+      @runtime_checkable\nclass Readable(Protocol):\n    def read(self) -> str: ...\n"
 - id: python.typing.get_type_hints
   language: python
-  feature_name: "typing.get_type_hints (include_extras)"
-  introduced: "3.11"
+  feature_name: typing.get_type_hints (include_extras)
+  introduced: '3.11'
   category: typing
-  description: "include_extras parameter for get_type_hints added in 3.11"
+  description: include_extras parameter for get_type_hints added in 3.11
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [typing, introspection]
+  tags:
+  - typing
+  - introspection
   detection:
     primary:
       ast_type: Call
       match:
         func_id: get_type_hints
   fix:
-    strategy: manual
-    manual_instructions: |
-      Remove include_extras parameter on Python < 3.11:
-        get_type_hints(cls, include_extras=True)
-        → get_type_hints(cls)
-      Or use typing_extensions.get_type_hints which supports include_extras.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        function: get_type_hints
+      replace:
+        note: typing.get_type_hints (include_extras) — requires Python 3.11+
   verification:
     re_detect: false
   test:
-    before: |
-      from typing import get_type_hints
+    before: 'from typing import get_type_hints
+
       hints = get_type_hints(MyClass, include_extras=True)
-    after: |
-      from typing import get_type_hints
+
+      '
+    after: 'from typing import get_type_hints
+
       hints = get_type_hints(MyClass)
 
+      '
 - id: python.typing.required_nottequired
   language: python
-  feature_name: "typing.Required/NotRequired"
-  introduced: "3.11"
+  feature_name: typing.Required/NotRequired
+  introduced: '3.11'
   category: typing
-  description: "Mark TypedDict fields as required or not"
+  description: Mark TypedDict fields as required or not
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, typeddict, required]
+  tags:
+  - typing
+  - typeddict
+  - required
   detection:
     primary:
       ast_type: ImportFrom
@@ -149,60 +153,55 @@
         module: typing
         names_contains: Required
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: typing
-          names_contains: NotRequired
+    - ast_type: ImportFrom
+      match:
+        module: typing
+        names_contains: NotRequired
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: Required
-        replace:
-          import_name: ""
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: NotRequired
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import Required, NotRequired"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: Required
+      replace:
+        import_name: ''
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: NotRequired
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import Required, NotRequired
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "4.0.0"
+      min_version: 4.0.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import TypedDict, Required, NotRequired
-      class User(TypedDict):
-          name: Required[str]
-          age: NotRequired[int]
-    after: |
-      from typing_extensions import Required, NotRequired
-      from typing import TypedDict
-      class User(TypedDict):
-          name: Required[str]
-          age: NotRequired[int]
-
+    before: "from typing import TypedDict, Required, NotRequired\nclass User(TypedDict):\n\
+      \    name: Required[str]\n    age: NotRequired[int]\n"
+    after: "from typing_extensions import Required, NotRequired\nfrom typing import\
+      \ TypedDict\nclass User(TypedDict):\n    name: Required[str]\n    age: NotRequired[int]\n"
 - id: python.typing.unpack
   language: python
-  feature_name: "typing.Unpack"
-  introduced: "3.11"
+  feature_name: typing.Unpack
+  introduced: '3.11'
   category: typing
-  description: "Unpack for TypedDict unpacking in function signatures"
+  description: Unpack for TypedDict unpacking in function signatures
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, unpack, kwargs]
+  tags:
+  - typing
+  - unpack
+  - kwargs
   detection:
     primary:
       ast_type: ImportFrom
@@ -210,34 +209,28 @@
         module: typing
         names_contains: Unpack
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: Unpack
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import Unpack"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: Unpack
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import Unpack
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "4.0.0"
+      min_version: 4.0.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import Unpack, TypedDict
-      class Options(TypedDict):
-          timeout: int
-      def fetch(**kwargs: Unpack[Options]) -> None: ...
-    after: |
-      from typing_extensions import Unpack
-      from typing import TypedDict
-      class Options(TypedDict):
-          timeout: int
-      def fetch(**kwargs: Unpack[Options]) -> None: ...
+    before: "from typing import Unpack, TypedDict\nclass Options(TypedDict):\n   \
+      \ timeout: int\ndef fetch(**kwargs: Unpack[Options]) -> None: ...\n"
+    after: "from typing_extensions import Unpack\nfrom typing import TypedDict\nclass\
+      \ Options(TypedDict):\n    timeout: int\ndef fetch(**kwargs: Unpack[Options])\
+      \ -> None: ...\n"

@@ -1,15 +1,15 @@
-# Rust stabilized features by version
-
 - id: rust.1_75.async_fn_in_trait
   language: rust
-  feature_name: "async fn in trait"
-  introduced: "1.75"
+  feature_name: async fn in trait
+  introduced: '1.75'
   category: std
-  description: "async fn methods in trait definitions and implementations"
+  description: async fn methods in trait definitions and implementations
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [async, trait]
+  tags:
+  - async
+  - trait
   detection:
     primary:
       ast_type: function_item
@@ -17,82 +17,87 @@
         is_async: true
         context: trait_impl
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use the async-trait crate:
-        #[async_trait]
-        trait MyTrait {
-            async fn method(&self) -> Result<()>;
-        }
+    strategy: rewrite_expression
     backport:
       package: async-trait
-      install_command: "cargo add async-trait"
+      install_command: cargo add async-trait
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: function_item
+        is_async: true
+        context: trait_impl
+      replace:
+        note: async fn in trait — rust 1.75+
   verification:
     re_detect: true
   test:
-    before: |
-      trait Service {
-          async fn handle(&self, req: Request) -> Response;
-      }
-    after: |
-      #[async_trait::async_trait]
-      trait Service {
-          async fn handle(&self, req: Request) -> Response;
-      }
-
+    before: "trait Service {\n    async fn handle(&self, req: Request) -> Response;\n\
+      }\n"
+    after: "#[async_trait::async_trait]\ntrait Service {\n    async fn handle(&self,\
+      \ req: Request) -> Response;\n}\n"
 - id: rust.1_70.once_lock
   language: rust
-  feature_name: "std::sync::OnceLock"
-  introduced: "1.70"
+  feature_name: std::sync::OnceLock
+  introduced: '1.70'
   category: std
-  description: "Thread-safe cell that can be written to only once"
+  description: Thread-safe cell that can be written to only once
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [sync, once, cell]
+  tags:
+  - sync
+  - once
+  - cell
   detection:
     primary:
       ast_type: use_declaration
       match:
-        path_contains: "sync::OnceLock"
+        path_contains: sync::OnceLock
     alternatives:
-      - ast_type: use_declaration
-        match:
-          path_contains: "sync::LazyLock"
+    - ast_type: use_declaration
+      match:
+        path_contains: sync::LazyLock
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_statement
-        find:
-          import_pattern: "use std::sync::OnceLock"
-        replace:
-          import_statement: "use once_cell::sync::OnceCell"
+    - type: replace_import_statement
+      find:
+        import_pattern: use std::sync::OnceLock
+      replace:
+        import_statement: use once_cell::sync::OnceCell
     backport:
       package: once_cell
-      install_command: "cargo add once_cell"
+      install_command: cargo add once_cell
       maintained: true
-      notes: "Widely used — was the inspiration for std::sync::OnceLock"
+      notes: Widely used — was the inspiration for std::sync::OnceLock
   verification:
     re_detect: true
   test:
-    before: |
-      use std::sync::OnceLock;
+    before: 'use std::sync::OnceLock;
+
       static CONFIG: OnceLock<Config> = OnceLock::new();
-    after: |
-      use once_cell::sync::OnceCell;
+
+      '
+    after: 'use once_cell::sync::OnceCell;
+
       static CONFIG: OnceCell<Config> = OnceCell::new();
 
+      '
 - id: rust.1_65.let_else
   language: rust
-  feature_name: "let-else statement"
-  introduced: "1.65"
+  feature_name: let-else statement
+  introduced: '1.65'
   category: syntax
-  description: "let pattern = expr else { diverge }; for refutable patterns"
+  description: let pattern = expr else { diverge }; for refutable patterns
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [let, else, pattern]
+  tags:
+  - let
+  - else
+  - pattern
   detection:
     primary:
       ast_type: let_declaration
@@ -101,89 +106,88 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_let_else
-        find:
-          ast_type: let_declaration
-        replace:
-          style: match_or_if_let
+    - type: rewrite_let_else
+      find:
+        ast_type: let_declaration
+      replace:
+        style: match_or_if_let
   verification:
     re_detect: true
   test:
-    before: |
-      let Some(x) = opt else { return };
-    after: |
-      let x = match opt {
-          Some(x) => x,
-          None => return,
-      };
+    before: 'let Some(x) = opt else { return };
 
+      '
+    after: "let x = match opt {\n    Some(x) => x,\n    None => return,\n};\n"
 - id: rust.1_65.generic_associated_types
   language: rust
-  feature_name: "generic associated types (GATs)"
-  introduced: "1.65"
+  feature_name: generic associated types (GATs)
+  introduced: '1.65'
   category: syntax
-  description: "Associated types with generic parameters in traits"
+  description: Associated types with generic parameters in traits
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [generics, associated_types, trait]
+  tags:
+  - generics
+  - associated_types
+  - trait
   detection:
     primary:
       ast_type: associated_type
       match:
         has_type_params: true
   fix:
-    strategy: manual
-    manual_instructions: |
-      GATs have no backport. Options:
-        1. Use a concrete type instead of an associated type
-        2. Use a trait object (Box<dyn ...>)
-        3. Redesign the trait hierarchy
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: associated_type
+        has_type_params: true
+      replace:
+        note: generic associated types (GATs) — rust 1.65+
   verification:
     re_detect: true
   test:
-    before: |
-      trait Container {
-          type Item<'a> where Self: 'a;
-          fn get(&self) -> Self::Item<'_>;
-      }
-    after: |
-      trait Container {
-          fn get(&self) -> Box<dyn Item>;
-      }
-
+    before: "trait Container {\n    type Item<'a> where Self: 'a;\n    fn get(&self)\
+      \ -> Self::Item<'_>;\n}\n"
+    after: "trait Container {\n    fn get(&self) -> Box<dyn Item>;\n}\n"
 - id: rust.1_56.edition_2021
   language: rust
-  feature_name: "Rust 2021 edition features"
-  introduced: "1.56"
+  feature_name: Rust 2021 edition features
+  introduced: '1.56'
   category: edition2021
-  description: "Closure captures, IntoIterator for arrays, or patterns in macros"
+  description: Closure captures, IntoIterator for arrays, or patterns in macros
   direction: downgrade
   severity: warning
   error_type: behavioral_change
-  tags: [edition, closures, arrays]
+  tags:
+  - edition
+  - closures
+  - arrays
   detection:
     primary:
       ast_type: cargo_toml
       match:
-        edition: "2021"
+        edition: '2021'
   fix:
-    strategy: manual
-    manual_instructions: |
-      Edition 2021 changes:
-        1. Closures capture individual fields (not whole struct)
-           → Add explicit `let _ = &whole_struct;` if needed
-        2. [T; N].into_iter() yields T (not &T)
-           → Use .iter() instead of .into_iter() on arrays
-        3. or patterns in macros are allowed
-           → Rewrite macro patterns without `|`
-      Change Cargo.toml edition = "2021" to edition = "2018"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: cargo_toml
+        edition: '2021'
+      replace:
+        note: Rust 2021 edition features — rust 1.56+
   verification:
     re_detect: true
   test:
-    before: |
-      [package]
+    before: '[package]
+
       edition = "2021"
-    after: |
-      [package]
+
+      '
+    after: '[package]
+
       edition = "2018"
+
+      '

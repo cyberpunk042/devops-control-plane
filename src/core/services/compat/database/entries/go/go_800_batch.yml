@@ -1,72 +1,186 @@
-# Go batch — 800
-
 - id: go.1_18.any_comparable
   language: go
-  feature_name: "any and comparable predeclared"
-  introduced: "1.18"
+  feature_name: any and comparable predeclared
+  introduced: '1.18'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [any, comparable, predeclared]
-  detection: { primary: { ast_type: type_identifier, match: { name_in: [any, comparable] } } }
-  fix: { strategy: manual, manual_instructions: "Replace any with interface{}, comparable with manual checks." }
-  verification: { re_detect: true }
-  test: { before: "func f(x any) {}\n", after: "func f(x interface{}) {}\n" }
+  tags:
+  - any
+  - comparable
+  - predeclared
+  detection:
+    primary:
+      ast_type: type_identifier
+      match:
+        name_in: &id001
+        - any
+        - comparable
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: type_identifier
+        name_in: *id001
+      replace:
+        note: any and comparable predeclared — go 1.18+
+  verification:
+    re_detect: true
+  test:
+    before: 'func f(x any) {}
 
+      '
+    after: 'func f(x interface{}) {}
+
+      '
 - id: go.1_20.unsafe_slice_string
   language: go
-  feature_name: "unsafe.SliceData/StringData"
-  introduced: "1.20"
+  feature_name: unsafe.SliceData/StringData
+  introduced: '1.20'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [unsafe, slice, string]
-  detection: { primary: { ast_type: call_expression, match: { package: unsafe, function_in: [SliceData, StringData, String, Slice] } } }
-  fix: { strategy: manual, manual_instructions: "Use reflect.SliceHeader." }
-  verification: { re_detect: true }
-  test: { before: "ptr := unsafe.SliceData(s)\n", after: "// Use reflect.SliceHeader\n" }
+  tags:
+  - unsafe
+  - slice
+  - string
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: unsafe
+        function_in: &id002
+        - SliceData
+        - StringData
+        - String
+        - Slice
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: unsafe
+        function_in: *id002
+      replace:
+        note: unsafe.SliceData/StringData — go 1.20+
+  verification:
+    re_detect: true
+  test:
+    before: 'ptr := unsafe.SliceData(s)
 
+      '
+    after: '// Use reflect.SliceHeader
+
+      '
 - id: go.1_22.net_http_path_value
   language: go
-  feature_name: "http.Request.PathValue()"
-  introduced: "1.22"
+  feature_name: http.Request.PathValue()
+  introduced: '1.22'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [http, path, value]
-  detection: { primary: { ast_type: call_expression, match: { method: PathValue } } }
-  fix: { strategy: manual, manual_instructions: "Use chi or gorilla/mux r.URL.Query()." }
-  verification: { re_detect: true }
-  test: { before: "id := r.PathValue(\"id\")\n", after: "// Use chi: chi.URLParam(r, \"id\")\n" }
+  tags:
+  - http
+  - path
+  - value
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: PathValue
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: PathValue
+      replace:
+        note: http.Request.PathValue() — go 1.22+
+  verification:
+    re_detect: true
+  test:
+    before: 'id := r.PathValue("id")
 
+      '
+    after: '// Use chi: chi.URLParam(r, "id")
+
+      '
 - id: go.1_23.range_closure
   language: go
-  feature_name: "range over closure"
-  introduced: "1.23"
+  feature_name: range over closure
+  introduced: '1.23'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [range, closure, iterator]
-  detection: { primary: { ast_type: for_statement, match: { range_over_func: true } } }
-  fix: { strategy: manual, manual_instructions: "Use explicit callback pattern." }
-  verification: { re_detect: true }
-  test: { before: "for v := range genFunc {}\n", after: "genFunc(func(v int) bool { return true })\n" }
+  tags:
+  - range
+  - closure
+  - iterator
+  detection:
+    primary:
+      ast_type: for_statement
+      match:
+        range_over_func: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: for_statement
+        range_over_func: true
+      replace:
+        note: range over closure — go 1.23+
+  verification:
+    re_detect: true
+  test:
+    before: 'for v := range genFunc {}
 
+      '
+    after: 'genFunc(func(v int) bool { return true })
+
+      '
 - id: go.1_21.log_slog_default
   language: go
-  feature_name: "slog.SetDefault()"
-  introduced: "1.21"
+  feature_name: slog.SetDefault()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [slog, default, logger]
-  detection: { primary: { ast_type: call_expression, match: { package: slog, function: SetDefault } } }
-  fix: { strategy: manual, manual_instructions: "Use log.SetOutput() or custom logger." }
-  verification: { re_detect: true }
-  test: { before: "slog.SetDefault(logger)\n", after: "log.SetOutput(os.Stdout)\n" }
+  tags:
+  - slog
+  - default
+  - logger
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: slog
+        function: SetDefault
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: slog
+        function: SetDefault
+      replace:
+        note: slog.SetDefault() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 'slog.SetDefault(logger)
+
+      '
+    after: 'log.SetOutput(os.Stdout)
+
+      '

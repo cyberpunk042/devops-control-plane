@@ -75,8 +75,13 @@
       match:
         func_attr: match
   fix:
-    strategy: manual
-    manual_instructions: Remove case_sensitive parameter.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: match
+      replace:
+        note: Path.match() case sensitivity — requires Python 3.12+
   verification:
     re_detect: false
   test:
@@ -107,8 +112,14 @@
         module: enum
         names_contains: global_enum
   fix:
-    strategy: manual
-    manual_instructions: Manually export enum members at module level.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: global_enum
+      replace:
+        try_import: '# enum.global_enum() — requires Python 3.11+'
+        except_import: 'pass  # enum.global_enum() not available'
   verification:
     re_detect: true
   test:
@@ -139,8 +150,14 @@
         value_id: asyncio
         attr: eager_task_factory
   fix:
-    strategy: manual
-    manual_instructions: Use standard asyncio.create_task().
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: eager_task_factory
+      replace:
+        try_import: '# asyncio.eager_task_factory — Python 3.12+'
+        except_import: 'pass  # eager_task_factory not available in older Python'
   verification:
     re_detect: true
   test:
@@ -200,8 +217,14 @@
         value_id: copy
         attr: replace
   fix:
-    strategy: manual
-    manual_instructions: Use dataclasses.replace() for dataclasses, or manual copy+modify.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: replace
+      replace:
+        try_import: '# copy.replace() — Python 3.13+'
+        except_import: 'pass  # replace not available in older Python'
   verification:
     re_detect: true
   test:
@@ -236,8 +259,14 @@
         value_id: os
         attr: process_cpu_count
   fix:
-    strategy: manual
-    manual_instructions: Use os.cpu_count() instead.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: process_cpu_count
+      replace:
+        try_import: '# os.process_cpu_count() — Python 3.13+'
+        except_import: 'pass  # process_cpu_count not available in older Python'
   verification:
     re_detect: true
   test:

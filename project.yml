@@ -28,85 +28,137 @@ modules:
     checklist:
     - label: Update requires-python in pyproject.toml
       description: Change >=3.8 to >=3.8 to widen compatibility range
-      id: edit_pyproject_requires_python:8877fdae
+      automatable: true
+      category: config
+      id: edit_pyproject_requires_python:d6e968f4
     - label: Scan — 205 finding(s) in 63 file(s)
-      description: 203 auto-fixable, 2 manual
-      id: scan_incompatible_features:58c5e08e
+      description: 205 auto-fixable, 0 manual
+      automatable: true
+      category: code
+      id: scan_incompatible_features:85040ef9
+    - label: Fix Path.is_relative_to() (1 file(s))
+      description: 'Auto-fix: conditional_import'
+      automatable: true
+      category: code
+      id: fix_compat_auto:f089e8c1
     - label: Fix aliased imports (16 file(s))
       description: 'Auto-fix: replace_import_and_usages'
-      id: fix_compat_auto:f5f51b68
+      automatable: true
+      category: code
+      id: fix_compat_auto:97508419
+    - label: Fix ast.unparse() (1 file(s))
+      description: 'Auto-fix: conditional_import'
+      automatable: true
+      category: code
+      id: fix_compat_auto:866c287d
     - label: Fix bytes.removeprefix() (4 file(s))
       description: 'Auto-fix: rewrite_expression'
-      id: fix_compat_auto:940bca52
+      automatable: true
+      category: code
+      id: fix_compat_auto:eb1c189c
     - label: Fix bytes.removeprefix/removesuffix (5 file(s))
       description: 'Auto-fix: rewrite_expression'
-      id: fix_compat_auto:81b295f3
+      automatable: true
+      category: code
+      id: fix_compat_auto:3acaa457
     - label: Fix dataclass frozen + slots combination (1 file(s))
       description: 'Auto-fix: rewrite_expression'
-      id: fix_compat_auto:0892380e
+      automatable: true
+      category: code
+      id: fix_compat_auto:81c43928
     - label: Fix dataclass slots=True (1 file(s))
       description: 'Auto-fix: rewrite_expression'
-      id: fix_compat_auto:1e81c9c2
+      automatable: true
+      category: code
+      id: fix_compat_auto:cf8c8b8e
     - label: Fix datetime.UTC (17 file(s))
       description: 'Auto-fix: replace_import_and_usages'
-      id: fix_compat_auto:055c4446
+      automatable: true
+      category: code
+      id: fix_compat_auto:3e0a3abc
     - label: Fix dict merge operator (|) (30 file(s))
       description: 'Auto-fix: rewrite_expression'
-      id: fix_compat_auto:9814e9aa
+      automatable: true
+      category: code
+      id: fix_compat_auto:ce49aa93
     - label: Fix dict | dict merge (30 file(s))
       description: 'Auto-fix: rewrite_expression'
-      id: fix_compat_auto:1a8617e9
+      automatable: true
+      category: code
+      id: fix_compat_auto:0dac3fb9
     - label: Fix enum.StrEnum (3 file(s))
       description: 'Auto-fix: add_backport_import'
-      id: fix_compat_auto:bbebd0fb
+      automatable: true
+      category: code
+      id: fix_compat_auto:e50e58dc
     - label: Fix importlib.resources.files() (7 file(s))
       description: 'Auto-fix: conditional_import'
-      id: fix_compat_auto:51c3efc5
+      automatable: true
+      category: code
+      id: fix_compat_auto:fc8bf88d
     - label: Fix str.removeprefix() (4 file(s))
       description: 'Auto-fix: rewrite_expression'
-      id: fix_compat_auto:c533c2ce
+      automatable: true
+      category: code
+      id: fix_compat_auto:94ced162
     - label: Fix str.removesuffix() (1 file(s))
       description: 'Auto-fix: rewrite_expression'
-      id: fix_compat_auto:99f72fe3
-    - label: 'Manual fix: Path.is_relative_to() (1 occurrence(s))'
-      description: Requires manual rewrite — cannot be auto-fixed
-      id: manual:18f50eb7
-    - label: 'Manual fix: ast.unparse() (1 occurrence(s))'
-      description: Requires manual rewrite — cannot be auto-fixed
-      id: manual:3e921d78
+      automatable: true
+      category: code
+      id: fix_compat_auto:ced6e40c
     - label: Review incompatible syntax guide
       description: Shows rewrite patterns and before/after examples
-      id: guide_incompatible_syntax:8f949f3d
+      automatable: true
+      category: code
+      id: guide_incompatible_syntax:ca03cbee
     - label: Re-scan and verify
       description: Confirm all incompatibilities are resolved
-      id: rescan_module:91da8cc8
+      automatable: true
+      category: verify
+      id: rescan_module:23fbf2c8
     - label: Check all dependencies support Python 3.8
       description: Verify Requires-Python of all dependencies includes 3.8
-      id: check_dep_compat_pypi:58bec356
+      automatable: true
+      category: deps
+      id: check_dep_compat_pypi:21c665b5
     - label: Install pinned dependency versions
       description: Run pip install to apply the version constraints from requirements.txt
-      id: run_pip_install:82328772
+      automatable: true
+      category: deps
+      id: run_pip_install:bc4333bd
     - label: Update CI pipeline to include Python 3.8
       description: Add Python 3.8 to CI test matrix to ensure ongoing compatibility
-      id: update_ci_matrix:1ceff8e1
+      automatable: true
+      category: ci
+      id: update_ci_matrix:d5b827b0
     - label: Scaffold module test structure
       description: Generate test files (smoke tests, import checks, conftest) if none
         exist
-      id: scaffold_module_tests:762f76b8
+      automatable: true
+      category: test
+      id: scaffold_module_tests:a2c4239e
     - label: Generate compatibility tests
       description: Auto-generate import verification, API, version floor, and dependency
         tests
-      id: generate_smart_tests:64a6b416
+      automatable: true
+      category: test
+      id: generate_smart_tests:928eab5e
     - label: Add integration tests to parent tests/ directory
       description: Generate a test file in the root tests/ that verifies this module
         works at project level
-      id: scaffold_parent_tests:28cebd6b
+      automatable: true
+      category: test
+      id: scaffold_parent_tests:d6c8e220
     - label: Set up test environment for Python 3.8
       description: Create a venv with the target Python version and install dependencies
-      id: setup_test_env:d79fddd1
+      automatable: true
+      category: test
+      id: setup_test_env:a60bfccb
     - label: Run isolated tests on Python 3.8
       description: Execute the module test suite using the target Python venv
-      id: run_isolated_tests:072d0c09
+      automatable: true
+      category: test
+      id: run_isolated_tests:5734b19f
 - description: Tool bindings for git, docker, etc.
   domain: library
   name: adapters

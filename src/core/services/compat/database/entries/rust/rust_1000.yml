@@ -1,43 +1,98 @@
-# Rust — final for 1000
-
 - id: rust.1_65.generic_associated_types_stable
   language: rust
-  feature_name: "GATs (stable)"
-  introduced: "1.65"
+  feature_name: GATs (stable)
+  introduced: '1.65'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [gats, generics, associated]
-  detection: { primary: { ast_type: associated_type, match: { has_type_params: true } } }
-  fix: { strategy: manual, manual_instructions: "Use concrete types or Box<dyn>." }
-  verification: { re_detect: true }
-  test: { before: "type Item<'a>;\n", after: "type Item;\n" }
+  tags:
+  - gats
+  - generics
+  - associated
+  detection:
+    primary:
+      ast_type: associated_type
+      match:
+        has_type_params: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: associated_type
+        has_type_params: true
+      replace:
+        note: GATs (stable) — rust 1.65+
+  verification:
+    re_detect: true
+  test:
+    before: 'type Item<''a>;
 
+      '
+    after: 'type Item;
+
+      '
 - id: rust.1_75.async_trait_stable
   language: rust
-  feature_name: "async fn in traits"
-  introduced: "1.75"
+  feature_name: async fn in traits
+  introduced: '1.75'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [async, trait, stable]
-  detection: { primary: { ast_type: function_item, match: { is_async: true, context: trait_impl } } }
-  fix: { strategy: manual, manual_instructions: "Use async-trait crate." }
-  verification: { re_detect: true }
-  test: { before: "async fn handle(&self) {}\n", after: "#[async_trait] async fn handle(&self) {}\n" }
+  tags:
+  - async
+  - trait
+  - stable
+  detection:
+    primary:
+      ast_type: function_item
+      match:
+        is_async: true
+        context: trait_impl
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: function_item
+        is_async: true
+        context: trait_impl
+      replace:
+        note: async fn in traits — rust 1.75+
+  verification:
+    re_detect: true
+  test:
+    before: 'async fn handle(&self) {}
 
+      '
+    after: '#[async_trait] async fn handle(&self) {}
+
+      '
 - id: rust.1_80.lazy_type_aliases
   language: rust
-  feature_name: "lazy type aliases"
-  introduced: "1.80"
+  feature_name: lazy type aliases
+  introduced: '1.80'
   category: syntax
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [type, alias, lazy]
-  detection: { primary: { ast_type: type_alias } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "type Foo = Bar;\n", after: "type Foo = Bar;\n" }
+  tags:
+  - type
+  - alias
+  - lazy
+  detection:
+    primary:
+      ast_type: type_alias
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'type Foo = Bar;
+
+      '
+    after: 'type Foo = Bar;
+
+      '

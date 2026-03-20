@@ -1,15 +1,16 @@
-# Go 1.20 extras
-
 - id: go.1_20.wraps_unwrap_multiple
   language: go
-  feature_name: "errors wrapping multiple errors"
-  introduced: "1.20"
+  feature_name: errors wrapping multiple errors
+  introduced: '1.20'
   category: stdlib
-  description: "fmt.Errorf with multiple %w verbs"
+  description: fmt.Errorf with multiple %w verbs
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [errors, wrapping, multiple]
+  tags:
+  - errors
+  - wrapping
+  - multiple
   detection:
     primary:
       ast_type: call_expression
@@ -17,116 +18,167 @@
         package: fmt
         function: Errorf
   fix:
-    strategy: manual
-    manual_instructions: "Use only one %w per Errorf call, or use errors.Join."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: fmt
+        function: Errorf
+      replace:
+        note: errors wrapping multiple errors — go 1.20+
   verification:
     re_detect: false
   test:
-    before: |
-      err := fmt.Errorf("failed: %w and %w", err1, err2)
-    after: |
-      err := fmt.Errorf("failed: %v and %v: %w", err1, err2, errors.Join(err1, err2))
+    before: 'err := fmt.Errorf("failed: %w and %w", err1, err2)
 
+      '
+    after: 'err := fmt.Errorf("failed: %v and %v: %w", err1, err2, errors.Join(err1,
+      err2))
+
+      '
 - id: go.1_20.arena_experimental
   language: go
-  feature_name: "arena package (experimental)"
-  introduced: "1.20"
+  feature_name: arena package (experimental)
+  introduced: '1.20'
   category: stdlib
-  description: "Memory arena for batch allocation"
+  description: Memory arena for batch allocation
   direction: downgrade
   severity: warning
   error_type: import_error
-  tags: [arena, memory, experimental]
+  tags:
+  - arena
+  - memory
+  - experimental
   detection:
     primary:
       ast_type: import_spec
       match:
         path: '"arena"'
   fix:
-    strategy: manual
-    manual_instructions: "Remove arena usage — use standard allocation."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_spec
+      replace:
+        note: arena package (experimental) — go 1.20+
   verification:
     re_detect: true
   test:
-    before: |
-      import "arena"
-    after: |
-      // Standard allocation
+    before: 'import "arena"
 
+      '
+    after: '// Standard allocation
+
+      '
 - id: go.1_22.range_func_iter
   language: go
-  feature_name: "range over function iterators"
-  introduced: "1.23"
+  feature_name: range over function iterators
+  introduced: '1.23'
   category: syntax
-  description: "for range over iter.Seq/Seq2 function iterators"
+  description: for range over iter.Seq/Seq2 function iterators
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [range, function, iterator, syntax]
+  tags:
+  - range
+  - function
+  - iterator
+  - syntax
   detection:
     primary:
       ast_type: for_statement
       match:
         range_over_func: true
   fix:
-    strategy: manual
-    manual_instructions: "Use explicit callback-based iteration."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: for_statement
+        range_over_func: true
+      replace:
+        note: range over function iterators — go 1.23+
   verification:
     re_detect: true
   test:
-    before: |
-      for k, v := range seq.All(m) { use(k, v) }
-    after: |
-      seq.All(m)(func(k K, v V) bool { use(k, v); return true })
+    before: 'for k, v := range seq.All(m) { use(k, v) }
 
+      '
+    after: 'seq.All(m)(func(k K, v V) bool { use(k, v); return true })
+
+      '
 - id: php.8_0.attributes_syntax
   language: php
-  feature_name: "PHP attributes (#[...])"
-  introduced: "8.0"
+  feature_name: PHP attributes (#[...])
+  introduced: '8.0'
   category: syntax
-  description: "Native attributes replacing PHPDoc annotations"
+  description: Native attributes replacing PHPDoc annotations
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [attributes, annotation, syntax]
+  tags:
+  - attributes
+  - annotation
+  - syntax
   detection:
     primary:
       ast_type: attribute_list
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Replace #[Attribute] with @Attribute PHPDoc annotations."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: attribute_list
+      replace:
+        note: PHP attributes (#[...]) — php 8.0+
   verification:
     re_detect: true
   test:
-    before: |
-      #[Route('/api/users', methods: ['GET'])]
-      public function list(): Response {}
-    after: |
-      /** @Route("/api/users", methods={"GET"}) */
+    before: '#[Route(''/api/users'', methods: [''GET''])]
+
       public function list(): Response {}
 
+      '
+    after: '/** @Route("/api/users", methods={"GET"}) */
+
+      public function list(): Response {}
+
+      '
 - id: csharp.11.list_patterns
   language: csharp
-  feature_name: "list patterns"
-  introduced: "11"
+  feature_name: list patterns
+  introduced: '11'
   category: syntax
-  description: "Pattern matching on list elements"
+  description: Pattern matching on list elements
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [list, pattern, matching]
+  tags:
+  - list
+  - pattern
+  - matching
   detection:
     primary:
       ast_type: list_pattern
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Rewrite as index checks and comparisons."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: list_pattern
+      replace:
+        note: list patterns — csharp 11+
   verification:
     re_detect: true
   test:
-    before: |
-      if (items is [var first, .., var last]) { use(first, last); }
-    after: |
-      if (items.Length >= 2) { var first = items[0]; var last = items[^1]; use(first, last); }
+    before: 'if (items is [var first, .., var last]) { use(first, last); }
+
+      '
+    after: 'if (items.Length >= 2) { var first = items[0]; var last = items[^1]; use(first,
+      last); }
+
+      '

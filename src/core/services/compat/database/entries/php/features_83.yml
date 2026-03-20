@@ -1,82 +1,110 @@
-# PHP 8.3 features
-
 - id: php.8_3.json_validate
   language: php
-  feature_name: "json_validate()"
-  introduced: "8.3"
+  feature_name: json_validate()
+  introduced: '8.3'
   category: stdlib
-  description: "Validate JSON without decoding"
+  description: Validate JSON without decoding
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [json, validate, function]
+  tags:
+  - json
+  - validate
+  - function
   detection:
     primary:
       ast_type: function_call_expression
       match:
         function: json_validate
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with json_decode + error check:
-        json_validate($str) → json_decode($str) !== null || $str === 'null'
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: function_call_expression
+        function: json_validate
+      replace:
+        note: json_validate() — php 8.3+
   verification:
     re_detect: true
   test:
-    before: |
-      if (json_validate($input)) { process($input); }
-    after: |
-      if (json_decode($input) !== null || $input === 'null') { process($input); }
+    before: 'if (json_validate($input)) { process($input); }
 
+      '
+    after: 'if (json_decode($input) !== null || $input === ''null'') { process($input);
+      }
+
+      '
 - id: php.8_3.dynamic_class_const_fetch
   language: php
-  feature_name: "dynamic class constant fetch"
-  introduced: "8.3"
+  feature_name: dynamic class constant fetch
+  introduced: '8.3'
   category: syntax
-  description: 'Enum::{$name} dynamic constant access'
+  description: Enum::{$name} dynamic constant access
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [class, constant, dynamic]
+  tags:
+  - class
+  - constant
+  - dynamic
   detection:
     primary:
       ast_type: dynamic_class_const_access
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Use constant() function: constant(Enum::class . '::' . $name)"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: dynamic_class_const_access
+      replace:
+        note: dynamic class constant fetch — php 8.3+
   verification:
     re_detect: true
   test:
-    before: |
-      $value = Color::{$name};
-    after: |
-      $value = constant(Color::class . '::' . $name);
+    before: '$value = Color::{$name};
 
+      '
+    after: '$value = constant(Color::class . ''::'' . $name);
+
+      '
 - id: php.8_3.readonly_amendments
   language: php
-  feature_name: "readonly class amendments"
-  introduced: "8.3"
+  feature_name: readonly class amendments
+  introduced: '8.3'
   category: syntax
-  description: "Readonly properties can be reinitialized in clone"
+  description: Readonly properties can be reinitialized in clone
   direction: downgrade
   severity: warning
   error_type: behavioral_change
-  tags: [readonly, clone, class]
+  tags:
+  - readonly
+  - clone
+  - class
   detection:
     primary:
       ast_type: clone_expression
       match:
         has_property_writes: true
   fix:
-    strategy: manual
-    manual_instructions: "Use a factory method instead of clone with property writes."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: clone_expression
+        has_property_writes: true
+      replace:
+        note: readonly class amendments — php 8.3+
   verification:
     re_detect: true
   test:
-    before: |
-      $copy = clone $original;
+    before: '$copy = clone $original;
+
       $copy->name = "new";
-    after: |
-      $copy = new User("new", $original->age);
+
+      '
+    after: '$copy = new User("new", $original->age);
+
+      '

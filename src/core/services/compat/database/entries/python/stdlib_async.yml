@@ -1,17 +1,16 @@
-# Python async/await features across versions
-
-# ── Python 3.12 ──────────────────────────────────────────────────
-
 - id: python.async.task_groups_strict
   language: python
-  feature_name: "asyncio.TaskGroup strict exception handling"
-  introduced: "3.12"
+  feature_name: asyncio.TaskGroup strict exception handling
+  introduced: '3.12'
   category: stdlib
-  description: "Improved TaskGroup exception handling in 3.12"
+  description: Improved TaskGroup exception handling in 3.12
   direction: downgrade
   severity: warning
   error_type: behavioral_change
-  tags: [asyncio, taskgroup, exceptions]
+  tags:
+  - asyncio
+  - taskgroup
+  - exceptions
   detection:
     primary:
       ast_type: ImportFrom
@@ -19,29 +18,38 @@
         module: asyncio
         names_contains: TaskGroup
   fix:
-    strategy: manual
-    manual_instructions: "TaskGroup behavior changed in 3.12 — ensure error handling works on target version."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: TaskGroup
+      replace:
+        try_import: from asyncio import TaskGroup
+        except_import: 'from exceptiongroup import BaseExceptionGroup  # pip install
+          exceptiongroup'
   verification:
     re_detect: false
   test:
-    before: |
-      from asyncio import TaskGroup
-    after: |
-      from asyncio import TaskGroup
+    before: 'from asyncio import TaskGroup
 
-# ── Python 3.11 ──────────────────────────────────────────────────
+      '
+    after: 'from asyncio import TaskGroup
 
+      '
 - id: python.async.timeout
   language: python
-  feature_name: "asyncio.timeout()"
-  introduced: "3.11"
+  feature_name: asyncio.timeout()
+  introduced: '3.11'
   category: stdlib
-  description: "Async timeout context manager"
+  description: Async timeout context manager
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [asyncio, timeout, context_manager]
+  tags:
+  - asyncio
+  - timeout
+  - context_manager
   detection:
     primary:
       ast_type: ImportFrom
@@ -49,44 +57,45 @@
         module: asyncio
         names_contains: timeout
     alternatives:
-      - ast_type: Attribute
-        match:
-          value_id: asyncio
-          attr: timeout
+    - ast_type: Attribute
+      match:
+        value_id: asyncio
+        attr: timeout
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use asyncio.wait_for() instead:
-        async with asyncio.timeout(5.0):
-            await do_work()
-        →
-        await asyncio.wait_for(do_work(), timeout=5.0)
-      Or use the async-timeout package: pip install async-timeout
+    strategy: conditional_import
     backport:
       package: async-timeout
-      install_command: "pip install async-timeout"
+      install_command: pip install async-timeout
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: timeout
+      replace:
+        try_import: from asyncio import timeout
+        except_import: 'from async_timeout import timeout  # pip install async-timeout'
   verification:
     re_detect: true
   test:
-    before: |
-      import asyncio
-      async with asyncio.timeout(5.0):
-          await fetch_data()
-    after: |
-      import asyncio
+    before: "import asyncio\nasync with asyncio.timeout(5.0):\n    await fetch_data()\n"
+    after: 'import asyncio
+
       await asyncio.wait_for(fetch_data(), timeout=5.0)
 
+      '
 - id: python.async.timeout_at
   language: python
-  feature_name: "asyncio.timeout_at()"
-  introduced: "3.11"
+  feature_name: asyncio.timeout_at()
+  introduced: '3.11'
   category: stdlib
-  description: "Async timeout at absolute deadline"
+  description: Async timeout at absolute deadline
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [asyncio, timeout, deadline]
+  tags:
+  - asyncio
+  - timeout
+  - deadline
   detection:
     primary:
       ast_type: ImportFrom
@@ -94,29 +103,41 @@
         module: asyncio
         names_contains: timeout_at
   fix:
-    strategy: manual
-    manual_instructions: "Compute remaining time and use asyncio.wait_for()."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: timeout_at
+      replace:
+        try_import: from asyncio import timeout
+        except_import: 'from async_timeout import timeout  # pip install async-timeout'
   verification:
     re_detect: true
   test:
-    before: |
-      from asyncio import timeout_at
+    before: 'from asyncio import timeout_at
+
       deadline = loop.time() + 5.0
-    after: |
-      import asyncio
+
+      '
+    after: 'import asyncio
+
       remaining = 5.0
 
+      '
 - id: python.async.barrier
   language: python
-  feature_name: "asyncio.Barrier"
-  introduced: "3.11"
+  feature_name: asyncio.Barrier
+  introduced: '3.11'
   category: stdlib
-  description: "Async barrier synchronization primitive"
+  description: Async barrier synchronization primitive
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [asyncio, barrier, sync]
+  tags:
+  - asyncio
+  - barrier
+  - sync
   detection:
     primary:
       ast_type: ImportFrom
@@ -124,92 +145,94 @@
         module: asyncio
         names_contains: Barrier
   fix:
-    strategy: manual
-    manual_instructions: |
-      Implement using asyncio.Event and a counter:
-        class Barrier:
-            def __init__(self, parties):
-                self._parties = parties
-                self._count = 0
-                self._event = asyncio.Event()
-            async def wait(self):
-                self._count += 1
-                if self._count >= self._parties:
-                    self._event.set()
-                await self._event.wait()
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: Barrier
+      replace:
+        try_import: from asyncio import Barrier
+        except_import: 'pass  # No backport for Barrier'
   verification:
     re_detect: true
   test:
-    before: |
-      from asyncio import Barrier
+    before: 'from asyncio import Barrier
+
       barrier = Barrier(3)
-    after: |
-      # Manual Barrier implementation needed
 
-# ── Python 3.10 ──────────────────────────────────────────────────
+      '
+    after: '# Manual Barrier implementation needed
 
+      '
 - id: python.async.anext_builtin_10
   language: python
-  feature_name: "anext() builtin function"
-  introduced: "3.10"
+  feature_name: anext() builtin function
+  introduced: '3.10'
   category: stdlib
-  description: "Async version of the next() builtin"
+  description: Async version of the next() builtin
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [async, anext, builtin]
+  tags:
+  - async
+  - anext
+  - builtin
   detection:
     primary:
       ast_type: Call
       match:
         func_id: anext
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with explicit __anext__:
-        value = await anext(async_iter)
-        → value = await async_iter.__anext__()
-
-        value = await anext(async_iter, default)
-        → try:
-              value = await async_iter.__anext__()
-          except StopAsyncIteration:
-              value = default
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        function: anext
+      replace:
+        note: anext() builtin function — requires Python 3.10+
   verification:
     re_detect: true
   test:
-    before: |
-      item = await anext(async_iterator)
-    after: |
-      item = await async_iterator.__anext__()
+    before: 'item = await anext(async_iterator)
 
+      '
+    after: 'item = await async_iterator.__anext__()
+
+      '
 - id: python.async.aiter_builtin_10
   language: python
-  feature_name: "aiter() builtin function"
-  introduced: "3.10"
+  feature_name: aiter() builtin function
+  introduced: '3.10'
   category: stdlib
-  description: "Async version of the iter() builtin"
+  description: Async version of the iter() builtin
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [async, aiter, builtin]
+  tags:
+  - async
+  - aiter
+  - builtin
   detection:
     primary:
       ast_type: Call
       match:
         func_id: aiter
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with explicit __aiter__:
-        async_iter = aiter(async_iterable)
-        → async_iter = async_iterable.__aiter__()
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        function: aiter
+      replace:
+        note: aiter() builtin function — requires Python 3.10+
   verification:
     re_detect: true
   test:
-    before: |
-      it = aiter(stream)
-    after: |
-      it = stream.__aiter__()
+    before: 'it = aiter(stream)
+
+      '
+    after: 'it = stream.__aiter__()
+
+      '

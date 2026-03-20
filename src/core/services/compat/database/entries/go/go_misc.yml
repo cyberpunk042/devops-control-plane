@@ -1,15 +1,16 @@
-# Go misc features across versions
-
 - id: go.1_19.atomic_pointer
   language: go
-  feature_name: "atomic.Pointer[T]"
-  introduced: "1.19"
+  feature_name: atomic.Pointer[T]
+  introduced: '1.19'
   category: stdlib
-  description: "Type-safe atomic pointer"
+  description: Type-safe atomic pointer
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [atomic, pointer, generics]
+  tags:
+  - atomic
+  - pointer
+  - generics
   detection:
     primary:
       ast_type: qualified_type
@@ -17,92 +18,129 @@
         package: atomic
         type: Pointer
   fix:
-    strategy: manual
-    manual_instructions: "Use unsafe.Pointer with atomic.LoadPointer/StorePointer."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: qualified_type
+        package: atomic
+        type: Pointer
+      replace:
+        note: atomic.Pointer[T] — go 1.19+
   verification:
     re_detect: true
   test:
-    before: |
-      var ptr atomic.Pointer[Config]
-    after: |
-      var ptr unsafe.Pointer
+    before: 'var ptr atomic.Pointer[Config]
 
+      '
+    after: 'var ptr unsafe.Pointer
+
+      '
 - id: go.1_21.slog_handler
   language: go
-  feature_name: "slog.Handler interface"
-  introduced: "1.21"
+  feature_name: slog.Handler interface
+  introduced: '1.21'
   category: stdlib
-  description: "Custom slog handler implementation"
+  description: Custom slog handler implementation
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [slog, handler, logging]
+  tags:
+  - slog
+  - handler
+  - logging
   detection:
     primary:
       ast_type: import_spec
       match:
         path: '"log/slog"'
   fix:
-    strategy: manual
-    manual_instructions: "Replace with golang.org/x/exp/slog backport."
+    strategy: conditional_import
     backport:
-      package: "golang.org/x/exp/slog"
+      package: golang.org/x/exp/slog
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_spec
+      replace:
+        note: slog.Handler interface — go 1.21+
   verification:
     re_detect: false
   test:
-    before: |
-      import "log/slog"
-    after: |
-      import "golang.org/x/exp/slog"
+    before: 'import "log/slog"
 
+      '
+    after: 'import "golang.org/x/exp/slog"
+
+      '
 - id: go.1_22.http_servemux_wildcard
   language: go
-  feature_name: "ServeMux wildcard patterns ({id})"
-  introduced: "1.22"
+  feature_name: ServeMux wildcard patterns ({id})
+  introduced: '1.22'
   category: stdlib
-  description: "Path parameters in ServeMux: /users/{id}"
+  description: 'Path parameters in ServeMux: /users/{id}'
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [http, routing, wildcard]
+  tags:
+  - http
+  - routing
+  - wildcard
   detection:
     primary:
       ast_type: call_expression
       match:
         method: HandleFunc
   fix:
-    strategy: manual
-    manual_instructions: "Use chi or gorilla/mux for path parameters."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: HandleFunc
+      replace:
+        note: ServeMux wildcard patterns ({id}) — go 1.22+
   verification:
     re_detect: false
   test:
-    before: |
-      mux.HandleFunc("/users/{id}", getUser)
-    after: |
-      // Use chi: r.Get("/users/{id}", getUser)
+    before: 'mux.HandleFunc("/users/{id}", getUser)
 
+      '
+    after: '// Use chi: r.Get("/users/{id}", getUser)
+
+      '
 - id: go.1_23.unique_handle
   language: go
-  feature_name: "unique.Handle[T]"
-  introduced: "1.23"
+  feature_name: unique.Handle[T]
+  introduced: '1.23'
   category: stdlib
-  description: "Canonical handle for interned values"
+  description: Canonical handle for interned values
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [unique, handle, interning]
+  tags:
+  - unique
+  - handle
+  - interning
   detection:
     primary:
       ast_type: import_spec
       match:
         path: '"unique"'
   fix:
-    strategy: manual
-    manual_instructions: "Use sync.Map for manual interning."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_spec
+      replace:
+        note: unique.Handle[T] — go 1.23+
   verification:
     re_detect: false
   test:
-    before: |
-      import "unique"
-    after: |
-      import "sync"
+    before: 'import "unique"
+
+      '
+    after: 'import "sync"
+
+      '

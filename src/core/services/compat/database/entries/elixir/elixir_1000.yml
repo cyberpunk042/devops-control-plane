@@ -1,43 +1,100 @@
-# Elixir — final for 1000
-
 - id: elixir.1_17.json_module
   language: elixir
-  feature_name: "JSON module (stdlib)"
-  introduced: "1.18"
+  feature_name: JSON module (stdlib)
+  introduced: '1.18'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [json, stdlib, module]
-  detection: { primary: { ast_type: call, match: { module: JSON } } }
-  fix: { strategy: manual, manual_instructions: "Use Jason or Poison library." }
-  verification: { re_detect: true }
-  test: { before: "JSON.encode!(data)\n", after: "Jason.encode!(data)\n" }
+  tags:
+  - json
+  - stdlib
+  - module
+  detection:
+    primary:
+      ast_type: call
+      match:
+        module: JSON
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        module: JSON
+      replace:
+        note: JSON module (stdlib) — elixir 1.18+
+  verification:
+    re_detect: true
+  test:
+    before: 'JSON.encode!(data)
 
+      '
+    after: 'Jason.encode!(data)
+
+      '
 - id: elixir.1_16.diagnostic_formatter
   language: elixir
-  feature_name: "Diagnostic formatter"
-  introduced: "1.16"
+  feature_name: Diagnostic formatter
+  introduced: '1.16'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [diagnostic, formatter]
-  detection: { primary: { ast_type: call, match: { module: Macro, function: Env } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "Macro.Env\n", after: "Macro.Env\n" }
+  tags:
+  - diagnostic
+  - formatter
+  detection:
+    primary:
+      ast_type: call
+      match:
+        module: Macro
+        function: Env
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'Macro.Env
 
+      '
+    after: 'Macro.Env
+
+      '
 - id: elixir.1_15.map_intersect
   language: elixir
-  feature_name: "Map.intersect/2"
-  introduced: "1.15"
+  feature_name: Map.intersect/2
+  introduced: '1.15'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [map, intersect, set]
-  detection: { primary: { ast_type: call, match: { module: Map, function: intersect } } }
-  fix: { strategy: manual, manual_instructions: "Manual: for k <- Map.keys(a), Map.has_key?(b, k), into: %{}, do: {k, a[k]}" }
-  verification: { re_detect: true }
-  test: { before: "Map.intersect(a, b)\n", after: "# Manual intersection\n" }
+  tags:
+  - map
+  - intersect
+  - set
+  detection:
+    primary:
+      ast_type: call
+      match:
+        module: Map
+        function: intersect
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        module: Map
+        function: intersect
+      replace:
+        note: Map.intersect/2 — elixir 1.15+
+  verification:
+    re_detect: true
+  test:
+    before: 'Map.intersect(a, b)
+
+      '
+    after: '# Manual intersection
+
+      '

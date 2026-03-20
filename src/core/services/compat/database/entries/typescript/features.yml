@@ -1,15 +1,15 @@
-# TypeScript-specific features (on top of JavaScript ES features)
-
 - id: ts.4_9.satisfies
   language: typescript
-  feature_name: "satisfies operator"
-  introduced: "4.9"
+  feature_name: satisfies operator
+  introduced: '4.9'
   category: ts4
-  description: "Type narrowing without widening: expr satisfies Type"
+  description: 'Type narrowing without widening: expr satisfies Type'
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [satisfies, type_narrowing]
+  tags:
+  - satisfies
+  - type_narrowing
   detection:
     primary:
       ast_type: satisfies_expression
@@ -17,106 +17,127 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: remove_satisfies
-        find: {}
-        replace:
-          template: "{expression} as {type}"
+    - type: remove_satisfies
+      find: {}
+      replace:
+        template: '{expression} as {type}'
   verification:
     re_detect: true
   test:
-    before: |
-      const config = { port: 3000, host: "localhost" } satisfies ServerConfig;
-    after: |
-      const config = { port: 3000, host: "localhost" } as ServerConfig;
+    before: 'const config = { port: 3000, host: "localhost" } satisfies ServerConfig;
 
+      '
+    after: 'const config = { port: 3000, host: "localhost" } as ServerConfig;
+
+      '
 - id: ts.5_0.const_type_params
   language: typescript
-  feature_name: "const type parameters"
-  introduced: "5.0"
+  feature_name: const type parameters
+  introduced: '5.0'
   category: ts5
-  description: "const modifier on type parameters for literal inference"
+  description: const modifier on type parameters for literal inference
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [const, type_parameter, generics]
+  tags:
+  - const
+  - type_parameter
+  - generics
   detection:
     primary:
       ast_type: type_parameter
       match:
         const: true
   fix:
-    strategy: manual
-    manual_instructions: |
-      Remove const modifier. Use 'as const' at call site:
-        function f<const T>(x: T): T { return x; }
-        f([1, 2, 3]);
-        →
-        function f<T>(x: T): T { return x; }
-        f([1, 2, 3] as const);
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: type_parameter
+        const: true
+      replace:
+        note: const type parameters — typescript 5.0+
   verification:
     re_detect: true
   test:
-    before: |
-      function tuple<const T extends readonly unknown[]>(...args: T): T { return args; }
-    after: |
-      function tuple<T extends readonly unknown[]>(...args: T): T { return args; }
+    before: 'function tuple<const T extends readonly unknown[]>(...args: T): T { return
+      args; }
 
+      '
+    after: 'function tuple<T extends readonly unknown[]>(...args: T): T { return args;
+      }
+
+      '
 - id: ts.5_0.decorators
   language: typescript
-  feature_name: "TC39 decorators (stage 3)"
-  introduced: "5.0"
+  feature_name: TC39 decorators (stage 3)
+  introduced: '5.0'
   category: ts5
-  description: "Standard decorators replacing experimental decorators"
+  description: Standard decorators replacing experimental decorators
   direction: downgrade
   severity: warning
   error_type: syntax_error
-  tags: [decorator, metadata]
+  tags:
+  - decorator
+  - metadata
   detection:
     primary:
       ast_type: decorator
       match:
         standard: true
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use experimental decorators instead:
-        1. Set experimentalDecorators: true in tsconfig.json
-        2. Decorator syntax is the same but semantics differ slightly
-        3. May need to adjust decorator implementation if using standard decorator API
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: decorator
+        standard: true
+      replace:
+        note: TC39 decorators (stage 3) — typescript 5.0+
   verification:
     re_detect: true
   test:
-    before: |
-      @log class Service { }
-    after: |
-      @log class Service { }
+    before: '@log class Service { }
 
+      '
+    after: '@log class Service { }
+
+      '
 - id: ts.4_7.esm_node_support
   language: typescript
-  feature_name: "Node.js ESM support (module: node16/nodenext)"
-  introduced: "4.7"
+  feature_name: 'Node.js ESM support (module: node16/nodenext)'
+  introduced: '4.7'
   category: ts4
-  description: "Module resolution for Node.js ESM"
+  description: Module resolution for Node.js ESM
   direction: downgrade
   severity: warning
   error_type: behavioral_change
-  tags: [esm, module, node]
+  tags:
+  - esm
+  - module
+  - node
   detection:
     primary:
       ast_type: tsconfig_json
       match:
-        module_in: ["node16", "nodenext"]
+        module_in: &id001
+        - node16
+        - nodenext
   fix:
-    strategy: manual
-    manual_instructions: |
-      Change module to "commonjs" in tsconfig.json:
-        "module": "node16" → "module": "commonjs"
-      And change moduleResolution accordingly:
-        "moduleResolution": "node16" → "moduleResolution": "node"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: tsconfig_json
+        module_in: *id001
+      replace:
+        note: 'Node.js ESM support (module: node16/nodenext) — typescript 4.7+'
   verification:
     re_detect: true
   test:
-    before: |
-      { "compilerOptions": { "module": "node16" } }
-    after: |
-      { "compilerOptions": { "module": "commonjs" } }
+    before: '{ "compilerOptions": { "module": "node16" } }
+
+      '
+    after: '{ "compilerOptions": { "module": "commonjs" } }
+
+      '

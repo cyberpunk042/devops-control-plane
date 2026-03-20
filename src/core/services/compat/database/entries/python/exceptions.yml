@@ -1,18 +1,16 @@
-# Python exception features — exception handling changes per version
-
-# ── Python 3.11 ──────────────────────────────────────────────────
-
 - id: python.exceptions.exception_group
   language: python
-  feature_name: "ExceptionGroup class"
-  introduced: "3.11"
+  feature_name: ExceptionGroup class
+  introduced: '3.11'
   category: exceptions
-  description: "ExceptionGroup for grouping multiple exceptions (PEP 654)"
+  description: ExceptionGroup for grouping multiple exceptions (PEP 654)
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [exceptions, error_handling]
+  tags:
+  - exceptions
+  - error_handling
   detection:
     primary:
       ast_type: Name
@@ -20,15 +18,15 @@
         id: ExceptionGroup
       context: runtime
     alternatives:
-      - ast_type: Name
-        match:
-          id: BaseExceptionGroup
-        context: runtime
+    - ast_type: Name
+      match:
+        id: BaseExceptionGroup
+      context: runtime
     exclude:
-      - context: annotation
-        reason: "Annotation-only usage doesn't crash at runtime"
-      - context: type_checking_block
-        reason: "TYPE_CHECKING block not executed"
+    - context: annotation
+      reason: Annotation-only usage doesn't crash at runtime
+    - context: type_checking_block
+      reason: TYPE_CHECKING block not executed
   verification:
     re_detect: false
     import_check: true
@@ -36,106 +34,87 @@
   fix:
     strategy: add_backport_import
     transforms:
-      - type: add_import
-        import_statement: "from exceptiongroup import ExceptionGroup, BaseExceptionGroup"
-        position: after_imports
-        condition: not_already_present
+    - type: add_import
+      import_statement: from exceptiongroup import ExceptionGroup, BaseExceptionGroup
+      position: after_imports
+      condition: not_already_present
     backport:
       package: exceptiongroup
-      min_version: "1.0.0"
-      install_command: "pip install exceptiongroup>=1.0.0"
-      supports_versions: ">=3.7"
+      min_version: 1.0.0
+      install_command: pip install exceptiongroup>=1.0.0
+      supports_versions: '>=3.7'
       maintained: true
-      notes: "Provides the classes but NOT except* syntax"
+      notes: Provides the classes but NOT except* syntax
   test:
-    before: |
-      raise ExceptionGroup("errors", [ValueError("a")])
-    after: |
-      from exceptiongroup import ExceptionGroup, BaseExceptionGroup
+    before: 'raise ExceptionGroup("errors", [ValueError("a")])
+
+      '
+    after: 'from exceptiongroup import ExceptionGroup, BaseExceptionGroup
+
       raise ExceptionGroup("errors", [ValueError("a")])
 
-# ── Python 3.11 ──────────────────────────────────────────────────
-
+      '
 - id: python.exceptions.add_note
   language: python
-  feature_name: "BaseException.add_note()"
-  introduced: "3.11"
+  feature_name: BaseException.add_note()
+  introduced: '3.11'
   category: exceptions
-  description: "Add notes to exceptions via .add_note() method"
+  description: Add notes to exceptions via .add_note() method
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [exceptions, error_handling]
+  tags:
+  - exceptions
+  - error_handling
   detection:
     primary:
       ast_type: Call
       match:
         func_attr: add_note
   fix:
-    strategy: manual
-    manual_instructions: |
-      .add_note() has no backport. Options:
-        1. Store notes as a custom attribute: exc.notes = [note]
-        2. Modify the exception message directly
-        3. Use a wrapper class with notes support
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: add_note
+      replace:
+        note: BaseException.add_note() — requires Python 3.11+
   verification:
     re_detect: true
   test:
-    before: |
-      try:
-          risky()
-      except Exception as e:
-          e.add_note("context info")
-          raise
-    after: |
-      try:
-          risky()
-      except Exception as e:
-          e.add_note("context info")
-          raise
-
-# ── Python 3.10 ──────────────────────────────────────────────────
-
+    before: "try:\n    risky()\nexcept Exception as e:\n    e.add_note(\"context info\"\
+      )\n    raise\n"
+    after: "try:\n    risky()\nexcept Exception as e:\n    e.add_note(\"context info\"\
+      )\n    raise\n"
 - id: python.exceptions.exception_match_star
   language: python
-  feature_name: "except* (exception group handling)"
-  introduced: "3.11"
+  feature_name: except* (exception group handling)
+  introduced: '3.11'
   category: exceptions
-  description: "PEP 654 — except* for catching exception groups"
+  description: PEP 654 — except* for catching exception groups
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [exceptions, syntax, error_handling]
+  tags:
+  - exceptions
+  - syntax
+  - error_handling
   detection:
     primary:
       ast_type: TryStar
       match: {}
   fix:
     strategy: manual
-    manual_instructions: |
-      except* has no mechanical backport. Rewrite as standard try/except:
-        try: ...
-        except* ValueError as eg:
-            for e in eg.exceptions: handle(e)
-        →
-        try: ...
-        except Exception as e:
-            if isinstance(e, ValueError): handle(e)
-            else: raise
+    manual_instructions: "except* has no mechanical backport. Rewrite as standard\
+      \ try/except:\n  try: ...\n  except* ValueError as eg:\n      for e in eg.exceptions:\
+      \ handle(e)\n  →\n  try: ...\n  except Exception as e:\n      if isinstance(e,\
+      \ ValueError): handle(e)\n      else: raise\n"
   verification:
     re_detect: true
   test:
-    before: |
-      try:
-          raise ExceptionGroup("eg", [ValueError("a")])
-      except* ValueError as eg:
-          pass
-    after: |
-      try:
-          raise ExceptionGroup("eg", [ValueError("a")])
-      except Exception as e:
-          if isinstance(e, ValueError):
-              pass
-          else:
-              raise
+    before: "try:\n    raise ExceptionGroup(\"eg\", [ValueError(\"a\")])\nexcept*\
+      \ ValueError as eg:\n    pass\n"
+    after: "try:\n    raise ExceptionGroup(\"eg\", [ValueError(\"a\")])\nexcept Exception\
+      \ as e:\n    if isinstance(e, ValueError):\n        pass\n    else:\n      \
+      \  raise\n"

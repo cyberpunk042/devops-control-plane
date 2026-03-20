@@ -1,71 +1,185 @@
-# Go — to 900
-
 - id: go.1_21.slices_max
   language: go
-  feature_name: "slices.Max()/Min()"
-  introduced: "1.21"
+  feature_name: slices.Max()/Min()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [slices, max, min]
-  detection: { primary: { ast_type: call_expression, match: { package: slices, function_in: [Max, Min] } } }
-  fix: { strategy: manual, manual_instructions: "Manual loop." }
-  verification: { re_detect: true }
-  test: { before: "m := slices.Max(s)\n", after: "// Manual loop\n" }
+  tags:
+  - slices
+  - max
+  - min
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: slices
+        function_in: &id001
+        - Max
+        - Min
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: slices
+        function_in: *id001
+      replace:
+        note: slices.Max()/Min() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 'm := slices.Max(s)
 
+      '
+    after: '// Manual loop
+
+      '
 - id: go.1_21.slices_binary_search
   language: go
-  feature_name: "slices.BinarySearch()"
-  introduced: "1.21"
+  feature_name: slices.BinarySearch()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [slices, binary, search]
-  detection: { primary: { ast_type: call_expression, match: { package: slices, function: BinarySearch } } }
-  fix: { strategy: manual, manual_instructions: "Use sort.Search." }
-  verification: { re_detect: true }
-  test: { before: "i, ok := slices.BinarySearch(s, val)\n", after: "i := sort.Search(len(s), func(i int)bool{return s[i]>=val})\n" }
+  tags:
+  - slices
+  - binary
+  - search
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: slices
+        function: BinarySearch
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: slices
+        function: BinarySearch
+      replace:
+        note: slices.BinarySearch() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 'i, ok := slices.BinarySearch(s, val)
 
+      '
+    after: 'i := sort.Search(len(s), func(i int)bool{return s[i]>=val})
+
+      '
 - id: go.1_22.slices_sorted
   language: go
-  feature_name: "slices.Sorted()"
-  introduced: "1.23"
+  feature_name: slices.Sorted()
+  introduced: '1.23'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [slices, sorted, iter]
-  detection: { primary: { ast_type: call_expression, match: { package: slices, function: Sorted } } }
-  fix: { strategy: manual, manual_instructions: "Collect to slice, sort.Slice." }
-  verification: { re_detect: true }
-  test: { before: "sorted := slices.Sorted(seq)\n", after: "// collect + sort.Slice\n" }
+  tags:
+  - slices
+  - sorted
+  - iter
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: slices
+        function: Sorted
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: slices
+        function: Sorted
+      replace:
+        note: slices.Sorted() — go 1.23+
+  verification:
+    re_detect: true
+  test:
+    before: 'sorted := slices.Sorted(seq)
 
+      '
+    after: '// collect + sort.Slice
+
+      '
 - id: go.1_21.maps_keys
   language: go
-  feature_name: "maps.Keys()"
-  introduced: "1.21"
+  feature_name: maps.Keys()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [maps, keys]
-  detection: { primary: { ast_type: call_expression, match: { package: maps, function: Keys } } }
-  fix: { strategy: manual, manual_instructions: "Manual: keys := make([]K, 0, len(m)); for k := range m { keys = append(keys, k) }" }
-  verification: { re_detect: true }
-  test: { before: "keys := maps.Keys(m)\n", after: "// Manual extraction\n" }
+  tags:
+  - maps
+  - keys
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: maps
+        function: Keys
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: maps
+        function: Keys
+      replace:
+        note: maps.Keys() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 'keys := maps.Keys(m)
 
+      '
+    after: '// Manual extraction
+
+      '
 - id: go.1_21.maps_values
   language: go
-  feature_name: "maps.Values()"
-  introduced: "1.21"
+  feature_name: maps.Values()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [maps, values]
-  detection: { primary: { ast_type: call_expression, match: { package: maps, function: Values } } }
-  fix: { strategy: manual, manual_instructions: "Manual extraction." }
-  verification: { re_detect: true }
-  test: { before: "vals := maps.Values(m)\n", after: "// Manual extraction\n" }
+  tags:
+  - maps
+  - values
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: maps
+        function: Values
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: maps
+        function: Values
+      replace:
+        note: maps.Values() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 'vals := maps.Values(m)
+
+      '
+    after: '// Manual extraction
+
+      '

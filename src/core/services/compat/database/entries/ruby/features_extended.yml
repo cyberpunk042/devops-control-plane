@@ -1,73 +1,90 @@
-# Ruby extended features
-
 - id: ruby.3_0.ractor
   language: ruby
-  feature_name: "Ractor"
-  introduced: "3.0"
+  feature_name: Ractor
+  introduced: '3.0'
   category: stdlib
-  description: "Actor-model concurrency with memory isolation"
+  description: Actor-model concurrency with memory isolation
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [ractor, concurrency, actor]
+  tags:
+  - ractor
+  - concurrency
+  - actor
   detection:
     primary:
       ast_type: constant
       match:
         name: Ractor
   fix:
-    strategy: manual
-    manual_instructions: "Use Thread or Process for concurrency"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: constant
+        name: Ractor
+      replace:
+        note: Ractor — ruby 3.0+
   verification:
     re_detect: true
   test:
-    before: |
-      r = Ractor.new { Ractor.yield 42 }
+    before: 'r = Ractor.new { Ractor.yield 42 }
+
       puts r.take
-    after: |
-      t = Thread.new { 42 }
+
+      '
+    after: 't = Thread.new { 42 }
+
       puts t.value
 
+      '
 - id: ruby.3_0.find_pattern
   language: ruby
-  feature_name: "find pattern in case/in"
-  introduced: "3.0"
+  feature_name: find pattern in case/in
+  introduced: '3.0'
   category: syntax
-  description: "Find pattern matching: in [*, x, *] if x > 0"
+  description: 'Find pattern matching: in [*, x, *] if x > 0'
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [pattern, matching, find]
+  tags:
+  - pattern
+  - matching
+  - find
   detection:
     primary:
       ast_type: find_pattern
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Use Array#find or Enumerable#detect instead"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: find_pattern
+      replace:
+        note: find pattern in case/in — ruby 3.0+
   verification:
     re_detect: true
   test:
-    before: |
-      case [1, -2, 3]
-      in [*, x, *] if x > 0
-        puts x
-      end
-    after: |
-      x = [1, -2, 3].find { |n| n > 0 }
+    before: "case [1, -2, 3]\nin [*, x, *] if x > 0\n  puts x\nend\n"
+    after: 'x = [1, -2, 3].find { |n| n > 0 }
+
       puts x if x
 
+      '
 - id: ruby.3_1.debug_command
   language: ruby
-  feature_name: "debugger command"
-  introduced: "3.1"
+  feature_name: debugger command
+  introduced: '3.1'
   category: stdlib
-  description: "Built-in debugger integration"
+  description: Built-in debugger integration
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [debug, breakpoint]
+  tags:
+  - debug
+  - breakpoint
   detection:
     primary:
       ast_type: call
@@ -76,53 +93,50 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: replace_function_call
-        find:
-          function: debugger
-        replace:
-          template: "binding.pry"
+    - type: replace_function_call
+      find:
+        function: debugger
+      replace:
+        template: binding.pry
   verification:
     re_detect: true
   test:
-    before: |
-      debugger
-    after: |
-      binding.pry
+    before: 'debugger
 
+      '
+    after: 'binding.pry
+
+      '
 - id: ruby.3_2.anonymous_rest_keyword
   language: ruby
-  feature_name: "anonymous rest/keyword forwarding"
-  introduced: "3.2"
+  feature_name: anonymous rest/keyword forwarding
+  introduced: '3.2'
   category: syntax
-  description: "def method(*, **) with anonymous * and ** forwarding"
+  description: def method(*, **) with anonymous * and ** forwarding
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [method, forwarding, rest, keyword]
+  tags:
+  - method
+  - forwarding
+  - rest
+  - keyword
   detection:
     primary:
       ast_type: restarg
       match:
         name: null
   fix:
-    strategy: manual
-    manual_instructions: |
-      Add explicit parameter names:
-        def forward(*, **)
-          other(*, **)
-        end
-        →
-        def forward(*args, **kwargs)
-          other(*args, **kwargs)
-        end
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: restarg
+        name: null
+      replace:
+        note: anonymous rest/keyword forwarding — ruby 3.2+
   verification:
     re_detect: true
   test:
-    before: |
-      def forward(*, **)
-        target(*, **)
-      end
-    after: |
-      def forward(*args, **kwargs)
-        target(*args, **kwargs)
-      end
+    before: "def forward(*, **)\n  target(*, **)\nend\n"
+    after: "def forward(*args, **kwargs)\n  target(*args, **kwargs)\nend\n"

@@ -1,16 +1,17 @@
-# JavaScript ES2015 final entries
-
 - id: js.es2015.object_setprototypeof
   language: javascript
-  feature_name: "Object.setPrototypeOf()"
-  introduced: "ES2015"
+  feature_name: Object.setPrototypeOf()
+  introduced: ES2015
   category: es2015
-  description: "Set the prototype of an object"
+  description: Set the prototype of an object
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [object, prototype, method]
+  tags:
+  - object
+  - prototype
+  - method
   detection:
     primary:
       ast_type: call_expression
@@ -18,159 +19,234 @@
         object: Object
         method: setPrototypeOf
   fix:
-    strategy: manual
-    manual_instructions: "Use __proto__ (non-standard) or restructure inheritance."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Object
+        method: setPrototypeOf
+      replace:
+        note: Object.setPrototypeOf() — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      Object.setPrototypeOf(obj, proto);
-    after: |
-      obj.__proto__ = proto;
+    before: 'Object.setPrototypeOf(obj, proto);
 
+      '
+    after: 'obj.__proto__ = proto;
+
+      '
 - id: js.es2015.string_normalize
   language: javascript
-  feature_name: "String.prototype.normalize()"
-  introduced: "ES2015"
+  feature_name: String.prototype.normalize()
+  introduced: ES2015
   category: es2015
-  description: "Unicode normalization"
+  description: Unicode normalization
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [string, unicode, normalize]
+  tags:
+  - string
+  - unicode
+  - normalize
   detection:
     primary:
       ast_type: call_expression
       match:
         method: normalize
   fix:
-    strategy: manual
-    manual_instructions: "Use unorm polyfill: npm install unorm"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: normalize
+      replace:
+        note: String.prototype.normalize() — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      const normalized = str.normalize('NFC');
-    after: |
-      var unorm = require('unorm');
+    before: 'const normalized = str.normalize(''NFC'');
+
+      '
+    after: 'var unorm = require(''unorm'');
+
       var normalized = unorm.nfc(str);
 
+      '
 - id: js.es2015.math_methods
   language: javascript
-  feature_name: "Math.trunc/sign/cbrt/log2/log10/etc."
-  introduced: "ES2015"
+  feature_name: Math.trunc/sign/cbrt/log2/log10/etc.
+  introduced: ES2015
   category: es2015
-  description: "New Math static methods"
+  description: New Math static methods
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [math, methods, static]
+  tags:
+  - math
+  - methods
+  - static
   detection:
     primary:
       ast_type: call_expression
       match:
         object: Math
-        method_in: [trunc, sign, cbrt, log2, log10, log1p, expm1, cosh, sinh, tanh, acosh, asinh, atanh, hypot, fround, clz32, imul]
+        method_in: &id001
+        - trunc
+        - sign
+        - cbrt
+        - log2
+        - log10
+        - log1p
+        - expm1
+        - cosh
+        - sinh
+        - tanh
+        - acosh
+        - asinh
+        - atanh
+        - hypot
+        - fround
+        - clz32
+        - imul
   fix:
-    strategy: manual
-    manual_instructions: |
-      Polyfills:
-        Math.trunc(x) → x < 0 ? Math.ceil(x) : Math.floor(x)
-        Math.sign(x) → x > 0 ? 1 : x < 0 ? -1 : 0
-        Math.log2(x) → Math.log(x) / Math.LN2
-        Math.log10(x) → Math.log(x) / Math.LN10
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Math
+        method_in: *id001
+      replace:
+        note: Math.trunc/sign/cbrt/log2/log10/etc. — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      const n = Math.trunc(3.7);
-    after: |
-      var n = 3.7 < 0 ? Math.ceil(3.7) : Math.floor(3.7);
+    before: 'const n = Math.trunc(3.7);
 
+      '
+    after: 'var n = 3.7 < 0 ? Math.ceil(3.7) : Math.floor(3.7);
+
+      '
 - id: js.es2015.array_keys_values_entries
   language: javascript
-  feature_name: "Array.prototype.keys/values/entries"
-  introduced: "ES2015"
+  feature_name: Array.prototype.keys/values/entries
+  introduced: ES2015
   category: es2015
-  description: "Array iterator methods"
+  description: Array iterator methods
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [array, iterator, keys, values, entries]
+  tags:
+  - array
+  - iterator
+  - keys
+  - values
+  - entries
   detection:
     primary:
       ast_type: call_expression
       match:
-        method_in: [keys, values, entries]
+        method_in: &id002
+        - keys
+        - values
+        - entries
   fix:
-    strategy: manual
-    manual_instructions: "Use index-based loops instead of iterators."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id002
+      replace:
+        note: Array.prototype.keys/values/entries — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      for (const [i, val] of arr.entries()) { use(i, val); }
-    after: |
-      for (var i = 0; i < arr.length; i++) { use(i, arr[i]); }
+    before: 'for (const [i, val] of arr.entries()) { use(i, val); }
 
+      '
+    after: 'for (var i = 0; i < arr.length; i++) { use(i, arr[i]); }
+
+      '
 - id: js.es2020.matchall
   language: javascript
-  feature_name: "String.prototype.matchAll()"
-  introduced: "ES2020"
+  feature_name: String.prototype.matchAll()
+  introduced: ES2020
   category: es2020
-  description: "Get all regex matches including capture groups"
+  description: Get all regex matches including capture groups
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [string, regex, matchall]
+  tags:
+  - string
+  - regex
+  - matchall
   detection:
     primary:
       ast_type: call_expression
       match:
         method: matchAll
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use exec in a loop:
-        for (const m of str.matchAll(re)) { ... }
-        → var m; while ((m = re.exec(str)) !== null) { ... }
-      Note: regex must have global flag.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: matchAll
+      replace:
+        note: String.prototype.matchAll() — javascript ES2020+
   verification:
     re_detect: true
   test:
-    before: |
-      for (const match of str.matchAll(/\d+/g)) { use(match[0]); }
-    after: |
-      var re = /\d+/g, m; while ((m = re.exec(str)) !== null) { use(m[0]); }
+    before: 'for (const match of str.matchAll(/\d+/g)) { use(match[0]); }
 
+      '
+    after: 'var re = /\d+/g, m; while ((m = re.exec(str)) !== null) { use(m[0]); }
+
+      '
 - id: js.es2021.promise_any_aggregate
   language: javascript
-  feature_name: "AggregateError"
-  introduced: "ES2021"
+  feature_name: AggregateError
+  introduced: ES2021
   category: es2021
-  description: "Error containing multiple errors (used by Promise.any)"
+  description: Error containing multiple errors (used by Promise.any)
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [error, aggregate, promise]
+  tags:
+  - error
+  - aggregate
+  - promise
   detection:
     primary:
       ast_type: new_expression
       match:
         constructor: AggregateError
   fix:
-    strategy: manual
-    manual_instructions: "Define: class AggregateError extends Error { constructor(errors, msg) { super(msg); this.errors = errors; } }"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor: AggregateError
+      replace:
+        note: AggregateError — javascript ES2021+
   verification:
     re_detect: true
   test:
-    before: |
+    before: 'throw new AggregateError([err1, err2], "All failed");
+
+      '
+    after: 'function AggregateError(e,m){Error.call(this,m);this.errors=e};
+
       throw new AggregateError([err1, err2], "All failed");
-    after: |
-      function AggregateError(e,m){Error.call(this,m);this.errors=e};
-      throw new AggregateError([err1, err2], "All failed");
+
+      '

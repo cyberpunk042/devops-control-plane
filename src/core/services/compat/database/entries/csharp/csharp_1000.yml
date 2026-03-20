@@ -1,29 +1,64 @@
-# C# — final for 1000
-
 - id: csharp.10.struct_record
   language: csharp
-  feature_name: "record struct parameterless constructor"
-  introduced: "10"
+  feature_name: record struct parameterless constructor
+  introduced: '10'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [struct, record, constructor]
-  detection: { primary: { ast_type: record_struct_declaration } }
-  fix: { strategy: manual, manual_instructions: "Use regular struct." }
-  verification: { re_detect: true }
-  test: { before: "record struct Point(int X, int Y);\n", after: "struct Point { public int X; public int Y; }\n" }
+  tags:
+  - struct
+  - record
+  - constructor
+  detection:
+    primary:
+      ast_type: record_struct_declaration
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: record_struct_declaration
+      replace:
+        note: record struct parameterless constructor — csharp 10+
+  verification:
+    re_detect: true
+  test:
+    before: 'record struct Point(int X, int Y);
 
+      '
+    after: 'struct Point { public int X; public int Y; }
+
+      '
 - id: csharp.12.spread_collections
   language: csharp
-  feature_name: "spread element in collections"
-  introduced: "12"
+  feature_name: spread element in collections
+  introduced: '12'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [spread, collection, element]
-  detection: { primary: { ast_type: spread_element } }
-  fix: { strategy: manual, manual_instructions: "Use AddRange or Concat." }
-  verification: { re_detect: true }
-  test: { before: "int[] combined = [..a, ..b, 99];\n", after: "var combined = a.Concat(b).Append(99).ToArray();\n" }
+  tags:
+  - spread
+  - collection
+  - element
+  detection:
+    primary:
+      ast_type: spread_element
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: spread_element
+      replace:
+        note: spread element in collections — csharp 12+
+  verification:
+    re_detect: true
+  test:
+    before: 'int[] combined = [..a, ..b, 99];
+
+      '
+    after: 'var combined = a.Concat(b).Append(99).ToArray();
+
+      '

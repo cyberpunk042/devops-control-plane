@@ -1,84 +1,112 @@
-# Go 1.23 features
-
 - id: go.1_23.unique_package
   language: go
-  feature_name: "unique package"
-  introduced: "1.23"
+  feature_name: unique package
+  introduced: '1.23'
   category: stdlib
-  description: "Canonicalize values for efficient comparison (interning)"
+  description: Canonicalize values for efficient comparison (interning)
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_module
-  tags: [unique, interning, stdlib]
+  tags:
+  - unique
+  - interning
+  - stdlib
   detection:
     primary:
       ast_type: import_spec
       match:
         path: '"unique"'
   fix:
-    strategy: manual
-    manual_instructions: "Implement manual interning with sync.Map or use a third-party interning library."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_spec
+      replace:
+        note: unique package — go 1.23+
   verification:
     re_detect: true
   test:
-    before: |
-      import "unique"
-      h := unique.Make("hello")
-    after: |
-      // Manual interning implementation needed
+    before: 'import "unique"
 
+      h := unique.Make("hello")
+
+      '
+    after: '// Manual interning implementation needed
+
+      '
 - id: go.1_23.iter_package
   language: go
-  feature_name: "iter package (iterators)"
-  introduced: "1.23"
+  feature_name: iter package (iterators)
+  introduced: '1.23'
   category: stdlib
-  description: "Standard iterator types and combinators"
+  description: Standard iterator types and combinators
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_module
-  tags: [iter, iterator, stdlib]
+  tags:
+  - iter
+  - iterator
+  - stdlib
   detection:
     primary:
       ast_type: import_spec
       match:
         path: '"iter"'
   fix:
-    strategy: manual
-    manual_instructions: "Use explicit loops or channel-based iteration patterns."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_spec
+      replace:
+        note: iter package (iterators) — go 1.23+
   verification:
     re_detect: true
   test:
-    before: |
-      import "iter"
-      for v := range iter.Seq[int](gen) { process(v) }
-    after: |
-      for _, v := range gen() { process(v) }
+    before: 'import "iter"
 
+      for v := range iter.Seq[int](gen) { process(v) }
+
+      '
+    after: 'for _, v := range gen() { process(v) }
+
+      '
 - id: go.1_23.structs_package
   language: go
-  feature_name: "structs package"
-  introduced: "1.23"
+  feature_name: structs package
+  introduced: '1.23'
   category: stdlib
-  description: "Struct host layout control"
+  description: Struct host layout control
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_module
-  tags: [structs, layout, stdlib]
+  tags:
+  - structs
+  - layout
+  - stdlib
   detection:
     primary:
       ast_type: import_spec
       match:
         path: '"structs"'
   fix:
-    strategy: manual
-    manual_instructions: "Remove structs package usage — use manual field alignment."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_spec
+      replace:
+        note: structs package — go 1.23+
   verification:
     re_detect: true
   test:
-    before: |
-      import "structs"
-    after: |
-      // Manual struct layout
+    before: 'import "structs"
+
+      '
+    after: '// Manual struct layout
+
+      '

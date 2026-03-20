@@ -1,62 +1,133 @@
-# Elixir — 700 batch
-
 - id: elixir.1_13.then_pipe
   language: elixir
-  feature_name: "then/1 pipe operator"
-  introduced: "1.12"
+  feature_name: then/1 pipe operator
+  introduced: '1.12'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [then, pipe, kernel]
+  tags:
+  - then
+  - pipe
+  - kernel
   detection:
-    primary: { ast_type: call, match: { function: then } }
-  fix: { strategy: manual, manual_instructions: "Use case or anonymous function." }
-  verification: { re_detect: true }
-  test: { before: "value |> then(&process/1)\n", after: "process(value)\n" }
+    primary:
+      ast_type: call
+      match:
+        function: then
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        function: then
+      replace:
+        note: then/1 pipe operator — elixir 1.12+
+  verification:
+    re_detect: true
+  test:
+    before: 'value |> then(&process/1)
 
+      '
+    after: 'process(value)
+
+      '
 - id: elixir.1_14.dbg_pipe
   language: elixir
-  feature_name: "dbg in pipe"
-  introduced: "1.14"
+  feature_name: dbg in pipe
+  introduced: '1.14'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [dbg, pipe, debug]
+  tags:
+  - dbg
+  - pipe
+  - debug
   detection:
-    primary: { ast_type: call, match: { function: dbg } }
-  fix: { strategy: manual, manual_instructions: "Replace with IO.inspect." }
-  verification: { re_detect: true }
-  test: { before: "data |> transform() |> dbg()\n", after: "data |> transform() |> IO.inspect()\n" }
+    primary:
+      ast_type: call
+      match:
+        function: dbg
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        function: dbg
+      replace:
+        note: dbg in pipe — elixir 1.14+
+  verification:
+    re_detect: true
+  test:
+    before: 'data |> transform() |> dbg()
 
+      '
+    after: 'data |> transform() |> IO.inspect()
+
+      '
 - id: elixir.1_15.utc_datetime_new
   language: elixir
-  feature_name: "DateTime.utc_now improvements"
-  introduced: "1.15"
+  feature_name: DateTime.utc_now improvements
+  introduced: '1.15'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [datetime, utc]
+  tags:
+  - datetime
+  - utc
   detection:
-    primary: { ast_type: call, match: { module: DateTime } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "DateTime.utc_now(:second)\n", after: "DateTime.utc_now()\n" }
+    primary:
+      ast_type: call
+      match:
+        module: DateTime
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'DateTime.utc_now(:second)
 
+      '
+    after: 'DateTime.utc_now()
+
+      '
 - id: elixir.1_17.kernel_to_timeout
   language: elixir
-  feature_name: "Kernel.to_timeout/1"
-  introduced: "1.17"
+  feature_name: Kernel.to_timeout/1
+  introduced: '1.17'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [kernel, timeout, duration]
+  tags:
+  - kernel
+  - timeout
+  - duration
   detection:
-    primary: { ast_type: call, match: { function: to_timeout } }
-  fix: { strategy: manual, manual_instructions: "Convert duration to milliseconds manually." }
-  verification: { re_detect: true }
-  test: { before: "to_timeout(Duration.new!(second: 30))\n", after: "30_000\n" }
+    primary:
+      ast_type: call
+      match:
+        function: to_timeout
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        function: to_timeout
+      replace:
+        note: Kernel.to_timeout/1 — elixir 1.17+
+  verification:
+    re_detect: true
+  test:
+    before: 'to_timeout(Duration.new!(second: 30))
+
+      '
+    after: '30_000
+
+      '

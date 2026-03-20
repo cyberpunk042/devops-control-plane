@@ -1,107 +1,132 @@
-# TypeScript comprehensive features
-
 - id: ts.4_1.template_literal_types
   language: typescript
-  feature_name: "template literal types"
-  introduced: "4.1"
+  feature_name: template literal types
+  introduced: '4.1'
   category: ts4
-  description: "Type-level template literal strings"
+  description: Type-level template literal strings
   direction: downgrade
   severity: error
   error_type: type_error
-  tags: [types, template, literal]
+  tags:
+  - types
+  - template
+  - literal
   detection:
     primary:
       ast_type: template_literal_type
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Replace with string union types or string type."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: template_literal_type
+      replace:
+        note: template literal types — typescript 4.1+
   verification:
     re_detect: true
   test:
-    before: |
-      type EventName = `on${string}`;
-    after: |
-      type EventName = string;
+    before: 'type EventName = `on${string}`;
 
+      '
+    after: 'type EventName = string;
+
+      '
 - id: ts.4_3.override_keyword
   language: typescript
-  feature_name: "override keyword"
-  introduced: "4.3"
+  feature_name: override keyword
+  introduced: '4.3'
   category: ts4
-  description: "Explicit override marking for class methods"
+  description: Explicit override marking for class methods
   direction: downgrade
   severity: warning
   error_type: syntax_error
-  tags: [override, class, method]
+  tags:
+  - override
+  - class
+  - method
   detection:
     primary:
       ast_type: method_definition
       match:
         modifiers_contains: override
   fix:
-    strategy: manual
-    manual_instructions: "Remove the 'override' keyword — add a comment instead."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_definition
+        modifiers_contains: override
+      replace:
+        note: override keyword — typescript 4.3+
   verification:
     re_detect: true
   test:
-    before: |
-      class Child extends Parent {
-          override method(): void { }
-      }
-    after: |
-      class Child extends Parent {
-          /* override */ method(): void { }
-      }
-
+    before: "class Child extends Parent {\n    override method(): void { }\n}\n"
+    after: "class Child extends Parent {\n    /* override */ method(): void { }\n\
+      }\n"
 - id: ts.4_4.exact_optional
   language: typescript
-  feature_name: "exact optional property types"
-  introduced: "4.4"
+  feature_name: exact optional property types
+  introduced: '4.4'
   category: ts4
-  description: "--exactOptionalPropertyTypes compiler flag"
+  description: --exactOptionalPropertyTypes compiler flag
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [optional, exact, compiler]
+  tags:
+  - optional
+  - exact
+  - compiler
   detection:
     primary:
       ast_type: tsconfig_json
       match:
         exactOptionalPropertyTypes: true
   fix:
-    strategy: manual
-    manual_instructions: "Remove exactOptionalPropertyTypes from tsconfig.json."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: tsconfig_json
+        exactOptionalPropertyTypes: true
+      replace:
+        note: exact optional property types — typescript 4.4+
   verification:
     re_detect: true
   test:
-    before: |
-      { "compilerOptions": { "exactOptionalPropertyTypes": true } }
-    after: |
-      { "compilerOptions": {} }
+    before: '{ "compilerOptions": { "exactOptionalPropertyTypes": true } }
 
+      '
+    after: '{ "compilerOptions": {} }
+
+      '
 - id: ts.5_1.linked_editing
   language: typescript
-  feature_name: "linked cursors in JSX tags"
-  introduced: "5.1"
+  feature_name: linked cursors in JSX tags
+  introduced: '5.1'
   category: ts5
-  description: "Editor feature — rename opening tag renames closing tag"
+  description: Editor feature — rename opening tag renames closing tag
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [jsx, editor, linked]
+  tags:
+  - jsx
+  - editor
+  - linked
   detection:
     primary:
       ast_type: tsconfig_json
       match:
-        jsx: "react-jsx"
+        jsx: react-jsx
   fix:
     strategy: no_fix_needed
   verification:
     re_detect: false
   test:
-    before: |
-      { "compilerOptions": { "jsx": "react-jsx" } }
-    after: |
-      { "compilerOptions": { "jsx": "react-jsx" } }
+    before: '{ "compilerOptions": { "jsx": "react-jsx" } }
+
+      '
+    after: '{ "compilerOptions": { "jsx": "react-jsx" } }
+
+      '

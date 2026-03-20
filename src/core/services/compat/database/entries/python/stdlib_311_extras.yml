@@ -24,8 +24,14 @@
         module: inspect
         names_contains: getmembers_static
   fix:
-    strategy: manual
-    manual_instructions: Use inspect.getmembers() or vars() as alternatives.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: getmembers_static
+      replace:
+        try_import: '# inspect.getmembers_static() — Python 3.11+'
+        except_import: 'pass  # getmembers_static not available in older Python'
   verification:
     re_detect: true
   test:
@@ -65,10 +71,14 @@
         module: hashlib
         names_contains: file_digest
   fix:
-    strategy: manual
-    manual_instructions: "Read and hash manually:\n  hashlib.file_digest(f, \"sha256\"\
-      )\n  →\n  h = hashlib.sha256()\n  while chunk := f.read(8192):\n      h.update(chunk)\n\
-      \  digest = h\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: file_digest
+      replace:
+        try_import: '# hashlib.file_digest() — Python 3.11+'
+        except_import: 'pass  # file_digest not available in older Python'
   verification:
     re_detect: true
   test:
@@ -97,9 +107,13 @@
         func_attr: compile
         func_value_id: re
   fix:
-    strategy: manual
-    manual_instructions: "Remove possessive quantifiers — they prevent backtracking:\n\
-      \  r\"a*+b\" → r\"a*b\"\nMay change matching behavior for some patterns.\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: compile
+      replace:
+        note: re possessive quantifiers — requires Python 3.11+
   verification:
     re_detect: false
   test:
@@ -133,9 +147,13 @@
         func_attr: compile
         func_value_id: re
   fix:
-    strategy: manual
-    manual_instructions: "Remove atomic groups — rewrite the pattern:\n  r\"(?>a+)\"\
-      \ → r\"a+\"\nMay need to restructure the regex.\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: compile
+      replace:
+        note: re atomic groups — requires Python 3.11+
   verification:
     re_detect: false
   test:

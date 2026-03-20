@@ -19,8 +19,14 @@
         value_id: unittest
         attr: addModuleCleanup
   fix:
-    strategy: manual
-    manual_instructions: Use setUp/tearDown module functions instead.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: addModuleCleanup
+      replace:
+        try_import: '# unittest.addModuleCleanup() — Python 3.8+'
+        except_import: 'pass  # addModuleCleanup not available in older Python'
   verification:
     re_detect: true
   test:
@@ -51,10 +57,16 @@
         module: unittest
         names_contains: IsolatedAsyncioTestCase
   fix:
-    strategy: manual
-    manual_instructions: Use asynctest or pytest-asyncio instead.
+    strategy: conditional_import
     backport:
       package: asynctest
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: IsolatedAsyncioTestCase
+      replace:
+        try_import: '# unittest.IsolatedAsyncioTestCase — requires Python 3.8+'
+        except_import: 'pass  # unittest.IsolatedAsyncioTestCase not available'
   verification:
     re_detect: true
   test:
@@ -200,8 +212,14 @@
         value_id: sys
         attr: exception
   fix:
-    strategy: manual
-    manual_instructions: Use sys.exc_info()[1] instead.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: exception
+      replace:
+        try_import: '# sys.exception() — Python 3.11+'
+        except_import: 'pass  # exception not available in older Python'
   verification:
     re_detect: true
   test:

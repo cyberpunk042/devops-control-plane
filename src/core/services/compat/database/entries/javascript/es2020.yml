@@ -1,149 +1,163 @@
-# JavaScript ES2020 features
-
 - id: js.es2020.optional_chaining
   language: javascript
-  feature_name: "optional chaining (?.)"
-  introduced: "ES2020"
+  feature_name: optional chaining (?.)
+  introduced: ES2020
   category: es2020
-  description: "Optional chaining operator ?. for safe property access"
+  description: Optional chaining operator ?. for safe property access
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [operator, optional, chaining]
+  tags:
+  - operator
+  - optional
+  - chaining
   detection:
     primary:
       ast_type: optional_chain_expression
       match: {}
     alternatives:
-      - ast_type: member_expression
-        match:
-          optional: true
+    - ast_type: member_expression
+      match:
+        optional: true
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_optional_chain
-        find:
-          ast_type: optional_chain_expression
-        replace:
-          template: "{base} && {base}.{property}"
+    - type: rewrite_optional_chain
+      find:
+        ast_type: optional_chain_expression
+      replace:
+        template: '{base} && {base}.{property}'
   verification:
     re_detect: true
     syntax_check: true
   edge_cases:
-    - id: js.optional_chaining.deep
-      category: transform_edge_case
-      description: "Deep optional chain: a?.b?.c?.d"
-      handling: special_transform
-      test:
-        before: |
-          const x = a?.b?.c?.d;
-        after: |
-          const x = a && a.b && a.b.c && a.b.c.d;
-        notes: "Each level needs its own && check"
+  - id: js.optional_chaining.deep
+    category: transform_edge_case
+    description: 'Deep optional chain: a?.b?.c?.d'
+    handling: special_transform
+    test:
+      before: 'const x = a?.b?.c?.d;
 
-    - id: js.optional_chaining.method_call
-      category: transform_edge_case
-      description: "Optional method call: a?.b()"
-      handling: special_transform
-      test:
-        before: |
-          const x = obj?.method();
-        after: |
-          const x = obj && obj.method();
-        notes: "Method call after optional access"
+        '
+      after: 'const x = a && a.b && a.b.c && a.b.c.d;
+
+        '
+      notes: Each level needs its own && check
+  - id: js.optional_chaining.method_call
+    category: transform_edge_case
+    description: 'Optional method call: a?.b()'
+    handling: special_transform
+    test:
+      before: 'const x = obj?.method();
+
+        '
+      after: 'const x = obj && obj.method();
+
+        '
+      notes: Method call after optional access
   test:
-    before: |
-      const name = user?.profile?.name;
-    after: |
-      const name = user && user.profile && user.profile.name;
+    before: 'const name = user?.profile?.name;
 
+      '
+    after: 'const name = user && user.profile && user.profile.name;
 
+      '
 - id: js.es2020.nullish_coalescing
   language: javascript
-  feature_name: "nullish coalescing (??)"
-  introduced: "ES2020"
+  feature_name: nullish coalescing (??)
+  introduced: ES2020
   category: es2020
-  description: "Nullish coalescing operator ?? returns right operand when left is null/undefined"
+  description: Nullish coalescing operator ?? returns right operand when left is null/undefined
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [operator, nullish, coalescing]
+  tags:
+  - operator
+  - nullish
+  - coalescing
   detection:
     primary:
       ast_type: binary_expression
       match:
-        operator: "??"
+        operator: ??
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_binary_op
-        find:
-          operator: "??"
-        replace:
-          template: "({left} !== null && {left} !== undefined) ? {left} : {right}"
+    - type: rewrite_binary_op
+      find:
+        operator: ??
+      replace:
+        template: '({left} !== null && {left} !== undefined) ? {left} : {right}'
   verification:
     re_detect: true
     syntax_check: true
   edge_cases:
-    - id: js.nullish.vs_or
-      category: false_positive
-      description: "|| is NOT the same as ?? — || treats 0 and '' as falsy"
-      handling: special_transform
-      test:
-        before: |
-          const count = input ?? 0;
-        after: |
-          const count = (input !== null && input !== undefined) ? input : 0;
-        notes: "Cannot simplify to input || 0 because 0 is a valid value"
+  - id: js.nullish.vs_or
+    category: false_positive
+    description: '|| is NOT the same as ?? — || treats 0 and '''' as falsy'
+    handling: special_transform
+    test:
+      before: 'const count = input ?? 0;
+
+        '
+      after: 'const count = (input !== null && input !== undefined) ? input : 0;
+
+        '
+      notes: Cannot simplify to input || 0 because 0 is a valid value
   test:
-    before: |
-      const value = config ?? defaults;
-    after: |
-      const value = (config !== null && config !== undefined) ? config : defaults;
+    before: 'const value = config ?? defaults;
 
+      '
+    after: 'const value = (config !== null && config !== undefined) ? config : defaults;
 
+      '
 - id: js.es2020.bigint
   language: javascript
-  feature_name: "BigInt"
-  introduced: "ES2020"
+  feature_name: BigInt
+  introduced: ES2020
   category: es2020
-  description: "BigInt type for arbitrary-precision integers"
+  description: BigInt type for arbitrary-precision integers
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [type, number, bigint]
+  tags:
+  - type
+  - number
+  - bigint
   detection:
     primary:
       ast_type: bigint
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: |
-      BigInt literal syntax (123n) has no polyfill.
-      Options:
-        1. Use a BigInt library (e.g., big-integer)
-        2. Use string representation for large numbers
-        3. Avoid BigInt entirely if possible
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: bigint
+      replace:
+        note: BigInt — javascript ES2020+
   verification:
     re_detect: true
   test:
-    before: |
-      const big = 9007199254740993n;
-    after: |
-      const big = 9007199254740993n;
+    before: 'const big = 9007199254740993n;
 
+      '
+    after: 'const big = 9007199254740993n;
 
+      '
 - id: js.es2020.globalthis
   language: javascript
-  feature_name: "globalThis"
-  introduced: "ES2020"
+  feature_name: globalThis
+  introduced: ES2020
   category: es2020
-  description: "Universal global object accessor"
+  description: Universal global object accessor
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [global, runtime]
+  tags:
+  - global
+  - runtime
   detection:
     primary:
       ast_type: identifier
@@ -152,32 +166,38 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: replace_identifier
-        find:
-          name: globalThis
-        replace:
-          expression: "(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : self)"
+    - type: replace_identifier
+      find:
+        name: globalThis
+      replace:
+        expression: '(typeof globalThis !== ''undefined'' ? globalThis : typeof window
+          !== ''undefined'' ? window : typeof global !== ''undefined'' ? global :
+          self)'
   verification:
     re_detect: true
     syntax_check: true
   test:
-    before: |
-      globalThis.myVar = 42;
-    after: |
-      (typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : self).myVar = 42;
+    before: 'globalThis.myVar = 42;
 
+      '
+    after: '(typeof globalThis !== ''undefined'' ? globalThis : typeof window !==
+      ''undefined'' ? window : typeof global !== ''undefined'' ? global : self).myVar
+      = 42;
 
+      '
 - id: js.es2020.promise_allsettled
   language: javascript
-  feature_name: "Promise.allSettled()"
-  introduced: "ES2020"
+  feature_name: Promise.allSettled()
+  introduced: ES2020
   category: es2020
-  description: "Wait for all promises to settle (resolve or reject)"
+  description: Wait for all promises to settle (resolve or reject)
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [promise, async]
+  tags:
+  - promise
+  - async
   detection:
     primary:
       ast_type: call_expression
@@ -185,21 +205,21 @@
         object: Promise
         method: allSettled
   fix:
-    strategy: manual
-    manual_instructions: |
-      Polyfill Promise.allSettled:
-        Promise.allSettled = Promise.allSettled || function(promises) {
-          return Promise.all(promises.map(p =>
-            Promise.resolve(p).then(
-              value => ({ status: 'fulfilled', value }),
-              reason => ({ status: 'rejected', reason })
-            )
-          ));
-        };
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Promise
+        method: allSettled
+      replace:
+        note: Promise.allSettled() — javascript ES2020+
   verification:
     re_detect: true
   test:
-    before: |
-      const results = await Promise.allSettled([p1, p2, p3]);
-    after: |
-      const results = await Promise.allSettled([p1, p2, p3]);
+    before: 'const results = await Promise.allSettled([p1, p2, p3]);
+
+      '
+    after: 'const results = await Promise.allSettled([p1, p2, p3]);
+
+      '

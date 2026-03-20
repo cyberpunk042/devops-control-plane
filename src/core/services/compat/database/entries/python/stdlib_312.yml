@@ -65,10 +65,13 @@
         func_attr: walk
         func_value_id: Path
   fix:
-    strategy: manual
-    manual_instructions: "Replace Path.walk() with os.walk():\n  for root, dirs, files\
-      \ in path.walk():\n  →\n  import os\n  for root, dirs, files in os.walk(str(path)):\n\
-      \      root = Path(root)\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: walk
+      replace:
+        note: Path.walk() — requires Python 3.12+
   verification:
     re_detect: true
   test:
@@ -96,14 +99,17 @@
         module: itertools
         names_contains: batched
   fix:
-    strategy: manual
-    manual_instructions: "Replace with a generator function:\n  def batched(iterable,\
-      \ n):\n      from itertools import islice\n      it = iter(iterable)\n     \
-      \ while batch := tuple(islice(it, n)):\n          yield batch\nOr use more-itertools:\
-      \ pip install more-itertools\n  from more_itertools import batched\n"
+    strategy: conditional_import
     backport:
       package: more-itertools
       install_command: pip install more-itertools
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: batched
+      replace:
+        try_import: from itertools import batched
+        except_import: 'from more_itertools import batched  # pip install more-itertools'
   verification:
     re_detect: true
   test:

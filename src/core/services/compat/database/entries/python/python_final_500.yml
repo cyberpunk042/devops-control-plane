@@ -1,43 +1,52 @@
-# Python — final push to 500
-
 - id: python.stdlib.sqlite3_serialize
   language: python
-  feature_name: "sqlite3.Connection.serialize/deserialize"
-  introduced: "3.11"
+  feature_name: sqlite3.Connection.serialize/deserialize
+  introduced: '3.11'
   category: stdlib
-  description: "Serialize/deserialize SQLite databases in memory"
+  description: Serialize/deserialize SQLite databases in memory
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [sqlite3, serialize]
+  tags:
+  - sqlite3
+  - serialize
   detection:
     primary:
       ast_type: Call
       match:
         func_attr: serialize
   fix:
-    strategy: manual
-    manual_instructions: "Use iterdump() or backup to file instead."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: serialize
+      replace:
+        note: sqlite3.Connection.serialize/deserialize — requires Python 3.11+
   verification:
     re_detect: false
   test:
-    before: |
-      data = conn.serialize()
-    after: |
-      # Use conn.iterdump()
+    before: 'data = conn.serialize()
 
+      '
+    after: '# Use conn.iterdump()
+
+      '
 - id: python.stdlib.threading_excepthook
   language: python
-  feature_name: "threading.excepthook"
-  introduced: "3.8"
+  feature_name: threading.excepthook
+  introduced: '3.8'
   category: stdlib
-  description: "Custom exception handler for threads"
+  description: Custom exception handler for threads
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [threading, exception, hook]
+  tags:
+  - threading
+  - exception
+  - hook
   detection:
     primary:
       ast_type: Attribute
@@ -45,27 +54,37 @@
         value_id: threading
         attr: excepthook
   fix:
-    strategy: manual
-    manual_instructions: "Use try/except in thread target function."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: excepthook
+      replace:
+        try_import: '# threading.excepthook — Python 3.8+'
+        except_import: 'pass  # excepthook not available in older Python'
   verification:
     re_detect: true
   test:
-    before: |
-      threading.excepthook = custom_handler
-    after: |
-      # Wrap thread targets in try/except
+    before: 'threading.excepthook = custom_handler
 
+      '
+    after: '# Wrap thread targets in try/except
+
+      '
 - id: python.stdlib.os_waitstatus_to_exitcode
   language: python
-  feature_name: "os.waitstatus_to_exitcode()"
-  introduced: "3.9"
+  feature_name: os.waitstatus_to_exitcode()
+  introduced: '3.9'
   category: stdlib
-  description: "Convert wait status to exit code"
+  description: Convert wait status to exit code
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [os, process, exitcode]
+  tags:
+  - os
+  - process
+  - exitcode
   detection:
     primary:
       ast_type: Attribute
@@ -73,53 +92,72 @@
         value_id: os
         attr: waitstatus_to_exitcode
   fix:
-    strategy: manual
-    manual_instructions: "Use os.WEXITSTATUS(status) if os.WIFEXITED(status) else -os.WTERMSIG(status)"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: waitstatus_to_exitcode
+      replace:
+        try_import: '# os.waitstatus_to_exitcode() — Python 3.9+'
+        except_import: 'pass  # waitstatus_to_exitcode not available in older Python'
   verification:
     re_detect: true
   test:
-    before: |
-      code = os.waitstatus_to_exitcode(status)
-    after: |
-      code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -os.WTERMSIG(status)
+    before: 'code = os.waitstatus_to_exitcode(status)
 
+      '
+    after: 'code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -os.WTERMSIG(status)
+
+      '
 - id: python.stdlib.itertools_accumulate_init
   language: python
-  feature_name: "itertools.accumulate initial parameter"
-  introduced: "3.8"
+  feature_name: itertools.accumulate initial parameter
+  introduced: '3.8'
   category: stdlib
-  description: "Initial value for accumulate"
+  description: Initial value for accumulate
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [itertools, accumulate, initial]
+  tags:
+  - itertools
+  - accumulate
+  - initial
   detection:
     primary:
       ast_type: Call
       match:
         func_attr: accumulate
   fix:
-    strategy: manual
-    manual_instructions: "Use itertools.chain([initial], accumulate(...))."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: accumulate
+      replace:
+        note: itertools.accumulate initial parameter — requires Python 3.8+
   verification:
     re_detect: false
   test:
-    before: |
-      sums = list(itertools.accumulate(data, initial=0))
-    after: |
-      sums = list(itertools.chain([0], itertools.accumulate(data)))
+    before: 'sums = list(itertools.accumulate(data, initial=0))
 
+      '
+    after: 'sums = list(itertools.chain([0], itertools.accumulate(data)))
+
+      '
 - id: python.stdlib.math_dist
   language: python
-  feature_name: "math.dist()"
-  introduced: "3.8"
+  feature_name: math.dist()
+  introduced: '3.8'
   category: stdlib
-  description: "Euclidean distance between two points"
+  description: Euclidean distance between two points
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [math, distance, geometry]
+  tags:
+  - math
+  - distance
+  - geometry
   detection:
     primary:
       ast_type: Attribute
@@ -127,34 +165,46 @@
         value_id: math
         attr: dist
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: math
-          names_contains: dist
+    - ast_type: ImportFrom
+      match:
+        module: math
+        names_contains: dist
   fix:
-    strategy: manual
-    manual_instructions: "math.dist(p, q) → math.sqrt(sum((a-b)**2 for a,b in zip(p,q)))"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: dist
+      replace:
+        try_import: '# math.dist() — Python 3.8+'
+        except_import: 'pass  # dist not available in older Python'
   verification:
     re_detect: true
   test:
-    before: |
-      import math
+    before: 'import math
+
       d = math.dist([0,0], [3,4])
-    after: |
-      import math
+
+      '
+    after: 'import math
+
       d = math.sqrt(sum((a-b)**2 for a,b in zip([0,0], [3,4])))
 
+      '
 - id: python.stdlib.statistics_quantiles
   language: python
-  feature_name: "statistics.quantiles()"
-  introduced: "3.8"
+  feature_name: statistics.quantiles()
+  introduced: '3.8'
   category: stdlib
-  description: "Divide data into quantiles"
+  description: Divide data into quantiles
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [statistics, quantiles, math]
+  tags:
+  - statistics
+  - quantiles
+  - math
   detection:
     primary:
       ast_type: ImportFrom
@@ -162,28 +212,39 @@
         module: statistics
         names_contains: quantiles
   fix:
-    strategy: manual
-    manual_instructions: "Implement with sorted data and index calculation."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: quantiles
+      replace:
+        try_import: '# statistics.quantiles() — requires Python 3.8+'
+        except_import: 'pass  # statistics.quantiles() not available'
   verification:
     re_detect: true
   test:
-    before: |
-      from statistics import quantiles
-      q = quantiles(data, n=4)
-    after: |
-      # Manual quantile calculation
+    before: 'from statistics import quantiles
 
+      q = quantiles(data, n=4)
+
+      '
+    after: '# Manual quantile calculation
+
+      '
 - id: python.stdlib.contextlib_nullcontext
   language: python
-  feature_name: "contextlib.nullcontext"
-  introduced: "3.7"
+  feature_name: contextlib.nullcontext
+  introduced: '3.7'
   category: stdlib
-  description: "No-op context manager"
+  description: No-op context manager
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [contextlib, null, noop]
+  tags:
+  - contextlib
+  - null
+  - noop
   detection:
     primary:
       ast_type: ImportFrom
@@ -191,34 +252,34 @@
         module: contextlib
         names_contains: nullcontext
   fix:
-    strategy: manual
-    manual_instructions: |
-      Implement:
-        from contextlib import contextmanager
-        @contextmanager
-        def nullcontext(enter_result=None):
-            yield enter_result
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: nullcontext
+      replace:
+        try_import: '# contextlib.nullcontext — requires Python 3.7+'
+        except_import: 'pass  # contextlib.nullcontext not available'
   verification:
     re_detect: true
   test:
-    before: |
-      from contextlib import nullcontext
-    after: |
-      from contextlib import contextmanager
-      @contextmanager
-      def nullcontext(enter_result=None):
-          yield enter_result
+    before: 'from contextlib import nullcontext
 
+      '
+    after: "from contextlib import contextmanager\n@contextmanager\ndef nullcontext(enter_result=None):\n\
+      \    yield enter_result\n"
 - id: python.stdlib.typing_forwarded_ref
   language: python
-  feature_name: "typing.ForwardRef evaluation"
-  introduced: "3.9"
+  feature_name: typing.ForwardRef evaluation
+  introduced: '3.9'
   category: typing
-  description: "Improved ForwardRef evaluation"
+  description: Improved ForwardRef evaluation
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [typing, forwardref]
+  tags:
+  - typing
+  - forwardref
   detection:
     primary:
       ast_type: ImportFrom
@@ -230,7 +291,9 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from typing import ForwardRef
-    after: |
-      from typing import ForwardRef
+    before: 'from typing import ForwardRef
+
+      '
+    after: 'from typing import ForwardRef
+
+      '

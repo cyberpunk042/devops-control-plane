@@ -1,16 +1,17 @@
-# JavaScript ES2024 features
-
 - id: js.es2024.object_groupby
   language: javascript
-  feature_name: "Object.groupBy()"
-  introduced: "ES2024"
+  feature_name: Object.groupBy()
+  introduced: ES2024
   category: es2024
-  description: "Group array elements by a callback"
+  description: Group array elements by a callback
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [object, group, method]
+  tags:
+  - object
+  - group
+  - method
   detection:
     primary:
       ast_type: call_expression
@@ -18,39 +19,43 @@
         object: Object
         method: groupBy
     alternatives:
-      - ast_type: call_expression
-        match:
-          object: Map
-          method: groupBy
+    - ast_type: call_expression
+      match:
+        object: Map
+        method: groupBy
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with reduce:
-        Object.groupBy(items, fn)
-        → items.reduce((groups, item) => {
-            const key = fn(item);
-            (groups[key] ??= []).push(item);
-            return groups;
-          }, {})
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Object
+        method: groupBy
+      replace:
+        note: Object.groupBy() — javascript ES2024+
   verification:
     re_detect: true
   test:
-    before: |
-      const grouped = Object.groupBy(users, u => u.role);
-    after: |
-      const grouped = users.reduce((g, u) => { const k = u.role; (g[k] = g[k] || []).push(u); return g; }, {});
+    before: 'const grouped = Object.groupBy(users, u => u.role);
 
+      '
+    after: 'const grouped = users.reduce((g, u) => { const k = u.role; (g[k] = g[k]
+      || []).push(u); return g; }, {});
+
+      '
 - id: js.es2024.promise_withresolvers
   language: javascript
-  feature_name: "Promise.withResolvers()"
-  introduced: "ES2024"
+  feature_name: Promise.withResolvers()
+  introduced: ES2024
   category: es2024
-  description: "Create a promise with externally accessible resolve/reject"
+  description: Create a promise with externally accessible resolve/reject
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [promise, async]
+  tags:
+  - promise
+  - async
   detection:
     primary:
       ast_type: call_expression
@@ -58,82 +63,106 @@
         object: Promise
         method: withResolvers
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with manual deferred pattern:
-        const { promise, resolve, reject } = Promise.withResolvers();
-        →
-        let resolve, reject;
-        const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Promise
+        method: withResolvers
+      replace:
+        note: Promise.withResolvers() — javascript ES2024+
   verification:
     re_detect: true
   test:
-    before: |
-      const { promise, resolve, reject } = Promise.withResolvers();
-    after: |
-      let resolve, reject;
+    before: 'const { promise, resolve, reject } = Promise.withResolvers();
+
+      '
+    after: 'let resolve, reject;
+
       const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
 
+      '
 - id: js.es2024.arraybuffer_transfer
   language: javascript
-  feature_name: "ArrayBuffer.prototype.transfer()"
-  introduced: "ES2024"
+  feature_name: ArrayBuffer.prototype.transfer()
+  introduced: ES2024
   category: es2024
-  description: "Transfer ownership of an ArrayBuffer"
+  description: Transfer ownership of an ArrayBuffer
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [arraybuffer, transfer, memory]
+  tags:
+  - arraybuffer
+  - transfer
+  - memory
   detection:
     primary:
       ast_type: call_expression
       match:
         method: transfer
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with manual copy:
-        const newBuf = oldBuf.transfer();
-        →
-        const newBuf = new ArrayBuffer(oldBuf.byteLength);
-        new Uint8Array(newBuf).set(new Uint8Array(oldBuf));
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: transfer
+      replace:
+        note: ArrayBuffer.prototype.transfer() — javascript ES2024+
   verification:
     re_detect: true
   test:
-    before: |
-      const newBuffer = oldBuffer.transfer();
-    after: |
-      const newBuffer = new ArrayBuffer(oldBuffer.byteLength);
+    before: 'const newBuffer = oldBuffer.transfer();
+
+      '
+    after: 'const newBuffer = new ArrayBuffer(oldBuffer.byteLength);
+
       new Uint8Array(newBuffer).set(new Uint8Array(oldBuffer));
 
+      '
 - id: js.es2024.set_methods
   language: javascript
-  feature_name: "Set methods (union, intersection, difference)"
-  introduced: "ES2024"
+  feature_name: Set methods (union, intersection, difference)
+  introduced: ES2024
   category: es2024
-  description: "Set operations: union(), intersection(), difference(), etc."
+  description: 'Set operations: union(), intersection(), difference(), etc.'
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [set, methods, operations]
+  tags:
+  - set
+  - methods
+  - operations
   detection:
     primary:
       ast_type: call_expression
       match:
-        method_in: [union, intersection, difference, symmetricDifference, isSubsetOf, isSupersetOf, isDisjointFrom]
+        method_in: &id001
+        - union
+        - intersection
+        - difference
+        - symmetricDifference
+        - isSubsetOf
+        - isSupersetOf
+        - isDisjointFrom
   fix:
-    strategy: manual
-    manual_instructions: |
-      Implement manually:
-        a.union(b)         → new Set([...a, ...b])
-        a.intersection(b)  → new Set([...a].filter(x => b.has(x)))
-        a.difference(b)    → new Set([...a].filter(x => !b.has(x)))
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id001
+      replace:
+        note: Set methods (union, intersection, difference) — javascript ES2024+
   verification:
     re_detect: true
   test:
-    before: |
-      const combined = setA.union(setB);
-    after: |
-      const combined = new Set([...setA, ...setB]);
+    before: 'const combined = setA.union(setB);
+
+      '
+    after: 'const combined = new Set([...setA, ...setB]);
+
+      '

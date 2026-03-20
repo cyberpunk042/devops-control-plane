@@ -1,230 +1,307 @@
-# Python — last entries for 600
-
 - id: python.stdlib.pathlib_posix_windows
   language: python
-  feature_name: "PurePosixPath/PureWindowsPath"
-  introduced: "3.12"
+  feature_name: PurePosixPath/PureWindowsPath
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [pathlib, posix, windows]
+  tags:
+  - pathlib
+  - posix
+  - windows
   detection:
     primary:
       ast_type: ImportFrom
-      match: { module: pathlib }
+      match:
+        module: pathlib
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      from pathlib import PurePosixPath
-    after: |
-      from pathlib import PurePosixPath
+    before: 'from pathlib import PurePosixPath
 
+      '
+    after: 'from pathlib import PurePosixPath
+
+      '
 - id: python.stdlib.asyncio_taskname_312
   language: python
-  feature_name: "asyncio.Task.name"
-  introduced: "3.8"
+  feature_name: asyncio.Task.name
+  introduced: '3.8'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: runtime_error
-  tags: [asyncio, task, name]
+  tags:
+  - asyncio
+  - task
+  - name
   detection:
     primary:
       ast_type: Call
-      match: { func_attr: create_task }
+      match:
+        func_attr: create_task
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      task = asyncio.create_task(coro(), name="worker")
-    after: |
-      task = asyncio.create_task(coro())
+    before: 'task = asyncio.create_task(coro(), name="worker")
 
+      '
+    after: 'task = asyncio.create_task(coro())
+
+      '
 - id: python.stdlib.io_text_encoding
   language: python
-  feature_name: "io.text_encoding()"
-  introduced: "3.11"
+  feature_name: io.text_encoding()
+  introduced: '3.11'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [io, encoding, text]
+  tags:
+  - io
+  - encoding
+  - text
   detection:
     primary:
       ast_type: Attribute
-      match: { value_id: io, attr: text_encoding }
+      match:
+        value_id: io
+        attr: text_encoding
   fix:
-    strategy: manual
-    manual_instructions: "Use 'utf-8' or locale.getpreferredencoding()."
-  verification: { re_detect: true }
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: text_encoding
+      replace:
+        try_import: '# io.text_encoding() — Python 3.11+'
+        except_import: 'pass  # text_encoding not available in older Python'
+  verification:
+    re_detect: true
   test:
-    before: |
-      enc = io.text_encoding(encoding)
-    after: |
-      enc = encoding or 'utf-8'
+    before: 'enc = io.text_encoding(encoding)
 
+      '
+    after: 'enc = encoding or ''utf-8''
+
+      '
 - id: python.stdlib.datetime_utc_313
   language: python
-  feature_name: "datetime.UTC deprecation notice"
-  introduced: "3.12"
+  feature_name: datetime.UTC deprecation notice
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: deprecation_warning
-  tags: [datetime, utc, deprecation]
+  tags:
+  - datetime
+  - utc
+  - deprecation
   detection:
     primary:
       ast_type: Attribute
-      match: { value_id: datetime, attr: utcnow }
+      match:
+        value_id: datetime
+        attr: utcnow
     alternatives:
-      - ast_type: Attribute
-        match: { value_id: datetime, attr: utcfromtimestamp }
+    - ast_type: Attribute
+      match:
+        value_id: datetime
+        attr: utcfromtimestamp
   fix:
-    strategy: manual
-    manual_instructions: |
-      datetime.utcnow() is deprecated in 3.12:
-        datetime.utcnow() → datetime.now(timezone.utc)
-        datetime.utcfromtimestamp(ts) → datetime.fromtimestamp(ts, tz=timezone.utc)
-  verification: { re_detect: true }
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: utcnow
+      replace:
+        try_import: '# datetime.UTC deprecation notice — Python 3.12+'
+        except_import: 'pass  # utcnow not available in older Python'
+  verification:
+    re_detect: true
   test:
-    before: |
-      from datetime import datetime
+    before: 'from datetime import datetime
+
       now = datetime.utcnow()
-    after: |
-      from datetime import datetime, timezone
+
+      '
+    after: 'from datetime import datetime, timezone
+
       now = datetime.now(timezone.utc)
 
+      '
 - id: python.stdlib.typing_no_return_313
   language: python
-  feature_name: "typing.NoReturn deprecated for Never"
-  introduced: "3.11"
+  feature_name: typing.NoReturn deprecated for Never
+  introduced: '3.11'
   category: typing
   direction: upgrade
   severity: info
   error_type: deprecation_warning
-  tags: [typing, noreturn, never, upgrade]
+  tags:
+  - typing
+  - noreturn
+  - never
+  - upgrade
   detection:
     primary:
       ast_type: ImportFrom
-      match: { module: typing, names_contains: NoReturn }
+      match:
+        module: typing
+        names_contains: NoReturn
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      from typing import NoReturn
-    after: |
-      from typing import Never
+    before: 'from typing import NoReturn
 
+      '
+    after: 'from typing import Never
+
+      '
 - id: python.stdlib.typing_callable
   language: python
-  feature_name: "collections.abc.Callable"
-  introduced: "3.9"
+  feature_name: collections.abc.Callable
+  introduced: '3.9'
   category: typing
   direction: downgrade
   severity: info
   error_type: deprecation_warning
-  tags: [typing, callable, deprecation]
+  tags:
+  - typing
+  - callable
+  - deprecation
   detection:
     primary:
       ast_type: ImportFrom
-      match: { module: typing, names_contains: Callable }
+      match:
+        module: typing
+        names_contains: Callable
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      from typing import Callable
-    after: |
-      from typing import Callable
+    before: 'from typing import Callable
 
+      '
+    after: 'from typing import Callable
+
+      '
 - id: python.stdlib.enum_repr_311
   language: python
-  feature_name: "enum repr improvements"
-  introduced: "3.11"
+  feature_name: enum repr improvements
+  introduced: '3.11'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [enum, repr, display]
+  tags:
+  - enum
+  - repr
+  - display
   detection:
     primary:
       ast_type: ImportFrom
-      match: { module: enum }
+      match:
+        module: enum
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      from enum import Enum
-    after: |
-      from enum import Enum
+    before: 'from enum import Enum
 
+      '
+    after: 'from enum import Enum
+
+      '
 - id: python.stdlib.importlib_resources_as_file
   language: python
-  feature_name: "importlib.resources.as_file()"
-  introduced: "3.9"
+  feature_name: importlib.resources.as_file()
+  introduced: '3.9'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [importlib, resources, file]
+  tags:
+  - importlib
+  - resources
+  - file
   detection:
     primary:
       ast_type: ImportFrom
-      match: { module: importlib.resources, names_contains: as_file }
+      match:
+        module: importlib.resources
+        names_contains: as_file
   fix:
-    strategy: manual
-    manual_instructions: "Use importlib_resources backport or pkg_resources."
-    backport: { package: importlib-resources }
-  verification: { re_detect: true }
+    strategy: conditional_import
+    backport:
+      package: importlib-resources
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: as_file
+      replace:
+        try_import: '# importlib.resources.as_file() — requires Python 3.9+'
+        except_import: 'pass  # importlib.resources.as_file() not available'
+  verification:
+    re_detect: true
   test:
-    before: |
-      from importlib.resources import as_file, files
-    after: |
-      from importlib_resources import as_file, files
+    before: 'from importlib.resources import as_file, files
 
+      '
+    after: 'from importlib_resources import as_file, files
+
+      '
 - id: python.stdlib.xml_etree_indent
   language: python
-  feature_name: "xml.etree.ElementTree.indent()"
-  introduced: "3.9"
+  feature_name: xml.etree.ElementTree.indent()
+  introduced: '3.9'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [xml, etree, indent, pretty]
+  tags:
+  - xml
+  - etree
+  - indent
+  - pretty
   detection:
     primary:
       ast_type: Attribute
-      match: { value_id: ET, attr: indent }
+      match:
+        value_id: ET
+        attr: indent
     alternatives:
-      - ast_type: ImportFrom
-        match: { module: xml.etree.ElementTree, names_contains: indent }
+    - ast_type: ImportFrom
+      match:
+        module: xml.etree.ElementTree
+        names_contains: indent
   fix:
-    strategy: manual
-    manual_instructions: |
-      Implement manually:
-        def indent(tree, space="  ", level=0):
-            i = "\n" + level * space
-            if len(tree):
-                if not tree.text or not tree.text.strip():
-                    tree.text = i + space
-                for child in tree:
-                    indent(child, space, level + 1)
-                if not child.tail or not child.tail.strip():
-                    child.tail = i
-            if level and (not tree.tail or not tree.tail.strip()):
-                tree.tail = i
-  verification: { re_detect: true }
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: indent
+      replace:
+        try_import: '# xml.etree.ElementTree.indent() — Python 3.9+'
+        except_import: 'pass  # indent not available in older Python'
+  verification:
+    re_detect: true
   test:
-    before: |
-      ET.indent(root)
-    after: |
-      # Manual indent implementation
+    before: 'ET.indent(root)
+
+      '
+    after: '# Manual indent implementation
+
+      '

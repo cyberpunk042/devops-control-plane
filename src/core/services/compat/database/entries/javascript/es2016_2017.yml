@@ -1,74 +1,86 @@
-# JavaScript ES2016-2017 features — filling gaps
-
 - id: js.es2016.array_includes_typed
   language: javascript
-  feature_name: "TypedArray.prototype.includes()"
-  introduced: "ES2016"
+  feature_name: TypedArray.prototype.includes()
+  introduced: ES2016
   category: es2016
-  description: "includes() on typed arrays"
+  description: includes() on typed arrays
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [typedarray, includes]
+  tags:
+  - typedarray
+  - includes
   detection:
     primary:
       ast_type: call_expression
       match:
         method: includes
   fix:
-    strategy: manual
-    manual_instructions: "Use indexOf: arr.indexOf(val) !== -1"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: includes
+      replace:
+        note: TypedArray.prototype.includes() — javascript ES2016+
   verification:
     re_detect: true
   test:
-    before: |
-      const found = uint8.includes(0xFF);
-    after: |
-      const found = uint8.indexOf(0xFF) !== -1;
+    before: 'const found = uint8.includes(0xFF);
 
+      '
+    after: 'const found = uint8.indexOf(0xFF) !== -1;
+
+      '
 - id: js.es2017.async_generator
   language: javascript
-  feature_name: "async generator functions"
-  introduced: "ES2017"
+  feature_name: async generator functions
+  introduced: ES2017
   category: es2017
-  description: "async function* generators"
+  description: async function* generators
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [async, generator, function]
+  tags:
+  - async
+  - generator
+  - function
   detection:
     primary:
       ast_type: generator_function_declaration
       match:
         async: true
   fix:
-    strategy: manual
-    manual_instructions: "Rewrite as async function returning arrays or using callback pattern."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: generator_function_declaration
+        async: true
+      replace:
+        note: async generator functions — javascript ES2017+
   verification:
     re_detect: true
   test:
-    before: |
-      async function* readChunks(stream) {
-        for await (const chunk of stream) yield chunk;
-      }
-    after: |
-      async function readChunks(stream) {
-        const chunks = [];
-        // manual async iteration
-        return chunks;
-      }
-
+    before: "async function* readChunks(stream) {\n  for await (const chunk of stream)\
+      \ yield chunk;\n}\n"
+    after: "async function readChunks(stream) {\n  const chunks = [];\n  // manual\
+      \ async iteration\n  return chunks;\n}\n"
 - id: js.es2017.object_keys_order
   language: javascript
-  feature_name: "Object property order guarantee"
-  introduced: "ES2017"
+  feature_name: Object property order guarantee
+  introduced: ES2017
   category: es2017
-  description: "Integer keys first (sorted), then string keys (insertion order)"
+  description: Integer keys first (sorted), then string keys (insertion order)
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [object, order, keys]
+  tags:
+  - object
+  - order
+  - keys
   detection:
     primary:
       ast_type: call_expression
@@ -80,136 +92,182 @@
   verification:
     re_detect: false
   test:
-    before: |
-      const keys = Object.keys(obj);
-    after: |
-      const keys = Object.keys(obj);
+    before: 'const keys = Object.keys(obj);
 
+      '
+    after: 'const keys = Object.keys(obj);
+
+      '
 - id: js.es2015.proxy
   language: javascript
-  feature_name: "Proxy"
-  introduced: "ES2015"
+  feature_name: Proxy
+  introduced: ES2015
   category: es2015
-  description: "Meta-programming with Proxy objects"
+  description: Meta-programming with Proxy objects
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [proxy, metaprogramming]
+  tags:
+  - proxy
+  - metaprogramming
   detection:
     primary:
       ast_type: new_expression
       match:
         constructor: Proxy
   fix:
-    strategy: manual
-    manual_instructions: "No polyfill — Proxy requires engine support. Use getters/setters instead."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor: Proxy
+      replace:
+        note: Proxy — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      const handler = { get: (target, prop) => prop in target ? target[prop] : 42 };
-      const proxy = new Proxy({}, handler);
-    after: |
-      // Use Object.defineProperty for computed properties
+    before: 'const handler = { get: (target, prop) => prop in target ? target[prop]
+      : 42 };
 
+      const proxy = new Proxy({}, handler);
+
+      '
+    after: '// Use Object.defineProperty for computed properties
+
+      '
 - id: js.es2015.reflect
   language: javascript
-  feature_name: "Reflect"
-  introduced: "ES2015"
+  feature_name: Reflect
+  introduced: ES2015
   category: es2015
-  description: "Reflection API for meta-operations"
+  description: Reflection API for meta-operations
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [reflect, metaprogramming]
+  tags:
+  - reflect
+  - metaprogramming
   detection:
     primary:
       ast_type: member_expression
       match:
         object: Reflect
   fix:
-    strategy: manual
-    manual_instructions: "Use direct property access, apply/call, or Object methods instead."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: member_expression
+        object: Reflect
+      replace:
+        note: Reflect — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      Reflect.apply(func, thisArg, args);
-    after: |
-      func.apply(thisArg, args);
+    before: 'Reflect.apply(func, thisArg, args);
 
+      '
+    after: 'func.apply(thisArg, args);
+
+      '
 - id: js.es2015.string_raw
   language: javascript
-  feature_name: "String.raw"
-  introduced: "ES2015"
+  feature_name: String.raw
+  introduced: ES2015
   category: es2015
-  description: "Raw string tag function"
+  description: Raw string tag function
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [string, raw, template]
+  tags:
+  - string
+  - raw
+  - template
   detection:
     primary:
       ast_type: tagged_template_expression
       match:
-        tag: "String.raw"
+        tag: String.raw
   fix:
-    strategy: manual
-    manual_instructions: "Replace with regular string, doubling backslashes."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: tagged_template_expression
+        tag: String.raw
+      replace:
+        note: String.raw — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      const path = String.raw`C:\Users\name`;
-    after: |
-      var path = 'C:\\Users\\name';
+    before: 'const path = String.raw`C:\Users\name`;
 
+      '
+    after: 'var path = ''C:\\Users\\name'';
+
+      '
 - id: js.es2015.number_methods
   language: javascript
-  feature_name: "Number.isFinite/isNaN/isInteger/isSafeInteger"
-  introduced: "ES2015"
+  feature_name: Number.isFinite/isNaN/isInteger/isSafeInteger
+  introduced: ES2015
   category: es2015
-  description: "Static Number methods"
+  description: Static Number methods
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [number, methods, static]
+  tags:
+  - number
+  - methods
+  - static
   detection:
     primary:
       ast_type: call_expression
       match:
         object: Number
-        method_in: [isFinite, isNaN, isInteger, isSafeInteger]
+        method_in: &id001
+        - isFinite
+        - isNaN
+        - isInteger
+        - isSafeInteger
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace:
-        Number.isFinite(x) → typeof x === 'number' && isFinite(x)
-        Number.isNaN(x)    → typeof x === 'number' && isNaN(x)
-        Number.isInteger(x) → typeof x === 'number' && Math.floor(x) === x
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Number
+        method_in: *id001
+      replace:
+        note: Number.isFinite/isNaN/isInteger/isSafeInteger — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      if (Number.isFinite(value)) { process(value); }
-    after: |
-      if (typeof value === 'number' && isFinite(value)) { process(value); }
+    before: 'if (Number.isFinite(value)) { process(value); }
 
+      '
+    after: 'if (typeof value === ''number'' && isFinite(value)) { process(value);
+      }
+
+      '
 - id: js.es2015.array_from
   language: javascript
-  feature_name: "Array.from()"
-  introduced: "ES2015"
+  feature_name: Array.from()
+  introduced: ES2015
   category: es2015
-  description: "Create array from iterable or array-like"
+  description: Create array from iterable or array-like
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [array, from, static]
+  tags:
+  - array
+  - from
+  - static
   detection:
     primary:
       ast_type: call_expression
@@ -217,27 +275,38 @@
         object: Array
         method: from
   fix:
-    strategy: manual
-    manual_instructions: "Use Array.prototype.slice.call(arrayLike) for array-like objects."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Array
+        method: from
+      replace:
+        note: Array.from() — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      const arr = Array.from(document.querySelectorAll('div'));
-    after: |
-      var arr = Array.prototype.slice.call(document.querySelectorAll('div'));
+    before: 'const arr = Array.from(document.querySelectorAll(''div''));
 
+      '
+    after: 'var arr = Array.prototype.slice.call(document.querySelectorAll(''div''));
+
+      '
 - id: js.es2015.array_of
   language: javascript
-  feature_name: "Array.of()"
-  introduced: "ES2015"
+  feature_name: Array.of()
+  introduced: ES2015
   category: es2015
-  description: "Create array from arguments"
+  description: Create array from arguments
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [array, of, static]
+  tags:
+  - array
+  - of
+  - static
   detection:
     primary:
       ast_type: call_expression
@@ -245,41 +314,61 @@
         object: Array
         method: of
   fix:
-    strategy: manual
-    manual_instructions: "Use array literal: Array.of(1, 2, 3) → [1, 2, 3]"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Array
+        method: of
+      replace:
+        note: Array.of() — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      const arr = Array.of(1, 2, 3);
-    after: |
-      var arr = [1, 2, 3];
+    before: 'const arr = Array.of(1, 2, 3);
 
+      '
+    after: 'var arr = [1, 2, 3];
+
+      '
 - id: js.es2015.array_find
   language: javascript
-  feature_name: "Array.prototype.find/findIndex"
-  introduced: "ES2015"
+  feature_name: Array.prototype.find/findIndex
+  introduced: ES2015
   category: es2015
-  description: "Find element matching a predicate"
+  description: Find element matching a predicate
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [array, find, method]
+  tags:
+  - array
+  - find
+  - method
   detection:
     primary:
       ast_type: call_expression
       match:
-        method_in: [find, findIndex]
+        method_in: &id002
+        - find
+        - findIndex
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use a for loop:
-        arr.find(fn) → (function() { for (var i=0; i<arr.length; i++) { if (fn(arr[i])) return arr[i]; } })()
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id002
+      replace:
+        note: Array.prototype.find/findIndex — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      const user = users.find(u => u.id === targetId);
-    after: |
-      var user; for (var i = 0; i < users.length; i++) { if (users[i].id === targetId) { user = users[i]; break; } }
+    before: 'const user = users.find(u => u.id === targetId);
+
+      '
+    after: 'var user; for (var i = 0; i < users.length; i++) { if (users[i].id ===
+      targetId) { user = users[i]; break; } }
+
+      '

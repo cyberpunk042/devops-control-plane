@@ -1,71 +1,184 @@
-# Go — final batch for 1000
-
 - id: go.1_21.maps_delete_func
   language: go
-  feature_name: "maps.DeleteFunc()"
-  introduced: "1.21"
+  feature_name: maps.DeleteFunc()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [maps, delete, func]
-  detection: { primary: { ast_type: call_expression, match: { package: maps, function: DeleteFunc } } }
-  fix: { strategy: manual, manual_instructions: "for k, v := range m { if pred(k,v) { delete(m, k) } }" }
-  verification: { re_detect: true }
-  test: { before: "maps.DeleteFunc(m, pred)\n", after: "for k,v:=range m{if pred(k,v){delete(m,k)}}\n" }
+  tags:
+  - maps
+  - delete
+  - func
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: maps
+        function: DeleteFunc
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: maps
+        function: DeleteFunc
+      replace:
+        note: maps.DeleteFunc() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 'maps.DeleteFunc(m, pred)
 
+      '
+    after: 'for k,v:=range m{if pred(k,v){delete(m,k)}}
+
+      '
 - id: go.1_21.slices_compact
   language: go
-  feature_name: "slices.Compact()"
-  introduced: "1.21"
+  feature_name: slices.Compact()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [slices, compact, dedup]
-  detection: { primary: { ast_type: call_expression, match: { package: slices, function: Compact } } }
-  fix: { strategy: manual, manual_instructions: "Manual dedup loop." }
-  verification: { re_detect: true }
-  test: { before: "s = slices.Compact(s)\n", after: "// Manual adjacent dedup\n" }
+  tags:
+  - slices
+  - compact
+  - dedup
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: slices
+        function: Compact
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: slices
+        function: Compact
+      replace:
+        note: slices.Compact() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 's = slices.Compact(s)
 
+      '
+    after: '// Manual adjacent dedup
+
+      '
 - id: go.1_21.slices_grow
   language: go
-  feature_name: "slices.Grow()"
-  introduced: "1.21"
+  feature_name: slices.Grow()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [slices, grow, capacity]
-  detection: { primary: { ast_type: call_expression, match: { package: slices, function: Grow } } }
-  fix: { strategy: manual, manual_instructions: "s = append(make([]T, 0, len(s)+n), s...)" }
-  verification: { re_detect: true }
-  test: { before: "s = slices.Grow(s, 100)\n", after: "s = append(make([]int,0,len(s)+100),s...)\n" }
+  tags:
+  - slices
+  - grow
+  - capacity
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: slices
+        function: Grow
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: slices
+        function: Grow
+      replace:
+        note: slices.Grow() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 's = slices.Grow(s, 100)
 
+      '
+    after: 's = append(make([]int,0,len(s)+100),s...)
+
+      '
 - id: go.1_21.slices_clip
   language: go
-  feature_name: "slices.Clip()"
-  introduced: "1.21"
+  feature_name: slices.Clip()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [slices, clip, capacity]
-  detection: { primary: { ast_type: call_expression, match: { package: slices, function: Clip } } }
-  fix: { strategy: manual, manual_instructions: "s[:len(s):len(s)]" }
-  verification: { re_detect: true }
-  test: { before: "s = slices.Clip(s)\n", after: "s = s[:len(s):len(s)]\n" }
+  tags:
+  - slices
+  - clip
+  - capacity
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: slices
+        function: Clip
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: slices
+        function: Clip
+      replace:
+        note: slices.Clip() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 's = slices.Clip(s)
 
+      '
+    after: 's = s[:len(s):len(s)]
+
+      '
 - id: go.1_21.slices_replace
   language: go
-  feature_name: "slices.Replace()"
-  introduced: "1.21"
+  feature_name: slices.Replace()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [slices, replace]
-  detection: { primary: { ast_type: call_expression, match: { package: slices, function: Replace } } }
-  fix: { strategy: manual, manual_instructions: "Manual slice manipulation with append." }
-  verification: { re_detect: true }
-  test: { before: "s = slices.Replace(s, i, j, vals...)\n", after: "// Manual append manipulation\n" }
+  tags:
+  - slices
+  - replace
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: slices
+        function: Replace
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: slices
+        function: Replace
+      replace:
+        note: slices.Replace() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 's = slices.Replace(s, i, j, vals...)
+
+      '
+    after: '// Manual append manipulation
+
+      '

@@ -1,43 +1,98 @@
-# Java batch — 900
-
 - id: java.16.day_period
   language: java
-  feature_name: "DateTimeFormatter day period"
-  introduced: "16"
+  feature_name: DateTimeFormatter day period
+  introduced: '16'
   category: api
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [datetime, format, period]
-  detection: { primary: { ast_type: method_invocation, match: { method: ofPattern } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "DateTimeFormatter.ofPattern(\"h B\")\n", after: "DateTimeFormatter.ofPattern(\"h a\")\n" }
+  tags:
+  - datetime
+  - format
+  - period
+  detection:
+    primary:
+      ast_type: method_invocation
+      match:
+        method: ofPattern
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'DateTimeFormatter.ofPattern("h B")
 
+      '
+    after: 'DateTimeFormatter.ofPattern("h a")
+
+      '
 - id: java.17.hex_format
   language: java
-  feature_name: "HexFormat class"
-  introduced: "17"
+  feature_name: HexFormat class
+  introduced: '17'
   category: api
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [hex, format, conversion]
-  detection: { primary: { ast_type: import_declaration, match: { path_contains: HexFormat } } }
-  fix: { strategy: manual, manual_instructions: "Use String.format(\"%02x\", byte) or DatatypeConverter." }
-  verification: { re_detect: true }
-  test: { before: "import java.util.HexFormat;\n", after: "// Use String.format\n" }
+  tags:
+  - hex
+  - format
+  - conversion
+  detection:
+    primary:
+      ast_type: import_declaration
+      match:
+        path_contains: HexFormat
+  fix:
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_declaration
+      replace:
+        note: HexFormat class — java 17+
+  verification:
+    re_detect: true
+  test:
+    before: 'import java.util.HexFormat;
 
+      '
+    after: '// Use String.format
+
+      '
 - id: java.21.unnamed_class
   language: java
-  feature_name: "unnamed classes (preview)"
-  introduced: "21"
+  feature_name: unnamed classes (preview)
+  introduced: '21'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [unnamed, class, preview]
-  detection: { primary: { ast_type: compilation_unit, match: { has_unnamed_class: true } } }
-  fix: { strategy: manual, manual_instructions: "Add class declaration and main method." }
-  verification: { re_detect: true }
-  test: { before: "void main() { System.out.println(\"Hello\"); }\n", after: "class Main { public static void main(String[] args) { System.out.println(\"Hello\"); } }\n" }
+  tags:
+  - unnamed
+  - class
+  - preview
+  detection:
+    primary:
+      ast_type: compilation_unit
+      match:
+        has_unnamed_class: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: compilation_unit
+        has_unnamed_class: true
+      replace:
+        note: unnamed classes (preview) — java 21+
+  verification:
+    re_detect: true
+  test:
+    before: 'void main() { System.out.println("Hello"); }
+
+      '
+    after: 'class Main { public static void main(String[] args) { System.out.println("Hello");
+      } }
+
+      '

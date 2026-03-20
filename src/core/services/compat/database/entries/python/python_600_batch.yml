@@ -58,8 +58,14 @@
         module: tomllib
         names_contains: TOMLDecodeError
   fix:
-    strategy: manual
-    manual_instructions: from tomli import TOMLDecodeError
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: TOMLDecodeError
+      replace:
+        try_import: import tomllib
+        except_import: 'import tomli as tomllib  # pip install tomli'
   verification:
     re_detect: true
   test:
@@ -176,8 +182,13 @@
         func_attr: localcontext
         func_value_id: decimal
   fix:
-    strategy: manual
-    manual_instructions: Set context attributes after creation instead of kwargs.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: localcontext
+      replace:
+        note: decimal.localcontext kwargs — requires Python 3.11+
   verification:
     re_detect: false
   test:
@@ -256,8 +267,13 @@
       match:
         func_attr: array
   fix:
-    strategy: manual
-    manual_instructions: Use 'u' type code or list for wide characters.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: array
+      replace:
+        note: array.array 'w' type code — requires Python 3.13+
   verification:
     re_detect: false
   test:
@@ -288,8 +304,13 @@
         func_attr: extractall
         has_keyword: filter
   fix:
-    strategy: manual
-    manual_instructions: Remove filter parameter from extractall().
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: extractall
+      replace:
+        note: tarfile extraction filter — requires Python 3.12+
   verification:
     re_detect: false
   test:

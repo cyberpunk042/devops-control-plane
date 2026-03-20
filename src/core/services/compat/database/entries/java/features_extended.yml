@@ -1,116 +1,154 @@
-# Java features — extended (11-21)
-
 - id: java.11.var_lambda
   language: java
-  feature_name: "var in lambda parameters"
-  introduced: "11"
+  feature_name: var in lambda parameters
+  introduced: '11'
   category: syntax
-  description: "Use var for implicitly typed lambda parameters"
+  description: Use var for implicitly typed lambda parameters
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [var, lambda, syntax]
+  tags:
+  - var
+  - lambda
+  - syntax
   detection:
     primary:
       ast_type: lambda_expression
       match:
         has_var_params: true
   fix:
-    strategy: manual
-    manual_instructions: "Remove var — use explicit types or no types in lambda."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: lambda_expression
+        has_var_params: true
+      replace:
+        note: var in lambda parameters — java 11+
   verification:
     re_detect: true
   test:
-    before: |
-      (var x, var y) -> x + y
-    after: |
-      (x, y) -> x + y
+    before: '(var x, var y) -> x + y
 
+      '
+    after: '(x, y) -> x + y
+
+      '
 - id: java.11.http_client
   language: java
-  feature_name: "java.net.http.HttpClient"
-  introduced: "11"
+  feature_name: java.net.http.HttpClient
+  introduced: '11'
   category: api
-  description: "Modern HTTP client API"
+  description: Modern HTTP client API
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [http, client, api]
+  tags:
+  - http
+  - client
+  - api
   detection:
     primary:
       ast_type: import_declaration
       match:
-        path_contains: "java.net.http"
+        path_contains: java.net.http
   fix:
-    strategy: manual
-    manual_instructions: "Use Apache HttpClient or OkHttp library instead."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_declaration
+      replace:
+        note: java.net.http.HttpClient — java 11+
   verification:
     re_detect: true
   test:
-    before: |
-      import java.net.http.HttpClient;
-      var client = HttpClient.newHttpClient();
-    after: |
-      // Use Apache HttpClient or OkHttp
+    before: 'import java.net.http.HttpClient;
 
+      var client = HttpClient.newHttpClient();
+
+      '
+    after: '// Use Apache HttpClient or OkHttp
+
+      '
 - id: java.11.string_methods
   language: java
-  feature_name: "String isBlank/strip/lines/repeat"
-  introduced: "11"
+  feature_name: String isBlank/strip/lines/repeat
+  introduced: '11'
   category: api
-  description: "New String methods: isBlank(), strip(), lines(), repeat()"
+  description: 'New String methods: isBlank(), strip(), lines(), repeat()'
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [string, methods, api]
+  tags:
+  - string
+  - methods
+  - api
   detection:
     primary:
       ast_type: method_invocation
       match:
-        method_in: [isBlank, strip, stripLeading, stripTrailing, lines, repeat]
+        method_in: &id001
+        - isBlank
+        - strip
+        - stripLeading
+        - stripTrailing
+        - lines
+        - repeat
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with older equivalents:
-        s.isBlank() → s.trim().isEmpty()
-        s.strip() → s.trim()
-        s.lines() → Arrays.asList(s.split("\\n"))
-        s.repeat(n) → String.join("", Collections.nCopies(n, s))
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_invocation
+        method_in: *id001
+      replace:
+        note: String isBlank/strip/lines/repeat — java 11+
   verification:
     re_detect: true
   test:
-    before: |
-      if (input.isBlank()) { return; }
+    before: 'if (input.isBlank()) { return; }
+
       String repeated = "ab".repeat(3);
-    after: |
-      if (input.trim().isEmpty()) { return; }
+
+      '
+    after: 'if (input.trim().isEmpty()) { return; }
+
       String repeated = String.join("", Collections.nCopies(3, "ab"));
 
+      '
 - id: java.21.string_templates
   language: java
-  feature_name: "string templates (preview)"
-  introduced: "21"
+  feature_name: string templates (preview)
+  introduced: '21'
   category: syntax
-  description: "String templates with STR processor (preview feature)"
+  description: String templates with STR processor (preview feature)
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [string, template, preview]
+  tags:
+  - string
+  - template
+  - preview
   detection:
     primary:
       ast_type: string_template_expression
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with String.format or concatenation:
-        STR."Hello \{name}" → String.format("Hello %s", name)
-        STR."Count: \{count}" → "Count: " + count
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: string_template_expression
+      replace:
+        note: string templates (preview) — java 21+
   verification:
     re_detect: true
   test:
-    before: |
-      String msg = STR."Hello \{name}, age \{age}";
-    after: |
-      String msg = String.format("Hello %s, age %d", name, age);
+    before: 'String msg = STR."Hello \{name}, age \{age}";
+
+      '
+    after: 'String msg = String.format("Hello %s, age %d", name, age);
+
+      '

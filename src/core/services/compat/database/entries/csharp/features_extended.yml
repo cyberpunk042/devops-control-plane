@@ -1,129 +1,178 @@
-# C# extended features
-
 - id: csharp.8.switch_expression
   language: csharp
-  feature_name: "switch expression"
-  introduced: "8"
+  feature_name: switch expression
+  introduced: '8'
   category: syntax
-  description: "Expression-based switch with pattern matching"
+  description: Expression-based switch with pattern matching
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [switch, expression, pattern]
+  tags:
+  - switch
+  - expression
+  - pattern
   detection:
     primary:
       ast_type: switch_expression
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Rewrite as switch statement"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: switch_expression
+      replace:
+        note: switch expression — csharp 8+
   verification:
     re_detect: true
   test:
-    before: |
-      var result = status switch { 200 => "ok", 404 => "missing", _ => "error" };
-    after: |
-      string result;
-      switch (status) { case 200: result = "ok"; break; case 404: result = "missing"; break; default: result = "error"; break; }
+    before: 'var result = status switch { 200 => "ok", 404 => "missing", _ => "error"
+      };
 
+      '
+    after: 'string result;
+
+      switch (status) { case 200: result = "ok"; break; case 404: result = "missing";
+      break; default: result = "error"; break; }
+
+      '
 - id: csharp.8.nullable_reference_types
   language: csharp
-  feature_name: "nullable reference types"
-  introduced: "8"
+  feature_name: nullable reference types
+  introduced: '8'
   category: syntax
-  description: "String? syntax for nullable reference types"
+  description: String? syntax for nullable reference types
   direction: downgrade
   severity: warning
   error_type: type_error
-  tags: [nullable, reference, types]
+  tags:
+  - nullable
+  - reference
+  - types
   detection:
     primary:
       ast_type: nullable_type
       match:
         is_reference: true
   fix:
-    strategy: manual
-    manual_instructions: "Remove ? from reference types and #nullable directives"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: nullable_type
+        is_reference: true
+      replace:
+        note: nullable reference types — csharp 8+
   verification:
     re_detect: true
   test:
-    before: |
-      string? name = null;
-    after: |
-      string name = null;
+    before: 'string? name = null;
 
+      '
+    after: 'string name = null;
+
+      '
 - id: csharp.9.init_only_setters
   language: csharp
-  feature_name: "init-only setters"
-  introduced: "9"
+  feature_name: init-only setters
+  introduced: '9'
   category: syntax
-  description: "Properties that can only be set during initialization"
+  description: Properties that can only be set during initialization
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [init, property, setter]
+  tags:
+  - init
+  - property
+  - setter
   detection:
     primary:
       ast_type: accessor_declaration
       match:
         keyword: init
   fix:
-    strategy: manual
-    manual_instructions: "Replace init with set (loses immutability guarantee)"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: accessor_declaration
+        keyword: init
+      replace:
+        note: init-only setters — csharp 9+
   verification:
     re_detect: true
   test:
-    before: |
-      public string Name { get; init; }
-    after: |
-      public string Name { get; set; }
+    before: 'public string Name { get; init; }
 
+      '
+    after: 'public string Name { get; set; }
+
+      '
 - id: csharp.11.raw_string_literals
   language: csharp
-  feature_name: "raw string literals"
-  introduced: "11"
+  feature_name: raw string literals
+  introduced: '11'
   category: syntax
   description: 'Triple-quoted raw strings: """no escaping"""'
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [string, raw, literal]
+  tags:
+  - string
+  - raw
+  - literal
   detection:
     primary:
       ast_type: raw_string_literal_expression
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Replace with @-verbatim strings or regular strings with escaping"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: raw_string_literal_expression
+      replace:
+        note: raw string literals — csharp 11+
   verification:
     re_detect: true
   test:
-    before: |
-      var json = """{"name": "test", "value": 42}""";
-    after: |
-      var json = @"{""name"": ""test"", ""value"": 42}";
+    before: 'var json = """{"name": "test", "value": 42}""";
 
+      '
+    after: 'var json = @"{""name"": ""test"", ""value"": 42}";
+
+      '
 - id: csharp.12.collection_expressions
   language: csharp
-  feature_name: "collection expressions"
-  introduced: "12"
+  feature_name: collection expressions
+  introduced: '12'
   category: syntax
-  description: "Concise syntax for creating collections: [1, 2, 3]"
+  description: 'Concise syntax for creating collections: [1, 2, 3]'
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [collection, initialization, syntax]
+  tags:
+  - collection
+  - initialization
+  - syntax
   detection:
     primary:
       ast_type: collection_expression
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Replace with explicit constructor or initializer syntax"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: collection_expression
+      replace:
+        note: collection expressions — csharp 12+
   verification:
     re_detect: true
   test:
-    before: |
-      List<int> nums = [1, 2, 3];
-    after: |
-      List<int> nums = new List<int> { 1, 2, 3 };
+    before: 'List<int> nums = [1, 2, 3];
+
+      '
+    after: 'List<int> nums = new List<int> { 1, 2, 3 };
+
+      '

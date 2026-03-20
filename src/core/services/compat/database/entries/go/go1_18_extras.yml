@@ -1,99 +1,104 @@
-# Go 1.18 extras
-
 - id: go.1_18.workspace
   language: go
-  feature_name: "go work (workspaces)"
-  introduced: "1.18"
+  feature_name: go work (workspaces)
+  introduced: '1.18'
   category: stdlib
-  description: "Multi-module workspace support via go.work"
+  description: Multi-module workspace support via go.work
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [workspace, modules, go_work]
+  tags:
+  - workspace
+  - modules
+  - go_work
   detection:
     primary:
       ast_type: file
       match:
-        filename: "go.work"
+        filename: go.work
   fix:
-    strategy: manual
-    manual_instructions: "Remove go.work file — use replace directives in go.mod instead."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: file
+        filename: go.work
+      replace:
+        note: go work (workspaces) — go 1.18+
   verification:
     re_detect: true
   test:
-    before: |
-      go 1.18
-      use (
-          ./module-a
-          ./module-b
-      )
-    after: |
-      // Use replace directives in individual go.mod files
+    before: "go 1.18\nuse (\n    ./module-a\n    ./module-b\n)\n"
+    after: '// Use replace directives in individual go.mod files
 
+      '
 - id: go.1_18.comparable_constraint
   language: go
-  feature_name: "comparable constraint"
-  introduced: "1.18"
+  feature_name: comparable constraint
+  introduced: '1.18'
   category: syntax
-  description: "comparable predeclared constraint for generic types"
+  description: comparable predeclared constraint for generic types
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [comparable, generics, constraint]
+  tags:
+  - comparable
+  - generics
+  - constraint
   detection:
     primary:
       ast_type: type_constraint
       match:
         name: comparable
   fix:
-    strategy: manual
-    manual_instructions: "Remove comparable constraint — use interface{} with runtime equality checks."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: type_constraint
+        name: comparable
+      replace:
+        note: comparable constraint — go 1.18+
   verification:
     re_detect: true
   test:
-    before: |
-      func Contains[T comparable](s []T, v T) bool {
-          for _, x := range s { if x == v { return true } }
-          return false
-      }
-    after: |
-      func ContainsString(s []string, v string) bool {
-          for _, x := range s { if x == v { return true } }
-          return false
-      }
-
+    before: "func Contains[T comparable](s []T, v T) bool {\n    for _, x := range\
+      \ s { if x == v { return true } }\n    return false\n}\n"
+    after: "func ContainsString(s []string, v string) bool {\n    for _, x := range\
+      \ s { if x == v { return true } }\n    return false\n}\n"
 - id: go.1_22.http_servemux_method
   language: go
-  feature_name: "ServeMux method patterns"
-  introduced: "1.22"
+  feature_name: ServeMux method patterns
+  introduced: '1.22'
   category: stdlib
-  description: "HTTP method in ServeMux patterns: GET /api/users"
+  description: 'HTTP method in ServeMux patterns: GET /api/users'
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [http, servemux, routing]
+  tags:
+  - http
+  - servemux
+  - routing
   detection:
     primary:
       ast_type: call_expression
       match:
         method: HandleFunc
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use a third-party router (chi, gorilla/mux) or check method manually:
-        mux.HandleFunc("GET /api/users", handler)
-        →
-        mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
-            if r.Method != "GET" { http.Error(w, "method not allowed", 405); return }
-            handler(w, r)
-        })
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: HandleFunc
+      replace:
+        note: ServeMux method patterns — go 1.22+
   verification:
     re_detect: false
   test:
-    before: |
-      mux.HandleFunc("GET /api/users", listUsers)
-    after: |
-      mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
-          if r.Method != "GET" { http.Error(w, "method not allowed", 405); return }
-          listUsers(w, r)
-      })
+    before: 'mux.HandleFunc("GET /api/users", listUsers)
+
+      '
+    after: "mux.HandleFunc(\"/api/users\", func(w http.ResponseWriter, r *http.Request)\
+      \ {\n    if r.Method != \"GET\" { http.Error(w, \"method not allowed\", 405);\
+      \ return }\n    listUsers(w, r)\n})\n"

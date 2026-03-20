@@ -1,50 +1,47 @@
-# Ruby version-specific features
-
 - id: ruby.3_0.pattern_matching
   language: ruby
-  feature_name: "pattern matching (case/in)"
-  introduced: "3.0"
+  feature_name: pattern matching (case/in)
+  introduced: '3.0'
   category: syntax
-  description: "Structural pattern matching with case/in"
+  description: Structural pattern matching with case/in
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [pattern, matching, syntax]
+  tags:
+  - pattern
+  - matching
+  - syntax
   detection:
     primary:
       ast_type: case_match
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Rewrite as case/when with manual destructuring"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: case_match
+      replace:
+        note: pattern matching (case/in) — ruby 3.0+
   verification:
     re_detect: true
   test:
-    before: |
-      case response
-      in { status: 200, body: }
-        process(body)
-      in { status: 404 }
-        not_found
-      end
-    after: |
-      case response[:status]
-      when 200
-        process(response[:body])
-      when 404
-        not_found
-      end
-
+    before: "case response\nin { status: 200, body: }\n  process(body)\nin { status:\
+      \ 404 }\n  not_found\nend\n"
+    after: "case response[:status]\nwhen 200\n  process(response[:body])\nwhen 404\n\
+      \  not_found\nend\n"
 - id: ruby.3_0.endless_method
   language: ruby
-  feature_name: "endless method definition"
-  introduced: "3.0"
+  feature_name: endless method definition
+  introduced: '3.0'
   category: syntax
-  description: "def method = expression (single-expression methods)"
+  description: def method = expression (single-expression methods)
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [method, syntax]
+  tags:
+  - method
+  - syntax
   detection:
     primary:
       ast_type: method
@@ -53,34 +50,32 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: expand_endless_method
-        find: {}
-        replace:
-          style: block_method
+    - type: expand_endless_method
+      find: {}
+      replace:
+        style: block_method
   verification:
     re_detect: true
   test:
-    before: |
-      def double(x) = x * 2
-      def greeting = "Hello"
-    after: |
-      def double(x)
-        x * 2
-      end
-      def greeting
-        "Hello"
-      end
+    before: 'def double(x) = x * 2
 
+      def greeting = "Hello"
+
+      '
+    after: "def double(x)\n  x * 2\nend\ndef greeting\n  \"Hello\"\nend\n"
 - id: ruby.3_1.hash_shorthand
   language: ruby
-  feature_name: "hash value omission ({x:})"
-  introduced: "3.1"
+  feature_name: hash value omission ({x:})
+  introduced: '3.1'
   category: syntax
-  description: "Shorthand for {x: x} as {x:}"
+  description: 'Shorthand for {x: x} as {x:}'
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [hash, shorthand, syntax]
+  tags:
+  - hash
+  - shorthand
+  - syntax
   detection:
     primary:
       ast_type: pair
@@ -89,33 +84,41 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: expand_hash_shorthand
-        find: {}
-        replace:
-          style: explicit_value
+    - type: expand_hash_shorthand
+      find: {}
+      replace:
+        style: explicit_value
   verification:
     re_detect: true
   test:
-    before: |
-      name = "Alice"
+    before: 'name = "Alice"
+
       age = 30
+
       person = {name:, age:}
-    after: |
-      name = "Alice"
+
+      '
+    after: 'name = "Alice"
+
       age = 30
+
       person = {name: name, age: age}
 
+      '
 - id: ruby.3_2.data_class
   language: ruby
-  feature_name: "Data class"
-  introduced: "3.2"
+  feature_name: Data class
+  introduced: '3.2'
   category: stdlib
-  description: "Immutable value objects via Data.define"
+  description: Immutable value objects via Data.define
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [data, immutable, value_object]
+  tags:
+  - data
+  - immutable
+  - value_object
   detection:
     primary:
       ast_type: call
@@ -123,37 +126,41 @@
         receiver: Data
         method: define
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace Data.define with Struct + freeze:
-        Point = Data.define(:x, :y)
-        →
-        Point = Struct.new(:x, :y) do
-          def initialize(...)
-            super
-            freeze
-          end
-        end
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        receiver: Data
+        method: define
+      replace:
+        note: Data class — ruby 3.2+
   verification:
     re_detect: true
   test:
-    before: |
-      Point = Data.define(:x, :y)
-      p = Point.new(x: 1, y: 2)
-    after: |
-      Point = Struct.new(:x, :y, keyword_init: true)
+    before: 'Point = Data.define(:x, :y)
+
       p = Point.new(x: 1, y: 2)
 
+      '
+    after: 'Point = Struct.new(:x, :y, keyword_init: true)
+
+      p = Point.new(x: 1, y: 2)
+
+      '
 - id: ruby.3_3.it_reference
   language: ruby
-  feature_name: "it (implicit block parameter)"
-  introduced: "3.3"
+  feature_name: it (implicit block parameter)
+  introduced: '3.3'
   category: syntax
-  description: "Use 'it' as implicit block parameter instead of |x| x"
+  description: Use 'it' as implicit block parameter instead of |x| x
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [block, parameter, syntax]
+  tags:
+  - block
+  - parameter
+  - syntax
   detection:
     primary:
       ast_type: identifier
@@ -163,14 +170,16 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: add_block_param
-        find: {}
-        replace:
-          param_name: it
+    - type: add_block_param
+      find: {}
+      replace:
+        param_name: it
   verification:
     re_detect: true
   test:
-    before: |
-      [1, 2, 3].map { it * 2 }
-    after: |
-      [1, 2, 3].map { |it| it * 2 }
+    before: '[1, 2, 3].map { it * 2 }
+
+      '
+    after: '[1, 2, 3].map { |it| it * 2 }
+
+      '

@@ -1,15 +1,15 @@
-# Ruby 3.2-3.3 extras
-
 - id: ruby.3_2.struct_keyword_init_default
   language: ruby
-  feature_name: "Struct keyword_init default"
-  introduced: "3.2"
+  feature_name: Struct keyword_init default
+  introduced: '3.2'
   category: stdlib
-  description: "Struct auto-detects keyword_init vs positional"
+  description: Struct auto-detects keyword_init vs positional
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [struct, keyword_init]
+  tags:
+  - struct
+  - keyword_init
   detection:
     primary:
       ast_type: call
@@ -21,56 +21,58 @@
   verification:
     re_detect: false
   test:
-    before: |
-      Point = Struct.new(:x, :y)
-    after: |
-      Point = Struct.new(:x, :y)
+    before: 'Point = Struct.new(:x, :y)
 
+      '
+    after: 'Point = Struct.new(:x, :y)
+
+      '
 - id: ruby.3_3.range_overlap
   language: ruby
-  feature_name: "Range#overlap?"
-  introduced: "3.3"
+  feature_name: Range#overlap?
+  introduced: '3.3'
   category: stdlib
-  description: "Check if two ranges overlap"
+  description: Check if two ranges overlap
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [range, overlap, method]
+  tags:
+  - range
+  - overlap
+  - method
   detection:
     primary:
       ast_type: call
       match:
         method: overlap?
   fix:
-    strategy: manual
-    manual_instructions: |
-      Implement manually:
-        (1..5).overlap?(3..8)
-        → !(a.max < b.min || b.max < a.min)
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        method: overlap?
+      replace:
+        note: Range#overlap? — ruby 3.3+
   verification:
     re_detect: true
   test:
-    before: |
-      if (1..5).overlap?(3..8)
-        puts "overlaps"
-      end
-    after: |
-      a = (1..5); b = (3..8)
-      if !(a.max < b.min || b.max < a.min)
-        puts "overlaps"
-      end
-
+    before: "if (1..5).overlap?(3..8)\n  puts \"overlaps\"\nend\n"
+    after: "a = (1..5); b = (3..8)\nif !(a.max < b.min || b.max < a.min)\n  puts \"\
+      overlaps\"\nend\n"
 - id: ruby.3_3.prism_parser
   language: ruby
-  feature_name: "Prism parser (default)"
-  introduced: "3.3"
+  feature_name: Prism parser (default)
+  introduced: '3.3'
   category: stdlib
-  description: "Prism becomes the default Ruby parser"
+  description: Prism becomes the default Ruby parser
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [parser, prism]
+  tags:
+  - parser
+  - prism
   detection:
     primary:
       ast_type: call
@@ -81,7 +83,9 @@
   verification:
     re_detect: false
   test:
-    before: |
-      Prism.parse("1 + 2")
-    after: |
-      # Use Ripper or Parser gem on older Ruby
+    before: 'Prism.parse("1 + 2")
+
+      '
+    after: '# Use Ripper or Parser gem on older Ruby
+
+      '

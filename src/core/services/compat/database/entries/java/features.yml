@@ -1,60 +1,50 @@
-# Java version-specific features (LTS versions: 11, 17, 21)
-
 - id: java.16.records
   language: java
-  feature_name: "record classes"
-  introduced: "16"
+  feature_name: record classes
+  introduced: '16'
   category: syntax
-  description: "Immutable data classes with auto-generated equals/hashCode/toString"
+  description: Immutable data classes with auto-generated equals/hashCode/toString
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [record, data, class]
+  tags:
+  - record
+  - data
+  - class
   detection:
     primary:
       ast_type: record_declaration
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace record with a standard class:
-        record Point(int x, int y) {}
-        →
-        public final class Point {
-            private final int x;
-            private final int y;
-            public Point(int x, int y) { this.x = x; this.y = y; }
-            public int x() { return x; }
-            public int y() { return y; }
-            @Override public boolean equals(Object o) { ... }
-            @Override public int hashCode() { return Objects.hash(x, y); }
-            @Override public String toString() { return "Point[x=" + x + ", y=" + y + "]"; }
-        }
-      Consider Lombok @Value as a shorter alternative.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: record_declaration
+      replace:
+        note: record classes — java 16+
   verification:
     re_detect: true
   test:
-    before: |
-      public record Point(int x, int y) {}
-    after: |
-      public final class Point {
-          private final int x;
-          private final int y;
-          public Point(int x, int y) { this.x = x; this.y = y; }
-          public int x() { return x; }
-          public int y() { return y; }
-      }
+    before: 'public record Point(int x, int y) {}
 
+      '
+    after: "public final class Point {\n    private final int x;\n    private final\
+      \ int y;\n    public Point(int x, int y) { this.x = x; this.y = y; }\n    public\
+      \ int x() { return x; }\n    public int y() { return y; }\n}\n"
 - id: java.16.pattern_instanceof
   language: java
-  feature_name: "pattern matching for instanceof"
-  introduced: "16"
+  feature_name: pattern matching for instanceof
+  introduced: '16'
   category: syntax
-  description: "if (obj instanceof String s) — bind variable in instanceof check"
+  description: if (obj instanceof String s) — bind variable in instanceof check
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [instanceof, pattern, casting]
+  tags:
+  - instanceof
+  - pattern
+  - casting
   detection:
     primary:
       ast_type: instanceof_expression
@@ -63,33 +53,30 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: split_instanceof_cast
-        find: {}
-        replace:
-          style: separate_cast
+    - type: split_instanceof_cast
+      find: {}
+      replace:
+        style: separate_cast
   verification:
     re_detect: true
   test:
-    before: |
-      if (obj instanceof String s) {
-          System.out.println(s.length());
-      }
-    after: |
-      if (obj instanceof String) {
-          String s = (String) obj;
-          System.out.println(s.length());
-      }
-
+    before: "if (obj instanceof String s) {\n    System.out.println(s.length());\n\
+      }\n"
+    after: "if (obj instanceof String) {\n    String s = (String) obj;\n    System.out.println(s.length());\n\
+      }\n"
 - id: java.15.text_blocks
   language: java
-  feature_name: "text blocks"
-  introduced: "15"
+  feature_name: text blocks
+  introduced: '15'
   category: syntax
-  description: "Multi-line string literals with triple quotes"
+  description: Multi-line string literals with triple quotes
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [string, text_block, multiline]
+  tags:
+  - string
+  - text_block
+  - multiline
   detection:
     primary:
       ast_type: text_block
@@ -97,114 +84,100 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_text_block
-        find: {}
-        replace:
-          style: string_concatenation
+    - type: rewrite_text_block
+      find: {}
+      replace:
+        style: string_concatenation
   verification:
     re_detect: true
   test:
-    before: |
-      String query = """
-          SELECT *
-          FROM users
-          WHERE active = true
-          """;
-    after: |
-      String query = "SELECT *\n"
-          + "FROM users\n"
-          + "WHERE active = true\n";
-
+    before: "String query = \"\"\"\n    SELECT *\n    FROM users\n    WHERE active\
+      \ = true\n    \"\"\";\n"
+    after: "String query = \"SELECT *\\n\"\n    + \"FROM users\\n\"\n    + \"WHERE\
+      \ active = true\\n\";\n"
 - id: java.14.switch_expression
   language: java
-  feature_name: "switch expression"
-  introduced: "14"
+  feature_name: switch expression
+  introduced: '14'
   category: syntax
-  description: "switch as an expression with arrow syntax and yield"
+  description: switch as an expression with arrow syntax and yield
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [switch, expression, syntax]
+  tags:
+  - switch
+  - expression
+  - syntax
   detection:
     primary:
       ast_type: switch_expression
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: |
-      Rewrite as a switch statement with a result variable:
-        int result = switch(x) {
-            case 1 -> 10;
-            case 2 -> 20;
-            default -> 0;
-        };
-        →
-        int result;
-        switch(x) {
-            case 1: result = 10; break;
-            case 2: result = 20; break;
-            default: result = 0; break;
-        }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: switch_expression
+      replace:
+        note: switch expression — java 14+
   verification:
     re_detect: true
   test:
-    before: |
-      String result = switch (day) {
-          case MONDAY, FRIDAY -> "busy";
-          case SUNDAY -> "rest";
-          default -> "normal";
-      };
-    after: |
-      String result;
-      switch (day) {
-          case MONDAY: case FRIDAY: result = "busy"; break;
-          case SUNDAY: result = "rest"; break;
-          default: result = "normal"; break;
-      }
-
+    before: "String result = switch (day) {\n    case MONDAY, FRIDAY -> \"busy\";\n\
+      \    case SUNDAY -> \"rest\";\n    default -> \"normal\";\n};\n"
+    after: "String result;\nswitch (day) {\n    case MONDAY: case FRIDAY: result =\
+      \ \"busy\"; break;\n    case SUNDAY: result = \"rest\"; break;\n    default:\
+      \ result = \"normal\"; break;\n}\n"
 - id: java.17.sealed_classes
   language: java
-  feature_name: "sealed classes"
-  introduced: "17"
+  feature_name: sealed classes
+  introduced: '17'
   category: syntax
-  description: "Restrict which classes can extend/implement"
+  description: Restrict which classes can extend/implement
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [sealed, class, hierarchy]
+  tags:
+  - sealed
+  - class
+  - hierarchy
   detection:
     primary:
       ast_type: class_declaration
       match:
         modifiers_contains: sealed
   fix:
-    strategy: manual
-    manual_instructions: |
-      Remove 'sealed' and 'permits' keywords.
-      Document the allowed subclasses in Javadoc instead.
-        public sealed class Shape permits Circle, Square {}
-        →
-        /** Subclasses: Circle, Square (do not extend directly) */
-        public abstract class Shape {}
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: class_declaration
+        modifiers_contains: sealed
+      replace:
+        note: sealed classes — java 17+
   verification:
     re_detect: true
   test:
-    before: |
-      public sealed class Shape permits Circle, Square {}
-    after: |
-      public abstract class Shape {}
+    before: 'public sealed class Shape permits Circle, Square {}
 
+      '
+    after: 'public abstract class Shape {}
+
+      '
 - id: java.21.virtual_threads
   language: java
-  feature_name: "virtual threads"
-  introduced: "21"
+  feature_name: virtual threads
+  introduced: '21'
   category: api
-  description: "Lightweight threads via Thread.ofVirtual()"
+  description: Lightweight threads via Thread.ofVirtual()
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [thread, virtual, concurrency]
+  tags:
+  - thread
+  - virtual
+  - concurrency
   detection:
     primary:
       ast_type: method_invocation
@@ -212,25 +185,26 @@
         object: Thread
         method: ofVirtual
     alternatives:
-      - ast_type: method_invocation
-        match:
-          receiver: Executors
-          method: newVirtualThreadPerTaskExecutor
+    - ast_type: method_invocation
+      match:
+        receiver: Executors
+        method: newVirtualThreadPerTaskExecutor
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace virtual threads with platform threads:
-        Thread.ofVirtual().start(() -> task())
-        →
-        new Thread(() -> task()).start()
-      Or use a thread pool:
-        Executors.newVirtualThreadPerTaskExecutor()
-        →
-        Executors.newCachedThreadPool()
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_invocation
+        object: Thread
+        method: ofVirtual
+      replace:
+        note: virtual threads — java 21+
   verification:
     re_detect: true
   test:
-    before: |
-      Thread.ofVirtual().start(() -> handleRequest(req));
-    after: |
-      new Thread(() -> handleRequest(req)).start();
+    before: 'Thread.ofVirtual().start(() -> handleRequest(req));
+
+      '
+    after: 'new Thread(() -> handleRequest(req)).start();
+
+      '

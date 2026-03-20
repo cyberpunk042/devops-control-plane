@@ -22,14 +22,18 @@
     - context: type_checking_block
       reason: Not executed at runtime
   fix:
-    strategy: manual
-    manual_instructions: "TaskGroup requires Python 3.11+. Options:\n  1. Use anyio.create_task_group()\
-      \ (backport)\n  2. Use asyncio.gather() for simpler cases:\n     async with\
-      \ TaskGroup() as tg:\n         tg.create_task(a())\n         tg.create_task(b())\n\
-      \     →\n     await asyncio.gather(a(), b())\n"
+    strategy: conditional_import
     backport:
       package: anyio
       install_command: pip install anyio
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: TaskGroup
+      replace:
+        try_import: from asyncio import TaskGroup
+        except_import: 'from exceptiongroup import BaseExceptionGroup  # pip install
+          exceptiongroup'
   verification:
     re_detect: true
   test:
@@ -69,11 +73,13 @@
       match:
         func_attr: insort_right
   fix:
-    strategy: manual
-    manual_instructions: "The key parameter for bisect functions requires 3.10+.\n\
-      Pre-compute the key values instead:\n  bisect.bisect_left(data, target, key=lambda\
-      \ x: x.score)\n  →\n  scores = [x.score for x in data]\n  bisect.bisect_left(scores,\
-      \ target)\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: bisect_left
+      replace:
+        note: bisect key parameter — requires Python 3.10+
   verification:
     re_detect: true
   test:
@@ -206,11 +212,13 @@
         func_id: anext
     exclude: []
   fix:
-    strategy: manual
-    manual_instructions: "Replace with explicit __anext__ call:\n  value = await anext(aiter)\n\
-      \  →\n  value = await aiter.__anext__()\n\n  value = await anext(aiter, default)\n\
-      \  →\n  try:\n      value = await aiter.__anext__()\n  except StopAsyncIteration:\n\
-      \      value = default\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        function: anext
+      replace:
+        note: anext() builtin — requires Python 3.10+
   verification:
     re_detect: true
   test:

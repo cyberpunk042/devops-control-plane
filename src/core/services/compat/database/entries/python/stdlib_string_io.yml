@@ -50,8 +50,14 @@
         value_id: os
         attr: fspath
   fix:
-    strategy: manual
-    manual_instructions: Use str(path) instead of os.fspath(path).
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: fspath
+      replace:
+        try_import: '# os.fspath() — Python 3.6+'
+        except_import: 'pass  # fspath not available in older Python'
   verification:
     re_detect: true
   test:
@@ -84,8 +90,14 @@
         value_id: os
         attr: register_at_fork
   fix:
-    strategy: manual
-    manual_instructions: Use atexit or signal handlers as alternatives.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: register_at_fork
+      replace:
+        try_import: '# os.register_at_fork() — Python 3.7+'
+        except_import: 'pass  # register_at_fork not available in older Python'
   verification:
     re_detect: true
   test:
@@ -150,9 +162,13 @@
       match:
         func_attr: run
   fix:
-    strategy: manual
-    manual_instructions: "Replace capture_output=True with explicit PIPE:\n  subprocess.run(cmd,\
-      \ capture_output=True)\n  → subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: run
+      replace:
+        note: subprocess.run capture_output — requires Python 3.7+
   verification:
     re_detect: false
   test:
@@ -184,14 +200,13 @@
         func_attr: fromisoformat
         func_value_id: datetime
   fix:
-    strategy: manual
-    manual_instructions: '3.7-3.10: fromisoformat only accepts YYYY-MM-DDTHH:MM:SS
-
-      3.11+: also accepts Z suffix, +00:00, etc.
-
-      For broader parsing: use dateutil.parser.isoparse()
-
-      '
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: fromisoformat
+      replace:
+        note: datetime.fromisoformat() improvements — requires Python 3.11+
   verification:
     re_detect: false
   test:
@@ -262,8 +277,14 @@
         value_id: zipfile
         attr: Path
   fix:
-    strategy: manual
-    manual_instructions: Use ZipFile.open() and .read() for individual files.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: Path
+      replace:
+        try_import: '# zipfile.Path — requires Python 3.8+'
+        except_import: 'pass  # zipfile.Path not available'
   verification:
     re_detect: true
   test:

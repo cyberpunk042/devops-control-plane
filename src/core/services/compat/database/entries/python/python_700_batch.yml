@@ -43,8 +43,14 @@
         value_id: pkgutil
         attr: resolve_name
   fix:
-    strategy: manual
-    manual_instructions: Use importlib.import_module + getattr.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: resolve_name
+      replace:
+        try_import: '# pkgutil.resolve_name() — Python 3.9+'
+        except_import: 'pass  # resolve_name not available in older Python'
   verification:
     re_detect: true
   test:
@@ -157,8 +163,13 @@
         - glob
         - Path
   fix:
-    strategy: manual
-    manual_instructions: Use os.chdir or manual path joining.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: glob
+      replace:
+        note: glob.glob root_dir parameter — requires Python 3.10+
   verification:
     re_detect: false
   test:
@@ -187,8 +198,14 @@
         value_id: locale
         attr: delocalize
   fix:
-    strategy: manual
-    manual_instructions: Parse manually with locale.atof.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: delocalize
+      replace:
+        try_import: '# locale.delocalize() — Python 3.10+'
+        except_import: 'pass  # delocalize not available in older Python'
   verification:
     re_detect: true
   test:

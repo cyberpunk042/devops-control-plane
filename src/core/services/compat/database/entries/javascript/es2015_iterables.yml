@@ -1,93 +1,130 @@
-# JavaScript ES2015 iterables and generators
-
 - id: js.es2015.string_iterator
   language: javascript
-  feature_name: "String iterator (for...of)"
-  introduced: "ES2015"
+  feature_name: String iterator (for...of)
+  introduced: ES2015
   category: es2015
-  description: "Strings are iterable — for...of iterates code points"
+  description: Strings are iterable — for...of iterates code points
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [string, iterator, unicode]
+  tags:
+  - string
+  - iterator
+  - unicode
   detection:
     primary:
       ast_type: for_in_statement
       match:
         kind: of
   fix:
-    strategy: manual
-    manual_instructions: "Use charAt with index loop for ASCII, or split('') for code points."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: for_in_statement
+        kind: of
+      replace:
+        note: String iterator (for...of) — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      for (const ch of str) { process(ch); }
-    after: |
-      for (var i = 0; i < str.length; i++) { process(str.charAt(i)); }
+    before: 'for (const ch of str) { process(ch); }
 
+      '
+    after: 'for (var i = 0; i < str.length; i++) { process(str.charAt(i)); }
+
+      '
 - id: js.es2015.well_known_symbols
   language: javascript
-  feature_name: "well-known symbols (Symbol.iterator, etc.)"
-  introduced: "ES2015"
+  feature_name: well-known symbols (Symbol.iterator, etc.)
+  introduced: ES2015
   category: es2015
-  description: "Built-in symbols for customizing language behavior"
+  description: Built-in symbols for customizing language behavior
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [symbol, wellknown, protocol]
+  tags:
+  - symbol
+  - wellknown
+  - protocol
   detection:
     primary:
       ast_type: member_expression
       match:
         object: Symbol
-        property_in: [iterator, asyncIterator, hasInstance, species, toPrimitive, toStringTag]
+        property_in: &id001
+        - iterator
+        - asyncIterator
+        - hasInstance
+        - species
+        - toPrimitive
+        - toStringTag
   fix:
-    strategy: manual
-    manual_instructions: "Remove symbol-based protocols. Use explicit methods."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: member_expression
+        object: Symbol
+        property_in: *id001
+      replace:
+        note: well-known symbols (Symbol.iterator, etc.) — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      class Range { [Symbol.iterator]() { return this; } }
-    after: |
-      class Range { toArray() { /* explicit method */ } }
+    before: 'class Range { [Symbol.iterator]() { return this; } }
 
+      '
+    after: 'class Range { toArray() { /* explicit method */ } }
+
+      '
 - id: js.es2015.tagged_templates
   language: javascript
-  feature_name: "tagged template literals"
-  introduced: "ES2015"
+  feature_name: tagged template literals
+  introduced: ES2015
   category: es2015
-  description: "Function call with template literal: tag`string`"
+  description: 'Function call with template literal: tag`string`'
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [template, tagged, function]
+  tags:
+  - template
+  - tagged
+  - function
   detection:
     primary:
       ast_type: tagged_template_expression
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Rewrite as regular function call with string concatenation."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: tagged_template_expression
+      replace:
+        note: tagged template literals — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      const result = html`<div>${content}</div>`;
-    after: |
-      var result = html(['<div>', '</div>'], content);
+    before: 'const result = html`<div>${content}</div>`;
 
+      '
+    after: 'var result = html([''<div>'', ''</div>''], content);
+
+      '
 - id: js.es2015.new_target
   language: javascript
-  feature_name: "new.target"
-  introduced: "ES2015"
+  feature_name: new.target
+  introduced: ES2015
   category: es2015
-  description: "Detect if function was called with new"
+  description: Detect if function was called with new
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [new, target, constructor]
+  tags:
+  - new
+  - target
+  - constructor
   detection:
     primary:
       ast_type: meta_property
@@ -95,26 +132,38 @@
         meta: new
         property: target
   fix:
-    strategy: manual
-    manual_instructions: "Use this instanceof Constructor check."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: meta_property
+        meta: new
+        property: target
+      replace:
+        note: new.target — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      function Foo() { if (!new.target) throw new Error('Use new'); }
-    after: |
-      function Foo() { if (!(this instanceof Foo)) throw new Error('Use new'); }
+    before: 'function Foo() { if (!new.target) throw new Error(''Use new''); }
 
+      '
+    after: 'function Foo() { if (!(this instanceof Foo)) throw new Error(''Use new'');
+      }
+
+      '
 - id: js.es2015.tail_call
   language: javascript
-  feature_name: "proper tail calls"
-  introduced: "ES2015"
+  feature_name: proper tail calls
+  introduced: ES2015
   category: es2015
-  description: "Tail call optimization (spec, rarely implemented)"
+  description: Tail call optimization (spec, rarely implemented)
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [tail_call, optimization, spec]
+  tags:
+  - tail_call
+  - optimization
+  - spec
   detection:
     primary:
       ast_type: return_statement
@@ -125,49 +174,67 @@
   verification:
     re_detect: false
   test:
-    before: |
-      function factorial(n, acc) { return n <= 1 ? acc : factorial(n-1, n*acc); }
-    after: |
-      function factorial(n, acc) { return n <= 1 ? acc : factorial(n-1, n*acc); }
+    before: 'function factorial(n, acc) { return n <= 1 ? acc : factorial(n-1, n*acc);
+      }
 
+      '
+    after: 'function factorial(n, acc) { return n <= 1 ? acc : factorial(n-1, n*acc);
+      }
+
+      '
 - id: js.es2021.numeric_separators
   language: javascript
-  feature_name: "numeric separators (1_000_000)"
-  introduced: "ES2021"
+  feature_name: numeric separators (1_000_000)
+  introduced: ES2021
   category: es2021
-  description: "Underscores in numeric literals for readability"
+  description: Underscores in numeric literals for readability
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [number, separator, underscore]
+  tags:
+  - number
+  - separator
+  - underscore
   detection:
     primary:
       ast_type: number
       match:
         has_separator: true
   fix:
-    strategy: manual
-    manual_instructions: "Remove underscores: 1_000_000 → 1000000"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: number
+        has_separator: true
+      replace:
+        note: numeric separators (1_000_000) — javascript ES2021+
   verification:
     re_detect: true
   test:
-    before: |
-      const million = 1_000_000;
+    before: 'const million = 1_000_000;
+
       const bytes = 0xFF_FF;
-    after: |
-      var million = 1000000;
+
+      '
+    after: 'var million = 1000000;
+
       var bytes = 0xFFFF;
 
+      '
 - id: js.es2020.import_meta
   language: javascript
-  feature_name: "import.meta"
-  introduced: "ES2020"
+  feature_name: import.meta
+  introduced: ES2020
   category: es2020
-  description: "Module metadata object"
+  description: Module metadata object
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [module, import, meta]
+  tags:
+  - module
+  - import
+  - meta
   detection:
     primary:
       ast_type: meta_property
@@ -175,41 +242,57 @@
         meta: import
         property: meta
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with CommonJS equivalents:
-        import.meta.url → require('url').pathToFileURL(__filename).href
-        import.meta.dirname → __dirname (Node.js 21+, or use path.dirname(__filename))
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: meta_property
+        meta: import
+        property: meta
+      replace:
+        note: import.meta — javascript ES2020+
   verification:
     re_detect: true
   test:
-    before: |
-      const dir = new URL('.', import.meta.url).pathname;
-    after: |
-      const dir = __dirname;
+    before: 'const dir = new URL(''.'', import.meta.url).pathname;
 
+      '
+    after: 'const dir = __dirname;
+
+      '
 - id: js.es2020.dynamic_import
   language: javascript
-  feature_name: "dynamic import()"
-  introduced: "ES2020"
+  feature_name: dynamic import()
+  introduced: ES2020
   category: es2020
-  description: "Runtime module loading via import() expression"
+  description: Runtime module loading via import() expression
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [import, dynamic, async]
+  tags:
+  - import
+  - dynamic
+  - async
   detection:
     primary:
       ast_type: call_expression
       match:
         function: import
   fix:
-    strategy: manual
-    manual_instructions: "Use require() for CommonJS or a bundler's code splitting."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        function: import
+      replace:
+        note: dynamic import() — javascript ES2020+
   verification:
     re_detect: true
   test:
-    before: |
-      const module = await import('./lazy-module.js');
-    after: |
-      const module = require('./lazy-module.js');
+    before: 'const module = await import(''./lazy-module.js'');
+
+      '
+    after: 'const module = require(''./lazy-module.js'');
+
+      '

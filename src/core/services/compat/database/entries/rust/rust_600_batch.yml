@@ -1,71 +1,101 @@
-# Rust batch
-
 - id: rust.1_63.scoped_threads
   language: rust
-  feature_name: "std::thread::scope()"
-  introduced: "1.63"
+  feature_name: std::thread::scope()
+  introduced: '1.63'
   category: std
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [thread, scope, crossbeam]
+  tags:
+  - thread
+  - scope
+  - crossbeam
   detection:
     primary:
       ast_type: call_expression
-      match: { path_contains: "thread::scope" }
+      match:
+        path_contains: thread::scope
   fix:
-    strategy: manual
-    manual_instructions: "Use crossbeam::scope or Arc for data sharing."
-    backport: { package: crossbeam }
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    backport:
+      package: crossbeam
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        path_contains: thread::scope
+      replace:
+        note: std::thread::scope() — rust 1.63+
+  verification:
+    re_detect: true
   test:
-    before: |
-      std::thread::scope(|s| { s.spawn(|| work()); });
-    after: |
-      crossbeam::scope(|s| { s.spawn(|_| work()); }).unwrap();
+    before: 'std::thread::scope(|s| { s.spawn(|| work()); });
 
+      '
+    after: 'crossbeam::scope(|s| { s.spawn(|_| work()); }).unwrap();
+
+      '
 - id: rust.1_67.must_use_in_async
   language: rust
-  feature_name: "#[must_use] on async fn"
-  introduced: "1.67"
+  feature_name: '#[must_use] on async fn'
+  introduced: '1.67'
   category: syntax
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [must_use, async, attribute]
+  tags:
+  - must_use
+  - async
+  - attribute
   detection:
     primary:
       ast_type: attribute
-      match: { path: must_use }
+      match:
+        path: must_use
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      #[must_use] async fn compute() -> i32 { 42 }
-    after: |
-      async fn compute() -> i32 { 42 }
+    before: '#[must_use] async fn compute() -> i32 { 42 }
 
+      '
+    after: 'async fn compute() -> i32 { 42 }
+
+      '
 - id: rust.1_74.return_position_impl_trait_in_trait
   language: rust
-  feature_name: "RPITIT (return position impl Trait in trait)"
-  introduced: "1.75"
+  feature_name: RPITIT (return position impl Trait in trait)
+  introduced: '1.75'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [trait, impl, return_type]
+  tags:
+  - trait
+  - impl
+  - return_type
   detection:
     primary:
       ast_type: function_item
-      match: { return_type_contains: "impl " }
+      match:
+        return_type_contains: 'impl '
   fix:
-    strategy: manual
-    manual_instructions: "Use Box<dyn Trait> or associated types."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: function_item
+        return_type_contains: 'impl '
+      replace:
+        note: RPITIT (return position impl Trait in trait) — rust 1.75+
+  verification:
+    re_detect: true
   test:
-    before: |
-      trait Iter { fn items(&self) -> impl Iterator<Item = i32>; }
-    after: |
-      trait Iter { fn items(&self) -> Box<dyn Iterator<Item = i32>>; }
+    before: 'trait Iter { fn items(&self) -> impl Iterator<Item = i32>; }
+
+      '
+    after: 'trait Iter { fn items(&self) -> Box<dyn Iterator<Item = i32>>; }
+
+      '

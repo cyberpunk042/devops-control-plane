@@ -1,155 +1,373 @@
-# JavaScript — push to 900
-
 - id: js.es2015.iterable_destructuring
   language: javascript
-  feature_name: "iterable destructuring"
-  introduced: "ES2015"
+  feature_name: iterable destructuring
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [iterable, destructuring]
-  detection: { primary: { ast_type: array_pattern } }
-  fix: { strategy: manual, manual_instructions: "Manual index access." }
-  verification: { re_detect: true }
-  test: { before: "const [a, b] = arr;\n", after: "var a = arr[0], b = arr[1];\n" }
+  tags:
+  - iterable
+  - destructuring
+  detection:
+    primary:
+      ast_type: array_pattern
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: array_pattern
+      replace:
+        note: iterable destructuring — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'const [a, b] = arr;
 
+      '
+    after: 'var a = arr[0], b = arr[1];
+
+      '
 - id: js.es2015.default_export
   language: javascript
-  feature_name: "export default"
-  introduced: "ES2015"
+  feature_name: export default
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [export, default, module]
-  detection: { primary: { ast_type: export_statement, match: { is_default: true } } }
-  fix: { strategy: manual, manual_instructions: "module.exports = value;" }
-  verification: { re_detect: true }
-  test: { before: "export default class Foo {}\n", after: "module.exports = function Foo() {};\n" }
+  tags:
+  - export
+  - default
+  - module
+  detection:
+    primary:
+      ast_type: export_statement
+      match:
+        is_default: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: export_statement
+        is_default: true
+      replace:
+        note: export default — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'export default class Foo {}
 
+      '
+    after: 'module.exports = function Foo() {};
+
+      '
 - id: js.es2015.named_export
   language: javascript
-  feature_name: "named exports"
-  introduced: "ES2015"
+  feature_name: named exports
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [export, named, module]
-  detection: { primary: { ast_type: export_statement } }
-  fix: { strategy: manual, manual_instructions: "module.exports.name = value;" }
-  verification: { re_detect: false }
-  test: { before: "export function foo() {}\n", after: "module.exports.foo = function() {};\n" }
+  tags:
+  - export
+  - named
+  - module
+  detection:
+    primary:
+      ast_type: export_statement
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: export_statement
+      replace:
+        note: named exports — javascript ES2015+
+  verification:
+    re_detect: false
+  test:
+    before: 'export function foo() {}
 
+      '
+    after: 'module.exports.foo = function() {};
+
+      '
 - id: js.es2015.import_named
   language: javascript
-  feature_name: "named imports"
-  introduced: "ES2015"
+  feature_name: named imports
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [import, named, module]
-  detection: { primary: { ast_type: import_statement } }
-  fix: { strategy: manual, manual_instructions: "const { name } = require('module');" }
-  verification: { re_detect: false }
-  test: { before: "import { foo } from 'bar';\n", after: "const { foo } = require('bar');\n" }
+  tags:
+  - import
+  - named
+  - module
+  detection:
+    primary:
+      ast_type: import_statement
+  fix:
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_statement
+      replace:
+        note: named imports — javascript ES2015+
+  verification:
+    re_detect: false
+  test:
+    before: 'import { foo } from ''bar'';
 
+      '
+    after: 'const { foo } = require(''bar'');
+
+      '
 - id: js.es2015.import_default
   language: javascript
-  feature_name: "default import"
-  introduced: "ES2015"
+  feature_name: default import
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [import, default, module]
-  detection: { primary: { ast_type: import_statement } }
-  fix: { strategy: manual, manual_instructions: "const mod = require('module');" }
-  verification: { re_detect: false }
-  test: { before: "import React from 'react';\n", after: "const React = require('react');\n" }
+  tags:
+  - import
+  - default
+  - module
+  detection:
+    primary:
+      ast_type: import_statement
+  fix:
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_statement
+      replace:
+        note: default import — javascript ES2015+
+  verification:
+    re_detect: false
+  test:
+    before: 'import React from ''react'';
 
+      '
+    after: 'const React = require(''react'');
+
+      '
 - id: js.es2015.import_star
   language: javascript
-  feature_name: "namespace import (* as)"
-  introduced: "ES2015"
+  feature_name: namespace import (* as)
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [import, namespace, star]
-  detection: { primary: { ast_type: import_statement } }
-  fix: { strategy: manual, manual_instructions: "const mod = require('module');" }
-  verification: { re_detect: false }
-  test: { before: "import * as utils from './utils';\n", after: "const utils = require('./utils');\n" }
+  tags:
+  - import
+  - namespace
+  - star
+  detection:
+    primary:
+      ast_type: import_statement
+  fix:
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_statement
+      replace:
+        note: namespace import (* as) — javascript ES2015+
+  verification:
+    re_detect: false
+  test:
+    before: 'import * as utils from ''./utils'';
 
+      '
+    after: 'const utils = require(''./utils'');
+
+      '
 - id: js.es2015.re_export
   language: javascript
-  feature_name: "re-export (export from)"
-  introduced: "ES2015"
+  feature_name: re-export (export from)
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [export, from, reexport]
-  detection: { primary: { ast_type: export_statement, match: { has_source: true } } }
-  fix: { strategy: manual, manual_instructions: "const x = require('mod'); module.exports.x = x;" }
-  verification: { re_detect: true }
-  test: { before: "export { foo } from './bar';\n", after: "module.exports.foo = require('./bar').foo;\n" }
+  tags:
+  - export
+  - from
+  - reexport
+  detection:
+    primary:
+      ast_type: export_statement
+      match:
+        has_source: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: export_statement
+        has_source: true
+      replace:
+        note: re-export (export from) — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'export { foo } from ''./bar'';
 
+      '
+    after: 'module.exports.foo = require(''./bar'').foo;
+
+      '
 - id: js.es2020.export_star_as
   language: javascript
-  feature_name: "export * as namespace"
-  introduced: "ES2020"
+  feature_name: export * as namespace
+  introduced: ES2020
   category: es2020
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [export, namespace, star]
-  detection: { primary: { ast_type: export_statement, match: { has_namespace: true } } }
-  fix: { strategy: manual, manual_instructions: "module.exports.ns = require('mod');" }
-  verification: { re_detect: true }
-  test: { before: "export * as ns from './mod';\n", after: "module.exports.ns = require('./mod');\n" }
+  tags:
+  - export
+  - namespace
+  - star
+  detection:
+    primary:
+      ast_type: export_statement
+      match:
+        has_namespace: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: export_statement
+        has_namespace: true
+      replace:
+        note: export * as namespace — javascript ES2020+
+  verification:
+    re_detect: true
+  test:
+    before: 'export * as ns from ''./mod'';
 
+      '
+    after: 'module.exports.ns = require(''./mod'');
+
+      '
 - id: js.es2022.private_static_methods
   language: javascript
-  feature_name: "private static methods"
-  introduced: "ES2022"
+  feature_name: private static methods
+  introduced: ES2022
   category: es2022
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [class, private, static]
-  detection: { primary: { ast_type: method_definition, match: { is_static: true, has_private_name: true } } }
-  fix: { strategy: manual, manual_instructions: "Use module-scoped function." }
-  verification: { re_detect: true }
-  test: { before: "class Foo { static #helper() {} }\n", after: "function _helper() {} class Foo {}\n" }
+  tags:
+  - class
+  - private
+  - static
+  detection:
+    primary:
+      ast_type: method_definition
+      match:
+        is_static: true
+        has_private_name: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_definition
+        is_static: true
+        has_private_name: true
+      replace:
+        note: private static methods — javascript ES2022+
+  verification:
+    re_detect: true
+  test:
+    before: 'class Foo { static #helper() {} }
 
+      '
+    after: 'function _helper() {} class Foo {}
+
+      '
 - id: js.es2024.decorator_metadata
   language: javascript
-  feature_name: "decorator metadata API"
-  introduced: "ES2024"
+  feature_name: decorator metadata API
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [decorator, metadata]
-  detection: { primary: { ast_type: member_expression, match: { object: Symbol, property: metadata } } }
-  fix: { strategy: manual, manual_instructions: "Use WeakMap for metadata storage." }
-  verification: { re_detect: true }
-  test: { before: "Symbol.metadata\n", after: "const metadata = new WeakMap();\n" }
+  tags:
+  - decorator
+  - metadata
+  detection:
+    primary:
+      ast_type: member_expression
+      match:
+        object: Symbol
+        property: metadata
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: member_expression
+        object: Symbol
+        property: metadata
+      replace:
+        note: decorator metadata API — javascript ES2024+
+  verification:
+    re_detect: true
+  test:
+    before: 'Symbol.metadata
 
+      '
+    after: 'const metadata = new WeakMap();
+
+      '
 - id: js.node.timers_promises
   language: javascript
-  feature_name: "timers/promises"
-  introduced: "ES2022"
+  feature_name: timers/promises
+  introduced: ES2022
   category: node_api
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [timers, promises, node]
-  detection: { primary: { ast_type: import_statement, match: { source_contains: "timers/promises" } } }
-  fix: { strategy: manual, manual_instructions: "Use promisify(setTimeout)." }
-  verification: { re_detect: true }
-  test: { before: "import { setTimeout } from 'timers/promises';\n", after: "const { promisify } = require('util');\nconst setTimeout = promisify(require('timers').setTimeout);\n" }
+  tags:
+  - timers
+  - promises
+  - node
+  detection:
+    primary:
+      ast_type: import_statement
+      match:
+        source_contains: timers/promises
+  fix:
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_statement
+      replace:
+        note: timers/promises — javascript ES2022+
+  verification:
+    re_detect: true
+  test:
+    before: 'import { setTimeout } from ''timers/promises'';
+
+      '
+    after: 'const { promisify } = require(''util'');
+
+      const setTimeout = promisify(require(''timers'').setTimeout);
+
+      '

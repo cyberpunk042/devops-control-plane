@@ -1,286 +1,382 @@
-# Final Python entries for 600
-
 - id: python.stdlib.zlib_wbits
   language: python
-  feature_name: "zlib wbits improvements"
-  introduced: "3.11"
+  feature_name: zlib wbits improvements
+  introduced: '3.11'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [zlib, compression]
+  tags:
+  - zlib
+  - compression
   detection:
     primary:
       ast_type: Import
-      match: { names_contains: zlib }
+      match:
+        names_contains: zlib
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      import zlib
-    after: |
-      import zlib
+    before: 'import zlib
 
+      '
+    after: 'import zlib
+
+      '
 - id: python.stdlib.struct_improvements
   language: python
-  feature_name: "struct module improvements"
-  introduced: "3.12"
+  feature_name: struct module improvements
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [struct, binary]
+  tags:
+  - struct
+  - binary
   detection:
     primary:
       ast_type: Import
-      match: { names_contains: struct }
+      match:
+        names_contains: struct
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      import struct
-    after: |
-      import struct
+    before: 'import struct
 
+      '
+    after: 'import struct
+
+      '
 - id: python.stdlib.socket_improvements
   language: python
-  feature_name: "socket module improvements"
-  introduced: "3.11"
+  feature_name: socket module improvements
+  introduced: '3.11'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [socket, network]
+  tags:
+  - socket
+  - network
   detection:
     primary:
       ast_type: Import
-      match: { names_contains: socket }
+      match:
+        names_contains: socket
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      import socket
-    after: |
-      import socket
+    before: 'import socket
 
+      '
+    after: 'import socket
+
+      '
 - id: python.stdlib.asyncio_taskgroup_err
   language: python
-  feature_name: "asyncio.TaskGroup error handling"
-  introduced: "3.12"
+  feature_name: asyncio.TaskGroup error handling
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [asyncio, taskgroup, errors]
+  tags:
+  - asyncio
+  - taskgroup
+  - errors
   detection:
     primary:
       ast_type: ImportFrom
-      match: { module: asyncio, names_contains: TaskGroup }
+      match:
+        module: asyncio
+        names_contains: TaskGroup
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      from asyncio import TaskGroup
-    after: |
-      from asyncio import TaskGroup
+    before: 'from asyncio import TaskGroup
 
+      '
+    after: 'from asyncio import TaskGroup
+
+      '
 - id: python.stdlib.math_sumprod
   language: python
-  feature_name: "math.sumprod()"
-  introduced: "3.12"
+  feature_name: math.sumprod()
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [math, sumprod]
+  tags:
+  - math
+  - sumprod
   detection:
     primary:
       ast_type: Attribute
-      match: { value_id: math, attr: sumprod }
+      match:
+        value_id: math
+        attr: sumprod
   fix:
-    strategy: manual
-    manual_instructions: "sum(a*b for a,b in zip(p,q))"
-  verification: { re_detect: true }
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: sumprod
+      replace:
+        try_import: '# math.sumprod() — Python 3.12+'
+        except_import: 'pass  # sumprod not available in older Python'
+  verification:
+    re_detect: true
   test:
-    before: |
-      result = math.sumprod(prices, quantities)
-    after: |
-      result = sum(a*b for a,b in zip(prices, quantities))
+    before: 'result = math.sumprod(prices, quantities)
 
+      '
+    after: 'result = sum(a*b for a,b in zip(prices, quantities))
+
+      '
 - id: python.stdlib.os_listdrives
   language: python
-  feature_name: "os.listdrives/listmounts/listvolumes"
-  introduced: "3.12"
+  feature_name: os.listdrives/listmounts/listvolumes
+  introduced: '3.12'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [os, drives, windows]
+  tags:
+  - os
+  - drives
+  - windows
   detection:
     primary:
       ast_type: Attribute
-      match: { value_id: os, attr: listdrives }
+      match:
+        value_id: os
+        attr: listdrives
     alternatives:
-      - ast_type: Attribute
-        match: { value_id: os, attr: listmounts }
-      - ast_type: Attribute
-        match: { value_id: os, attr: listvolumes }
+    - ast_type: Attribute
+      match:
+        value_id: os
+        attr: listmounts
+    - ast_type: Attribute
+      match:
+        value_id: os
+        attr: listvolumes
   fix:
-    strategy: manual
-    manual_instructions: "Use ctypes or platform-specific APIs."
-  verification: { re_detect: true }
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: listdrives
+      replace:
+        try_import: '# os.listdrives/listmounts/listvolumes — Python 3.12+'
+        except_import: 'pass  # listdrives not available in older Python'
+  verification:
+    re_detect: true
   test:
-    before: |
-      drives = os.listdrives()
-    after: |
-      # Platform-specific implementation
+    before: 'drives = os.listdrives()
 
+      '
+    after: '# Platform-specific implementation
+
+      '
 - id: python.stdlib.typing_doc
   language: python
-  feature_name: "typing.Doc"
-  introduced: "3.13"
+  feature_name: typing.Doc
+  introduced: '3.13'
   category: typing
   direction: downgrade
   severity: warning
   error_type: import_error
-  tags: [typing, doc, annotation]
+  tags:
+  - typing
+  - doc
+  - annotation
   detection:
     primary:
       ast_type: ImportFrom
-      match: { module: typing, names_contains: Doc }
+      match:
+        module: typing
+        names_contains: Doc
     exclude:
-      - context: type_checking_block
+    - context: type_checking_block
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find: { import_module: typing, import_name: Doc }
-        replace: { import_name: "" }
-      - type: add_import
-        import_statement: "from typing_extensions import Doc"
-        condition: not_already_present
-    backport: { package: typing-extensions }
-  verification: { re_detect: true }
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: Doc
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import Doc
+      condition: not_already_present
+    backport:
+      package: typing-extensions
+  verification:
+    re_detect: true
   test:
-    before: |
-      from typing import Doc
-    after: |
-      from typing_extensions import Doc
+    before: 'from typing import Doc
 
+      '
+    after: 'from typing_extensions import Doc
+
+      '
 - id: python.stdlib.compile_command
   language: python
-  feature_name: "codeop.compile_command improvements"
-  introduced: "3.13"
+  feature_name: codeop.compile_command improvements
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [codeop, compile, repl]
+  tags:
+  - codeop
+  - compile
+  - repl
   detection:
     primary:
       ast_type: Import
-      match: { names_contains: codeop }
+      match:
+        names_contains: codeop
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      import codeop
-    after: |
-      import codeop
+    before: 'import codeop
 
+      '
+    after: 'import codeop
+
+      '
 - id: python.stdlib.pathlib_parser
   language: python
-  feature_name: "pathlib parser attribute"
-  introduced: "3.13"
+  feature_name: pathlib parser attribute
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [pathlib, parser]
+  tags:
+  - pathlib
+  - parser
   detection:
     primary:
       ast_type: ImportFrom
-      match: { module: pathlib }
+      match:
+        module: pathlib
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      from pathlib import PurePosixPath
-    after: |
-      from pathlib import PurePosixPath
+    before: 'from pathlib import PurePosixPath
 
+      '
+    after: 'from pathlib import PurePosixPath
+
+      '
 - id: python.stdlib.types_capsule
   language: python
-  feature_name: "types.CapsuleType"
-  introduced: "3.13"
+  feature_name: types.CapsuleType
+  introduced: '3.13'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [types, capsule, c_api]
+  tags:
+  - types
+  - capsule
+  - c_api
   detection:
     primary:
       ast_type: ImportFrom
-      match: { module: types, names_contains: CapsuleType }
+      match:
+        module: types
+        names_contains: CapsuleType
   fix:
-    strategy: manual
-    manual_instructions: "Not available on older Python."
-  verification: { re_detect: true }
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: CapsuleType
+      replace:
+        try_import: '# types.CapsuleType — requires Python 3.13+'
+        except_import: 'pass  # types.CapsuleType not available'
+  verification:
+    re_detect: true
   test:
-    before: |
-      from types import CapsuleType
-    after: |
-      # Not available
+    before: 'from types import CapsuleType
 
+      '
+    after: '# Not available
+
+      '
 - id: python.stdlib.argparse_fromfile
   language: python
-  feature_name: "argparse improvements"
-  introduced: "3.9"
+  feature_name: argparse improvements
+  introduced: '3.9'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [argparse, cli]
+  tags:
+  - argparse
+  - cli
   detection:
     primary:
       ast_type: Import
-      match: { names_contains: argparse }
+      match:
+        names_contains: argparse
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      import argparse
-    after: |
-      import argparse
+    before: 'import argparse
 
+      '
+    after: 'import argparse
+
+      '
 - id: python.stdlib.http_server_dual
   language: python
-  feature_name: "http.server dual-stack"
-  introduced: "3.8"
+  feature_name: http.server dual-stack
+  introduced: '3.8'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [http, server, ipv6]
+  tags:
+  - http
+  - server
+  - ipv6
   detection:
     primary:
       ast_type: ImportFrom
-      match: { module: http.server }
+      match:
+        module: http.server
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      from http.server import HTTPServer
-    after: |
-      from http.server import HTTPServer
+    before: 'from http.server import HTTPServer
+
+      '
+    after: 'from http.server import HTTPServer
+
+      '

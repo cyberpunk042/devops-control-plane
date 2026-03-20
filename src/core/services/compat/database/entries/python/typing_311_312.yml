@@ -69,10 +69,13 @@
       match:
         func_id: reveal_type
   fix:
-    strategy: manual
-    manual_instructions: "Remove reveal_type calls (they're for debugging):\n  reveal_type(value)\
-      \  → # type: reveal_type(value)\nOr define a no-op:\n  def reveal_type(x): return\
-      \ x\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        function: reveal_type
+      replace:
+        note: reveal_type() builtin — requires Python 3.11+
   verification:
     re_detect: true
   test:
@@ -161,13 +164,16 @@
     - context: type_checking_block
       reason: Not executed at runtime
   fix:
-    strategy: manual
-    manual_instructions: "Remove default parameter:\n  T = TypeVar('T', default=int)\n\
-      \  → T = TypeVar('T')\nOr use typing_extensions:\n  from typing_extensions import\
-      \ TypeVar\n"
+    strategy: rewrite_expression
     backport:
       package: typing-extensions
       min_version: 4.12.0
+    transforms:
+    - type: rewrite_method_call
+      find:
+        function: TypeVar
+      replace:
+        note: TypeVar with default (PEP 696) — requires Python 3.13+
   verification:
     re_detect: false
   test:

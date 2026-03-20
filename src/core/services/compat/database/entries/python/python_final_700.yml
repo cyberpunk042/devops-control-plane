@@ -16,8 +16,14 @@
         module: typing
         names_contains: clear_overloads
   fix:
-    strategy: manual
-    manual_instructions: Not available on older Python.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: clear_overloads
+      replace:
+        try_import: '# typing.clear_overloads() — requires Python 3.11+'
+        except_import: 'pass  # typing.clear_overloads() not available'
   verification:
     re_detect: true
   test:
@@ -46,8 +52,14 @@
         module: typing
         names_contains: get_overloads
   fix:
-    strategy: manual
-    manual_instructions: Not available on older Python.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: get_overloads
+      replace:
+        try_import: '# typing.get_overloads() — requires Python 3.11+'
+        except_import: 'pass  # typing.get_overloads() not available'
   verification:
     re_detect: true
   test:
@@ -134,8 +146,14 @@
         module: collections.abc
         names_contains: Buffer
   fix:
-    strategy: manual
-    manual_instructions: Use typing_extensions or Protocol.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: Buffer
+      replace:
+        try_import: '# collections.abc.Buffer — requires Python 3.12+'
+        except_import: 'pass  # collections.abc.Buffer not available'
   verification:
     re_detect: true
   test:
@@ -196,8 +214,14 @@
         value_id: inspect
         attr: markcoroutinefunction
   fix:
-    strategy: manual
-    manual_instructions: Not available on older Python.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: markcoroutinefunction
+      replace:
+        try_import: '# inspect.markcoroutinefunction() — Python 3.12+'
+        except_import: 'pass  # markcoroutinefunction not available in older Python'
   verification:
     re_detect: true
   test:
@@ -255,8 +279,14 @@
       match:
         attr: splitroot
   fix:
-    strategy: manual
-    manual_instructions: Use os.path.splitdrive + manual root extraction.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: splitroot
+      replace:
+        try_import: '# os.path.splitroot() — Python 3.12+'
+        except_import: 'pass  # splitroot not available in older Python'
   verification:
     re_detect: true
   test:
@@ -285,8 +315,13 @@
         func_attr: cancel
         has_keyword: msg
   fix:
-    strategy: manual
-    manual_instructions: Remove msg parameter from cancel().
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: cancel
+      replace:
+        note: Task.cancel(msg=) — requires Python 3.9+
   verification:
     re_detect: false
   test:

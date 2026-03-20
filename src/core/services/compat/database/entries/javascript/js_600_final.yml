@@ -1,233 +1,354 @@
-# JavaScript — final entries for 600
-
 - id: js.es2015.weakmap_methods
   language: javascript
-  feature_name: "WeakMap methods"
-  introduced: "ES2015"
+  feature_name: WeakMap methods
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [weakmap, methods]
+  tags:
+  - weakmap
+  - methods
   detection:
     primary:
       ast_type: call_expression
-      match: { method_in: [has, get, set, delete] }
+      match:
+        method_in: &id001
+        - has
+        - get
+        - set
+        - delete
   fix:
-    strategy: manual
-    manual_instructions: "No polyfill for WeakMap."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id001
+      replace:
+        note: WeakMap methods — javascript ES2015+
+  verification:
+    re_detect: true
   test:
-    before: |
-      weakmap.set(key, value);
-    after: |
-      // Use Map with manual cleanup
+    before: 'weakmap.set(key, value);
 
+      '
+    after: '// Use Map with manual cleanup
+
+      '
 - id: js.es2015.array_species_constructor
   language: javascript
-  feature_name: "Array species constructor"
-  introduced: "ES2015"
+  feature_name: Array species constructor
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [array, species, subclass]
+  tags:
+  - array
+  - species
+  - subclass
   detection:
     primary:
       ast_type: class_declaration
-      match: { extends: Array }
+      match:
+        extends: Array
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      class MyArray extends Array {}
-    after: |
-      class MyArray extends Array {}
+    before: 'class MyArray extends Array {}
 
+      '
+    after: 'class MyArray extends Array {}
+
+      '
 - id: js.es2017.shared_memory_atomics
   language: javascript
-  feature_name: "SharedArrayBuffer + Atomics"
-  introduced: "ES2017"
+  feature_name: SharedArrayBuffer + Atomics
+  introduced: ES2017
   category: es2017
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [shared, atomics, memory]
+  tags:
+  - shared
+  - atomics
+  - memory
   detection:
     primary:
       ast_type: new_expression
-      match: { constructor: SharedArrayBuffer }
+      match:
+        constructor: SharedArrayBuffer
   fix:
-    strategy: manual
-    manual_instructions: "Use postMessage for inter-worker communication."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor: SharedArrayBuffer
+      replace:
+        note: SharedArrayBuffer + Atomics — javascript ES2017+
+  verification:
+    re_detect: true
   test:
-    before: |
-      const sab = new SharedArrayBuffer(1024);
-    after: |
-      // Use postMessage
+    before: 'const sab = new SharedArrayBuffer(1024);
 
+      '
+    after: '// Use postMessage
+
+      '
 - id: js.es2019.well_formed_json
   language: javascript
-  feature_name: "well-formed JSON.stringify"
-  introduced: "ES2019"
+  feature_name: well-formed JSON.stringify
+  introduced: ES2019
   category: es2019
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [json, stringify, unicode]
+  tags:
+  - json
+  - stringify
+  - unicode
   detection:
     primary:
       ast_type: call_expression
-      match: { object: JSON, method: stringify }
+      match:
+        object: JSON
+        method: stringify
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      JSON.stringify(data);
-    after: |
-      JSON.stringify(data);
+    before: 'JSON.stringify(data);
 
+      '
+    after: 'JSON.stringify(data);
+
+      '
 - id: js.es2022.error_cause_constructor
   language: javascript
-  feature_name: "Error options (cause)"
-  introduced: "ES2022"
+  feature_name: Error options (cause)
+  introduced: ES2022
   category: es2022
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [error, cause, options]
+  tags:
+  - error
+  - cause
+  - options
   detection:
     primary:
       ast_type: new_expression
-      match: { constructor_in: [Error, TypeError, RangeError] }
+      match:
+        constructor_in: &id002
+        - Error
+        - TypeError
+        - RangeError
   fix:
-    strategy: manual
-    manual_instructions: "const e = new Error(msg); e.cause = cause;"
-  verification: { re_detect: false }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor_in: *id002
+      replace:
+        note: Error options (cause) — javascript ES2022+
+  verification:
+    re_detect: false
   test:
-    before: |
-      throw new Error("failed", { cause: err });
-    after: |
-      const e = new Error("failed"); e.cause = err; throw e;
+    before: 'throw new Error("failed", { cause: err });
 
+      '
+    after: 'const e = new Error("failed"); e.cause = err; throw e;
+
+      '
 - id: js.es2024.map_groupby
   language: javascript
-  feature_name: "Map.groupBy()"
-  introduced: "ES2024"
+  feature_name: Map.groupBy()
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [map, group, method]
+  tags:
+  - map
+  - group
+  - method
   detection:
     primary:
       ast_type: call_expression
-      match: { object: Map, method: groupBy }
+      match:
+        object: Map
+        method: groupBy
   fix:
-    strategy: manual
-    manual_instructions: "Use reduce() to group into a Map."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Map
+        method: groupBy
+      replace:
+        note: Map.groupBy() — javascript ES2024+
+  verification:
+    re_detect: true
   test:
-    before: |
-      const grouped = Map.groupBy(items, fn);
-    after: |
-      const grouped = items.reduce((m, i) => { const k = fn(i); m.has(k) ? m.get(k).push(i) : m.set(k, [i]); return m; }, new Map());
+    before: 'const grouped = Map.groupBy(items, fn);
 
+      '
+    after: 'const grouped = items.reduce((m, i) => { const k = fn(i); m.has(k) ? m.get(k).push(i)
+      : m.set(k, [i]); return m; }, new Map());
+
+      '
 - id: js.node.test_runner
   language: javascript
-  feature_name: "node:test built-in test runner"
-  introduced: "ES2022"
+  feature_name: node:test built-in test runner
+  introduced: ES2022
   category: node_api
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [node, test, runner]
+  tags:
+  - node
+  - test
+  - runner
   detection:
     primary:
       ast_type: import_statement
-      match: { source_contains: "node:test" }
+      match:
+        source_contains: node:test
     alternatives:
-      - ast_type: call_expression
-        match: { function: require, arg_contains: "node:test" }
+    - ast_type: call_expression
+      match:
+        function: require
+        arg_contains: node:test
   fix:
-    strategy: manual
-    manual_instructions: "Use jest, mocha, or tap."
-  verification: { re_detect: true }
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_statement
+      replace:
+        note: node:test built-in test runner — javascript ES2022+
+  verification:
+    re_detect: true
   test:
-    before: |
-      import { test, describe } from 'node:test';
-    after: |
-      const { describe, it: test } = require('mocha');
+    before: 'import { test, describe } from ''node:test'';
 
+      '
+    after: 'const { describe, it: test } = require(''mocha'');
+
+      '
 - id: js.node.assert_match
   language: javascript
-  feature_name: "assert.match/doesNotMatch"
-  introduced: "ES2022"
+  feature_name: assert.match/doesNotMatch
+  introduced: ES2022
   category: node_api
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [assert, match, regex]
+  tags:
+  - assert
+  - match
+  - regex
   detection:
     primary:
       ast_type: call_expression
-      match: { method_in: [match, doesNotMatch] }
+      match:
+        method_in: &id003
+        - match
+        - doesNotMatch
   fix:
-    strategy: manual
-    manual_instructions: "Use assert.ok(regex.test(str))."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id003
+      replace:
+        note: assert.match/doesNotMatch — javascript ES2022+
+  verification:
+    re_detect: true
   test:
-    before: |
-      assert.match(output, /success/);
-    after: |
-      assert.ok(/success/.test(output));
+    before: 'assert.match(output, /success/);
 
+      '
+    after: 'assert.ok(/success/.test(output));
+
+      '
 - id: js.es2015.generator_return_value
   language: javascript
-  feature_name: "generator return value"
-  introduced: "ES2015"
+  feature_name: generator return value
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [generator, return, value]
+  tags:
+  - generator
+  - return
+  - value
   detection:
     primary:
       ast_type: generator_function
   fix:
-    strategy: manual
-    manual_instructions: "Convert to state machine or array builder."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: generator_function
+      replace:
+        note: generator return value — javascript ES2015+
+  verification:
+    re_detect: true
   test:
-    before: |
-      function* range(n) { for (let i = 0; i < n; i++) yield i; }
-    after: |
-      function range(n) { var r = []; for (var i = 0; i < n; i++) r.push(i); return r; }
+    before: 'function* range(n) { for (let i = 0; i < n; i++) yield i; }
 
+      '
+    after: 'function range(n) { var r = []; for (var i = 0; i < n; i++) r.push(i);
+      return r; }
+
+      '
 - id: js.es2015.array_from_mapfn
   language: javascript
-  feature_name: "Array.from with mapFn"
-  introduced: "ES2015"
+  feature_name: Array.from with mapFn
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [array, from, map]
+  tags:
+  - array
+  - from
+  - map
   detection:
     primary:
       ast_type: call_expression
-      match: { object: Array, method: from }
+      match:
+        object: Array
+        method: from
   fix:
-    strategy: manual
-    manual_instructions: "Use Array.prototype.map.call() or manual loop."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Array
+        method: from
+      replace:
+        note: Array.from with mapFn — javascript ES2015+
+  verification:
+    re_detect: true
   test:
-    before: |
-      const nums = Array.from({length: 5}, (_, i) => i);
-    after: |
-      var nums = []; for (var i = 0; i < 5; i++) nums.push(i);
+    before: 'const nums = Array.from({length: 5}, (_, i) => i);
+
+      '
+    after: 'var nums = []; for (var i = 0; i < 5; i++) nums.push(i);
+
+      '

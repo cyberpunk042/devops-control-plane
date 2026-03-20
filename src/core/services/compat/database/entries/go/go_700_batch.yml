@@ -1,78 +1,184 @@
-# Go batch — 700
-
 - id: go.1_18.workspace_use
   language: go
-  feature_name: "go work use"
-  introduced: "1.18"
+  feature_name: go work use
+  introduced: '1.18'
   category: stdlib
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [workspace, modules]
+  tags:
+  - workspace
+  - modules
   detection:
-    primary: { ast_type: file, match: { filename: "go.work" } }
-  fix: { strategy: manual, manual_instructions: "Use replace directives in go.mod." }
-  verification: { re_detect: true }
-  test: { before: "go 1.18\nuse ./pkg\n", after: "// go.mod replace\n" }
+    primary:
+      ast_type: file
+      match:
+        filename: go.work
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: file
+        filename: go.work
+      replace:
+        note: go work use — go 1.18+
+  verification:
+    re_detect: true
+  test:
+    before: 'go 1.18
 
+      use ./pkg
+
+      '
+    after: '// go.mod replace
+
+      '
 - id: go.1_20.crypto_ecdh
   language: go
-  feature_name: "crypto/ecdh package"
-  introduced: "1.20"
+  feature_name: crypto/ecdh package
+  introduced: '1.20'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [crypto, ecdh]
+  tags:
+  - crypto
+  - ecdh
   detection:
-    primary: { ast_type: import_spec, match: { path: '"crypto/ecdh"' } }
-  fix: { strategy: manual, manual_instructions: "Use crypto/elliptic manually." }
-  verification: { re_detect: true }
-  test: { before: "import \"crypto/ecdh\"\n", after: "import \"crypto/elliptic\"\n" }
+    primary:
+      ast_type: import_spec
+      match:
+        path: '"crypto/ecdh"'
+  fix:
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_spec
+      replace:
+        note: crypto/ecdh package — go 1.20+
+  verification:
+    re_detect: true
+  test:
+    before: 'import "crypto/ecdh"
 
+      '
+    after: 'import "crypto/elliptic"
+
+      '
 - id: go.1_21.once_func
   language: go
-  feature_name: "sync.OnceFunc/OnceValue/OnceValues"
-  introduced: "1.21"
+  feature_name: sync.OnceFunc/OnceValue/OnceValues
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [sync, once, helper]
+  tags:
+  - sync
+  - once
+  - helper
   detection:
-    primary: { ast_type: call_expression, match: { package: sync, function_in: [OnceFunc, OnceValue, OnceValues] } }
-  fix: { strategy: manual, manual_instructions: "Use sync.Once with a wrapper." }
-  verification: { re_detect: true }
-  test: { before: "init := sync.OnceFunc(setup)\n", after: "var once sync.Once\nfunc init() { once.Do(setup) }\n" }
+    primary:
+      ast_type: call_expression
+      match:
+        package: sync
+        function_in: &id001
+        - OnceFunc
+        - OnceValue
+        - OnceValues
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: sync
+        function_in: *id001
+      replace:
+        note: sync.OnceFunc/OnceValue/OnceValues — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 'init := sync.OnceFunc(setup)
 
+      '
+    after: 'var once sync.Once
+
+      func init() { once.Do(setup) }
+
+      '
 - id: go.1_22.rangefunc_seq
   language: go
-  feature_name: "iter.Seq type"
-  introduced: "1.23"
+  feature_name: iter.Seq type
+  introduced: '1.23'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [iter, seq, iterator]
+  tags:
+  - iter
+  - seq
+  - iterator
   detection:
-    primary: { ast_type: import_spec, match: { path: '"iter"' } }
-  fix: { strategy: manual, manual_instructions: "Use callback-based iteration." }
-  verification: { re_detect: true }
-  test: { before: "import \"iter\"\n", after: "// callbacks\n" }
+    primary:
+      ast_type: import_spec
+      match:
+        path: '"iter"'
+  fix:
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_spec
+      replace:
+        note: iter.Seq type — go 1.23+
+  verification:
+    re_detect: true
+  test:
+    before: 'import "iter"
 
+      '
+    after: '// callbacks
+
+      '
 - id: go.1_23.os_copyfs
   language: go
-  feature_name: "os.CopyFS()"
-  introduced: "1.23"
+  feature_name: os.CopyFS()
+  introduced: '1.23'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [os, copyfs, filesystem]
+  tags:
+  - os
+  - copyfs
+  - filesystem
   detection:
-    primary: { ast_type: call_expression, match: { package: os, function: CopyFS } }
-  fix: { strategy: manual, manual_instructions: "Use filepath.WalkDir with manual copy." }
-  verification: { re_detect: true }
-  test: { before: "os.CopyFS(dst, srcFS)\n", after: "// Manual walk + copy\n" }
+    primary:
+      ast_type: call_expression
+      match:
+        package: os
+        function: CopyFS
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: os
+        function: CopyFS
+      replace:
+        note: os.CopyFS() — go 1.23+
+  verification:
+    re_detect: true
+  test:
+    before: 'os.CopyFS(dst, srcFS)
+
+      '
+    after: '// Manual walk + copy
+
+      '

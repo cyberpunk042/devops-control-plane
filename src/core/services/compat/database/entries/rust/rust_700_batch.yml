@@ -1,78 +1,186 @@
-# Rust batch — 700
-
 - id: rust.1_64.future_intoFuture
   language: rust
-  feature_name: "IntoFuture trait"
-  introduced: "1.64"
+  feature_name: IntoFuture trait
+  introduced: '1.64'
   category: std
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [future, trait, async]
+  tags:
+  - future
+  - trait
+  - async
   detection:
-    primary: { ast_type: use_declaration, match: { path_contains: "IntoFuture" } }
-  fix: { strategy: manual, manual_instructions: "Implement manually or use async fn." }
-  verification: { re_detect: true }
-  test: { before: "use std::future::IntoFuture;\n", after: "// Manual implementation\n" }
+    primary:
+      ast_type: use_declaration
+      match:
+        path_contains: IntoFuture
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: use_declaration
+        path_contains: IntoFuture
+      replace:
+        note: IntoFuture trait — rust 1.64+
+  verification:
+    re_detect: true
+  test:
+    before: 'use std::future::IntoFuture;
 
+      '
+    after: '// Manual implementation
+
+      '
 - id: rust.1_71.cstr_from_bytes
   language: rust
-  feature_name: "CStr::from_bytes_until_nul()"
-  introduced: "1.69"
+  feature_name: CStr::from_bytes_until_nul()
+  introduced: '1.69'
   category: std
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [cstr, bytes, ffi]
+  tags:
+  - cstr
+  - bytes
+  - ffi
   detection:
-    primary: { ast_type: call_expression, match: { path_contains: "from_bytes_until_nul" } }
-  fix: { strategy: manual, manual_instructions: "Use CStr::from_bytes_with_nul after finding null byte." }
-  verification: { re_detect: true }
-  test: { before: "CStr::from_bytes_until_nul(bytes)\n", after: "CStr::from_bytes_with_nul(&bytes[..bytes.iter().position(|&b| b == 0).unwrap() + 1])\n" }
+    primary:
+      ast_type: call_expression
+      match:
+        path_contains: from_bytes_until_nul
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        path_contains: from_bytes_until_nul
+      replace:
+        note: CStr::from_bytes_until_nul() — rust 1.69+
+  verification:
+    re_detect: true
+  test:
+    before: 'CStr::from_bytes_until_nul(bytes)
 
+      '
+    after: 'CStr::from_bytes_with_nul(&bytes[..bytes.iter().position(|&b| b == 0).unwrap()
+      + 1])
+
+      '
 - id: rust.1_75.trait_async_fn
   language: rust
-  feature_name: "async fn in traits (stable)"
-  introduced: "1.75"
+  feature_name: async fn in traits (stable)
+  introduced: '1.75'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [async, trait, method]
+  tags:
+  - async
+  - trait
+  - method
   detection:
-    primary: { ast_type: function_item, match: { is_async: true, context: trait_impl } }
-  fix: { strategy: manual, manual_instructions: "Use #[async_trait] attribute macro.", backport: { package: async-trait } }
-  verification: { re_detect: true }
-  test: { before: "trait Svc { async fn handle(&self); }\n", after: "#[async_trait]\ntrait Svc { async fn handle(&self); }\n" }
+    primary:
+      ast_type: function_item
+      match:
+        is_async: true
+        context: trait_impl
+  fix:
+    strategy: rewrite_expression
+    backport:
+      package: async-trait
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: function_item
+        is_async: true
+        context: trait_impl
+      replace:
+        note: async fn in traits (stable) — rust 1.75+
+  verification:
+    re_detect: true
+  test:
+    before: 'trait Svc { async fn handle(&self); }
 
+      '
+    after: '#[async_trait]
+
+      trait Svc { async fn handle(&self); }
+
+      '
 - id: rust.1_80.exclusive_range
   language: rust
-  feature_name: "exclusive range in patterns"
-  introduced: "1.80"
+  feature_name: exclusive range in patterns
+  introduced: '1.80'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [range, pattern, exclusive]
+  tags:
+  - range
+  - pattern
+  - exclusive
   detection:
-    primary: { ast_type: range_pattern, match: { exclusive: true } }
-  fix: { strategy: manual, manual_instructions: "Use inclusive range: 0..10 → 0..=9" }
-  verification: { re_detect: true }
-  test: { before: "match n { 0..10 => ok(), _ => err() }\n", after: "match n { 0..=9 => ok(), _ => err() }\n" }
+    primary:
+      ast_type: range_pattern
+      match:
+        exclusive: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: range_pattern
+        exclusive: true
+      replace:
+        note: exclusive range in patterns — rust 1.80+
+  verification:
+    re_detect: true
+  test:
+    before: 'match n { 0..10 => ok(), _ => err() }
 
+      '
+    after: 'match n { 0..=9 => ok(), _ => err() }
+
+      '
 - id: rust.1_77.offset_of
   language: rust
-  feature_name: "offset_of! macro"
-  introduced: "1.77"
+  feature_name: offset_of! macro
+  introduced: '1.77'
   category: std
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [offset, macro, struct]
+  tags:
+  - offset
+  - macro
+  - struct
   detection:
-    primary: { ast_type: macro_invocation, match: { macro_name: offset_of } }
-  fix: { strategy: manual, manual_instructions: "Use memoffset crate.", backport: { package: memoffset } }
-  verification: { re_detect: true }
-  test: { before: "let off = offset_of!(MyStruct, field);\n", after: "let off = memoffset::offset_of!(MyStruct, field);\n" }
+    primary:
+      ast_type: macro_invocation
+      match:
+        macro_name: offset_of
+  fix:
+    strategy: rewrite_expression
+    backport:
+      package: memoffset
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: macro_invocation
+        macro_name: offset_of
+      replace:
+        note: offset_of! macro — rust 1.77+
+  verification:
+    re_detect: true
+  test:
+    before: 'let off = offset_of!(MyStruct, field);
+
+      '
+    after: 'let off = memoffset::offset_of!(MyStruct, field);
+
+      '

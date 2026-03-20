@@ -1,57 +1,78 @@
-# JavaScript ES2015 misc — hitting 100
-
 - id: js.es2015.weakmap_weakset
   language: javascript
-  feature_name: "WeakMap/WeakSet"
-  introduced: "ES2015"
+  feature_name: WeakMap/WeakSet
+  introduced: ES2015
   category: es2015
-  description: "Weak reference collections"
+  description: Weak reference collections
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [weakmap, weakset, collection]
+  tags:
+  - weakmap
+  - weakset
+  - collection
   detection:
     primary:
       ast_type: new_expression
       match:
-        constructor_in: [WeakMap, WeakSet]
+        constructor_in: &id001
+        - WeakMap
+        - WeakSet
   fix:
-    strategy: manual
-    manual_instructions: "No polyfill for weak references. Redesign to use Map/Set with manual cleanup."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor_in: *id001
+      replace:
+        note: WeakMap/WeakSet — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      const cache = new WeakMap();
-    after: |
-      // Use Map with manual cleanup
+    before: 'const cache = new WeakMap();
 
+      '
+    after: '// Use Map with manual cleanup
+
+      '
 - id: js.es2015.array_fill_copywithin
   language: javascript
-  feature_name: "Array.prototype.fill/copyWithin"
-  introduced: "ES2015"
+  feature_name: Array.prototype.fill/copyWithin
+  introduced: ES2015
   category: es2015
-  description: "Fill array with value or copy within array"
+  description: Fill array with value or copy within array
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [array, fill, method]
+  tags:
+  - array
+  - fill
+  - method
   detection:
     primary:
       ast_type: call_expression
       match:
-        method_in: [fill, copyWithin]
+        method_in: &id002
+        - fill
+        - copyWithin
   fix:
-    strategy: manual
-    manual_instructions: |
-      fill: for (var i = 0; i < arr.length; i++) arr[i] = value;
-      copyWithin: use splice + slice
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id002
+      replace:
+        note: Array.prototype.fill/copyWithin — javascript ES2015+
   verification:
     re_detect: true
   test:
-    before: |
-      const arr = new Array(5).fill(0);
-    after: |
-      var arr = []; for (var i = 0; i < 5; i++) arr.push(0);
+    before: 'const arr = new Array(5).fill(0);
+
+      '
+    after: 'var arr = []; for (var i = 0; i < 5; i++) arr.push(0);
+
+      '

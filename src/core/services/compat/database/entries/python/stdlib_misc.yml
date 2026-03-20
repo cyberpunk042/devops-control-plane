@@ -1,19 +1,17 @@
-# Python stdlib features — miscellaneous across versions
-# (pathlib_walk is in stdlib_312.yml)
-
-# ── Python 3.12 ──────────────────────────────────────────────────
-
 - id: python.stdlib.sys_monitoring
   language: python
-  feature_name: "sys.monitoring"
-  introduced: "3.12"
+  feature_name: sys.monitoring
+  introduced: '3.12'
   category: stdlib
-  description: "Low-impact monitoring API for profilers and debuggers (PEP 669)"
+  description: Low-impact monitoring API for profilers and debuggers (PEP 669)
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [sys, monitoring, profiling]
+  tags:
+  - sys
+  - monitoring
+  - profiling
   detection:
     primary:
       ast_type: Attribute
@@ -21,70 +19,85 @@
         value_id: sys
         attr: monitoring
   fix:
-    strategy: manual
-    manual_instructions: "Use sys.settrace() or sys.setprofile() for older Python versions."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: monitoring
+      replace:
+        try_import: '# sys.monitoring — Python 3.12+'
+        except_import: 'pass  # monitoring not available in older Python'
   verification:
     re_detect: true
   test:
-    before: |
-      import sys
+    before: 'import sys
+
       sys.monitoring.use_tool_id(1, "profiler")
-    after: |
-      import sys
+
+      '
+    after: 'import sys
+
       sys.settrace(trace_func)
 
-# ── Python 3.11 ──────────────────────────────────────────────────
-
+      '
 - id: python.stdlib.cbor2_tomllib
   language: python
-  feature_name: "tomllib (stdlib TOML parser)"
-  introduced: "3.11"
+  feature_name: tomllib (stdlib TOML parser)
+  introduced: '3.11'
   category: stdlib
-  description: "Read-only TOML parser in standard library"
+  description: Read-only TOML parser in standard library
   direction: upgrade
   severity: info
   error_type: deprecation_warning
-  tags: [toml, stdlib, backport, upgrade]
+  tags:
+  - toml
+  - stdlib
+  - backport
+  - upgrade
   detection:
     primary:
       ast_type: Import
       match:
         names_contains: tomli
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: tomli
+    - ast_type: ImportFrom
+      match:
+        module: tomli
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_statement
-        find:
-          import_pattern: "import tomli as tomllib"
-        replace:
-          import_statement: "import tomllib"
-      - type: replace_import_statement
-        find:
-          import_pattern: "import tomli"
-        replace:
-          import_statement: "import tomllib"
+    - type: replace_import_statement
+      find:
+        import_pattern: import tomli as tomllib
+      replace:
+        import_statement: import tomllib
+    - type: replace_import_statement
+      find:
+        import_pattern: import tomli
+      replace:
+        import_statement: import tomllib
   verification:
     re_detect: true
   test:
-    before: |
-      import tomli as tomllib
-    after: |
-      import tomllib
+    before: 'import tomli as tomllib
 
+      '
+    after: 'import tomllib
+
+      '
 - id: python.stdlib.datetime_utc_upgrade
   language: python
-  feature_name: "datetime.UTC (upgrade: use new shorthand)"
-  introduced: "3.11"
+  feature_name: 'datetime.UTC (upgrade: use new shorthand)'
+  introduced: '3.11'
   category: stdlib
-  description: "Replace verbose datetime.timezone.utc with the UTC shorthand"
+  description: Replace verbose datetime.timezone.utc with the UTC shorthand
   direction: upgrade
   severity: info
   error_type: deprecation_warning
-  tags: [datetime, timezone, upgrade]
+  tags:
+  - datetime
+  - timezone
+  - upgrade
   detection:
     primary:
       ast_type: Attribute
@@ -92,46 +105,49 @@
         value_id: timezone
         attr: utc
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import_and_usages
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: datetime
-          import_name: timezone
-        replace:
-          import_name: UTC
-      - type: replace_usage
-        find:
-          name: "timezone.utc"
-          origin: import
-        replace:
-          expression: "UTC"
+    - type: replace_import_name
+      find:
+        import_module: datetime
+        import_name: timezone
+      replace:
+        import_name: UTC
+    - type: replace_usage
+      find:
+        name: timezone.utc
+        origin: import
+      replace:
+        expression: UTC
   verification:
     re_detect: true
   test:
-    before: |
-      from datetime import timezone, datetime
+    before: 'from datetime import timezone, datetime
+
       now = datetime.now(timezone.utc)
-    after: |
-      from datetime import UTC, datetime
+
+      '
+    after: 'from datetime import UTC, datetime
+
       now = datetime.now(UTC)
 
-# ── Python 3.10 ──────────────────────────────────────────────────
-
+      '
 - id: python.stdlib.strict_zip
   language: python
-  feature_name: "itertools.pairwise()"
-  introduced: "3.10"
+  feature_name: itertools.pairwise()
+  introduced: '3.10'
   category: stdlib
-  description: "Return successive overlapping pairs from an iterable"
+  description: Return successive overlapping pairs from an iterable
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [itertools, pairwise]
+  tags:
+  - itertools
+  - pairwise
   detection:
     primary:
       ast_type: ImportFrom
@@ -139,44 +155,39 @@
         module: itertools
         names_contains: pairwise
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with a generator:
-        def pairwise(iterable):
-            a, b = itertools.tee(iterable)
-            next(b, None)
-            return zip(a, b)
-      Or use more-itertools: from more_itertools import pairwise
+    strategy: conditional_import
     backport:
       package: more-itertools
-      install_command: "pip install more-itertools"
+      install_command: pip install more-itertools
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: pairwise
+      replace:
+        try_import: from itertools import pairwise
+        except_import: 'from more_itertools import pairwise  # pip install more-itertools'
   verification:
     re_detect: true
   test:
-    before: |
-      from itertools import pairwise
-      for a, b in pairwise([1, 2, 3]):
-          print(a, b)
-    after: |
-      import itertools
-      def pairwise(it):
-          a, b = itertools.tee(it)
-          next(b, None)
-          return zip(a, b)
-      for a, b in pairwise([1, 2, 3]):
-          print(a, b)
-
+    before: "from itertools import pairwise\nfor a, b in pairwise([1, 2, 3]):\n  \
+      \  print(a, b)\n"
+    after: "import itertools\ndef pairwise(it):\n    a, b = itertools.tee(it)\n  \
+      \  next(b, None)\n    return zip(a, b)\nfor a, b in pairwise([1, 2, 3]):\n \
+      \   print(a, b)\n"
 - id: python.stdlib.int_bit_count
   language: python
-  feature_name: "int.bit_count()"
-  introduced: "3.10"
+  feature_name: int.bit_count()
+  introduced: '3.10'
   category: stdlib
-  description: "Count the number of 1-bits (popcount) in an integer"
+  description: Count the number of 1-bits (popcount) in an integer
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [int, bits, method]
+  tags:
+  - int
+  - bits
+  - method
   detection:
     primary:
       ast_type: Call
@@ -185,32 +196,35 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_method_call
-        find:
-          method: bit_count
-        replace:
-          template: "bin({receiver}).count('1')"
+    - type: rewrite_method_call
+      find:
+        method: bit_count
+      replace:
+        template: bin({receiver}).count('1')
   verification:
     re_detect: true
   test:
-    before: |
-      count = n.bit_count()
-    after: |
-      count = bin(n).count('1')
+    before: 'count = n.bit_count()
 
-# ── Python 3.9 ──────────────────────────────────────────────────
+      '
+    after: 'count = bin(n).count(''1'')
 
+      '
 - id: python.stdlib.dict_union_update
   language: python
-  feature_name: "dict |= operator"
-  introduced: "3.9"
+  feature_name: dict |= operator
+  introduced: '3.9'
   category: stdlib
-  description: "In-place dictionary merge with |= operator"
+  description: In-place dictionary merge with |= operator
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: unsupported_operator
-  tags: [dict, merge, operator, update]
+  tags:
+  - dict
+  - merge
+  - operator
+  - update
   detection:
     primary:
       ast_type: AugAssign
@@ -220,30 +234,34 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_augmented_assign
-        find:
-          operator: "|="
-        replace:
-          template: "{target}.update({value})"
+    - type: rewrite_augmented_assign
+      find:
+        operator: '|='
+      replace:
+        template: '{target}.update({value})'
   verification:
     re_detect: true
   test:
-    before: |
-      config |= extra_settings
-    after: |
-      config.update(extra_settings)
+    before: 'config |= extra_settings
 
+      '
+    after: 'config.update(extra_settings)
+
+      '
 - id: python.stdlib.string_removeprefix_bytes
   language: python
-  feature_name: "bytes.removeprefix()"
-  introduced: "3.9"
+  feature_name: bytes.removeprefix()
+  introduced: '3.9'
   category: stdlib
-  description: "removeprefix method on bytes objects"
+  description: removeprefix method on bytes objects
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [bytes, removeprefix, method]
+  tags:
+  - bytes
+  - removeprefix
+  - method
   detection:
     primary:
       ast_type: Call
@@ -252,75 +270,83 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_method_call
-        find:
-          method: removeprefix
-        replace:
-          template: "{receiver}[len({arg}):]  if {receiver}.startswith({arg}) else {receiver}"
+    - type: rewrite_method_call
+      find:
+        method: removeprefix
+      replace:
+        template: '{receiver}[len({arg}):]  if {receiver}.startswith({arg}) else {receiver}'
   verification:
     re_detect: true
   test:
-    before: |
-      data = raw.removeprefix(b"header:")
-    after: |
-      data = raw[len(b"header:"):]  if raw.startswith(b"header:") else raw
+    before: 'data = raw.removeprefix(b"header:")
 
-# ── Python 3.8 ──────────────────────────────────────────────────
+      '
+    after: 'data = raw[len(b"header:"):]  if raw.startswith(b"header:") else raw
 
+      '
 - id: python.stdlib.importlib_metadata
   language: python
-  feature_name: "importlib.metadata"
-  introduced: "3.8"
+  feature_name: importlib.metadata
+  introduced: '3.8'
   category: stdlib
-  description: "Package metadata access from stdlib"
+  description: Package metadata access from stdlib
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_module
-  tags: [importlib, metadata, package]
+  tags:
+  - importlib
+  - metadata
+  - package
   detection:
     primary:
       ast_type: ImportFrom
       match:
         module: importlib.metadata
     alternatives:
-      - ast_type: Import
-        match:
-          names_contains: importlib.metadata
+    - ast_type: Import
+      match:
+        names_contains: importlib.metadata
   fix:
     strategy: add_backport_import
     transforms:
-      - type: replace_import_statement
-        find:
-          import_pattern: "from importlib.metadata import"
-        replace:
-          import_prefix: "from importlib_metadata import"
+    - type: replace_import_statement
+      find:
+        import_pattern: from importlib.metadata import
+      replace:
+        import_prefix: from importlib_metadata import
     backport:
       package: importlib-metadata
-      min_version: "1.0.0"
-      install_command: "pip install importlib-metadata"
+      min_version: 1.0.0
+      install_command: pip install importlib-metadata
       maintains: true
   verification:
     re_detect: true
   test:
-    before: |
-      from importlib.metadata import version
-      v = version("my-package")
-    after: |
-      from importlib_metadata import version
+    before: 'from importlib.metadata import version
+
       v = version("my-package")
 
+      '
+    after: 'from importlib_metadata import version
+
+      v = version("my-package")
+
+      '
 - id: python.stdlib.math_prod
   language: python
-  feature_name: "math.prod()"
-  introduced: "3.8"
+  feature_name: math.prod()
+  introduced: '3.8'
   category: stdlib
-  description: "Product of all elements in an iterable"
+  description: Product of all elements in an iterable
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [math, prod, product]
+  tags:
+  - math
+  - prod
+  - product
   detection:
     primary:
       ast_type: ImportFrom
@@ -328,37 +354,46 @@
         module: math
         names_contains: prod
     alternatives:
-      - ast_type: Attribute
-        match:
-          value_id: math
-          attr: prod
+    - ast_type: Attribute
+      match:
+        value_id: math
+        attr: prod
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with functools.reduce:
-        from math import prod → from functools import reduce
-        result = prod(items)  → result = reduce(lambda a, b: a * b, items, 1)
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: prod
+      replace:
+        try_import: '# math.prod() — requires Python 3.8+'
+        except_import: 'pass  # math.prod() not available'
   verification:
     re_detect: true
   test:
-    before: |
-      from math import prod
+    before: 'from math import prod
+
       result = prod([1, 2, 3, 4])
-    after: |
-      from functools import reduce
+
+      '
+    after: 'from functools import reduce
+
       result = reduce(lambda a, b: a * b, [1, 2, 3, 4], 1)
 
+      '
 - id: python.stdlib.functools_cached_property
   language: python
-  feature_name: "functools.cached_property"
-  introduced: "3.8"
+  feature_name: functools.cached_property
+  introduced: '3.8'
   category: stdlib
-  description: "Decorator that converts a method into a cached property"
+  description: Decorator that converts a method into a cached property
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [functools, cached, property]
+  tags:
+  - functools
+  - cached
+  - property
   detection:
     primary:
       ast_type: ImportFrom
@@ -366,50 +401,39 @@
         module: functools
         names_contains: cached_property
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use a simple implementation:
-        class cached_property:
-            def __init__(self, func):
-                self.func = func
-                self.attrname = None
-            def __set_name__(self, owner, name):
-                self.attrname = name
-            def __get__(self, instance, owner=None):
-                if instance is None: return self
-                val = self.func(instance)
-                setattr(instance, self.attrname, val)
-                return val
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: cached_property
+      replace:
+        try_import: from functools import cache
+        except_import: from functools import lru_cache; cache = lru_cache(maxsize=None)
   verification:
     re_detect: true
   test:
-    before: |
-      from functools import cached_property
-      class Config:
-          @cached_property
-          def data(self): return load_data()
-    after: |
-      class cached_property:
-          def __init__(self, func): self.func = func; self.attrname = None
-          def __set_name__(self, owner, name): self.attrname = name
-          def __get__(self, instance, owner=None):
-              if instance is None: return self
-              val = self.func(instance); setattr(instance, self.attrname, val); return val
-      class Config:
-          @cached_property
-          def data(self): return load_data()
-
+    before: "from functools import cached_property\nclass Config:\n    @cached_property\n\
+      \    def data(self): return load_data()\n"
+    after: "class cached_property:\n    def __init__(self, func): self.func = func;\
+      \ self.attrname = None\n    def __set_name__(self, owner, name): self.attrname\
+      \ = name\n    def __get__(self, instance, owner=None):\n        if instance\
+      \ is None: return self\n        val = self.func(instance); setattr(instance,\
+      \ self.attrname, val); return val\nclass Config:\n    @cached_property\n   \
+      \ def data(self): return load_data()\n"
 - id: python.stdlib.shlex_join
   language: python
-  feature_name: "shlex.join()"
-  introduced: "3.8"
+  feature_name: shlex.join()
+  introduced: '3.8'
   category: stdlib
-  description: "Join a list of tokens into a shell-safe string"
+  description: Join a list of tokens into a shell-safe string
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [shlex, shell, join]
+  tags:
+  - shlex
+  - shell
+  - join
   detection:
     primary:
       ast_type: Attribute
@@ -417,24 +441,28 @@
         value_id: shlex
         attr: join
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: shlex
-          names_contains: join
+    - ast_type: ImportFrom
+      match:
+        module: shlex
+        names_contains: join
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_method_call
-        find:
-          method: join
-        replace:
-          template: "' '.join(shlex.quote(t) for t in {arg})"
+    - type: rewrite_method_call
+      find:
+        method: join
+      replace:
+        template: ''' ''.join(shlex.quote(t) for t in {arg})'
   verification:
     re_detect: true
   test:
-    before: |
-      import shlex
+    before: 'import shlex
+
       cmd = shlex.join(["echo", "hello world"])
-    after: |
-      import shlex
-      cmd = ' '.join(shlex.quote(t) for t in ["echo", "hello world"])
+
+      '
+    after: 'import shlex
+
+      cmd = '' ''.join(shlex.quote(t) for t in ["echo", "hello world"])
+
+      '

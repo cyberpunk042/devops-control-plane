@@ -1,42 +1,54 @@
-# Ruby 3.0-3.1 features — extended
-
 - id: ruby.3_0.rightward_assignment
   language: ruby
-  feature_name: "rightward assignment (=>)"
-  introduced: "3.0"
+  feature_name: rightward assignment (=>)
+  introduced: '3.0'
   category: syntax
-  description: "expr => variable pattern"
+  description: expr => variable pattern
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [assignment, rightward, syntax]
+  tags:
+  - assignment
+  - rightward
+  - syntax
   detection:
     primary:
       ast_type: rightward_assignment
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Convert to leftward assignment: variable = expr"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: rightward_assignment
+      replace:
+        note: rightward assignment (=>) — ruby 3.0+
   verification:
     re_detect: true
   test:
-    before: |
-      42 => answer
+    before: '42 => answer
+
       [1, 2, 3].sum => total
-    after: |
-      answer = 42
+
+      '
+    after: 'answer = 42
+
       total = [1, 2, 3].sum
 
+      '
 - id: ruby.3_0.fiber_scheduler
   language: ruby
-  feature_name: "Fiber scheduler"
-  introduced: "3.0"
+  feature_name: Fiber scheduler
+  introduced: '3.0'
   category: stdlib
-  description: "Non-blocking I/O via Fiber scheduler"
+  description: Non-blocking I/O via Fiber scheduler
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [fiber, scheduler, async]
+  tags:
+  - fiber
+  - scheduler
+  - async
   detection:
     primary:
       ast_type: call
@@ -44,27 +56,38 @@
         receiver: Fiber
         method: set_scheduler
   fix:
-    strategy: manual
-    manual_instructions: "Use Thread or external async libraries (async gem)."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        receiver: Fiber
+        method: set_scheduler
+      replace:
+        note: Fiber scheduler — ruby 3.0+
   verification:
     re_detect: true
   test:
-    before: |
-      Fiber.set_scheduler(MyScheduler.new)
-    after: |
-      # Use Thread for concurrency
+    before: 'Fiber.set_scheduler(MyScheduler.new)
 
+      '
+    after: '# Use Thread for concurrency
+
+      '
 - id: ruby.3_0.ractor_shareable
   language: ruby
-  feature_name: "Ractor.make_shareable"
-  introduced: "3.0"
+  feature_name: Ractor.make_shareable
+  introduced: '3.0'
   category: stdlib
-  description: "Make objects shareable across Ractors"
+  description: Make objects shareable across Ractors
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [ractor, shareable, concurrency]
+  tags:
+  - ractor
+  - shareable
+  - concurrency
   detection:
     primary:
       ast_type: call
@@ -72,57 +95,67 @@
         receiver: Ractor
         method: make_shareable
   fix:
-    strategy: manual
-    manual_instructions: "Use .freeze or .dup.freeze for read-only sharing."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        receiver: Ractor
+        method: make_shareable
+      replace:
+        note: Ractor.make_shareable — ruby 3.0+
   verification:
     re_detect: true
   test:
-    before: |
-      Ractor.make_shareable(config)
-    after: |
-      config.freeze
+    before: 'Ractor.make_shareable(config)
 
+      '
+    after: 'config.freeze
+
+      '
 - id: ruby.3_1.pin_variable
   language: ruby
-  feature_name: "pin variable in pattern matching"
-  introduced: "3.1"
+  feature_name: pin variable in pattern matching
+  introduced: '3.1'
   category: syntax
-  description: "Pin operator ^ to match against existing variable"
+  description: Pin operator ^ to match against existing variable
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [pattern, pin, matching]
+  tags:
+  - pattern
+  - pin
+  - matching
   detection:
     primary:
       ast_type: pin_expression
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Replace pattern matching with guard clause."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: pin_expression
+      replace:
+        note: pin variable in pattern matching — ruby 3.1+
   verification:
     re_detect: true
   test:
-    before: |
-      case [1, 2]
-      in [^x, y]
-        puts y
-      end
-    after: |
-      arr = [1, 2]
-      if arr[0] == x
-        puts arr[1]
-      end
-
+    before: "case [1, 2]\nin [^x, y]\n  puts y\nend\n"
+    after: "arr = [1, 2]\nif arr[0] == x\n  puts arr[1]\nend\n"
 - id: ruby.3_1.error_highlight
   language: ruby
-  feature_name: "error_highlight gem (bundled)"
-  introduced: "3.1"
+  feature_name: error_highlight gem (bundled)
+  introduced: '3.1'
   category: stdlib
-  description: "Highlights the exact location of errors"
+  description: Highlights the exact location of errors
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [errors, highlight, debugging]
+  tags:
+  - errors
+  - highlight
+  - debugging
   detection:
     primary:
       ast_type: call
@@ -133,7 +166,9 @@
   verification:
     re_detect: false
   test:
-    before: |
-      require 'error_highlight'
-    after: |
-      # Not available on older Ruby — errors show less context
+    before: 'require ''error_highlight''
+
+      '
+    after: '# Not available on older Ruby — errors show less context
+
+      '

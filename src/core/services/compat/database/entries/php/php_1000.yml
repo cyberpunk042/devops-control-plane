@@ -1,29 +1,71 @@
-# PHP — final for 1000
-
 - id: php.8_1.enum_from
   language: php
-  feature_name: "Enum::from() / tryFrom()"
-  introduced: "8.1"
+  feature_name: Enum::from() / tryFrom()
+  introduced: '8.1'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [enum, from, conversion]
-  detection: { primary: { ast_type: scoped_call_expression, match: { method_in: [from, tryFrom] } } }
-  fix: { strategy: manual, manual_instructions: "Use class constant lookup." }
-  verification: { re_detect: true }
-  test: { before: "$suit = Suit::from('H');\n", after: "// Manual constant lookup\n" }
+  tags:
+  - enum
+  - from
+  - conversion
+  detection:
+    primary:
+      ast_type: scoped_call_expression
+      match:
+        method_in: &id001
+        - from
+        - tryFrom
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: scoped_call_expression
+        method_in: *id001
+      replace:
+        note: Enum::from() / tryFrom() — php 8.1+
+  verification:
+    re_detect: true
+  test:
+    before: '$suit = Suit::from(''H'');
 
+      '
+    after: '// Manual constant lookup
+
+      '
 - id: php.8_3.override_attribute_impl
   language: php
-  feature_name: "#[Override] enforcement"
-  introduced: "8.3"
+  feature_name: '#[Override] enforcement'
+  introduced: '8.3'
   category: syntax
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [override, attribute]
-  detection: { primary: { ast_type: attribute, match: { name: Override } } }
-  fix: { strategy: manual, manual_instructions: "Remove #[Override] attribute." }
-  verification: { re_detect: true }
-  test: { before: "#[Override] public function method() {}\n", after: "public function method() {}\n" }
+  tags:
+  - override
+  - attribute
+  detection:
+    primary:
+      ast_type: attribute
+      match:
+        name: Override
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: attribute
+        name: Override
+      replace:
+        note: '#[Override] enforcement — php 8.3+'
+  verification:
+    re_detect: true
+  test:
+    before: '#[Override] public function method() {}
+
+      '
+    after: 'public function method() {}
+
+      '

@@ -1,54 +1,48 @@
-# Go 1.18-1.22 features
-
-# ── Go 1.18 ──────────────────────────────────────────────────────
-
 - id: go.1_18.generics
   language: go
-  feature_name: "generics (type parameters)"
-  introduced: "1.18"
+  feature_name: generics (type parameters)
+  introduced: '1.18'
   category: syntax
-  description: "Generic functions and types with type parameters"
+  description: Generic functions and types with type parameters
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [generics, type_parameters]
+  tags:
+  - generics
+  - type_parameters
   detection:
     primary:
       ast_type: type_parameter_list
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: |
-      Generics require Go 1.18+. Options:
-        1. Use interface{} or any (1.18+) with type assertions
-        2. Use code generation (go generate) for type-safe alternatives
-        3. Write type-specific implementations
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: type_parameter_list
+      replace:
+        note: generics (type parameters) — go 1.18+
   verification:
     re_detect: true
   test:
-    before: |
-      func Map[T any, U any](s []T, f func(T) U) []U {
-          r := make([]U, len(s))
-          for i, v := range s { r[i] = f(v) }
-          return r
-      }
-    after: |
-      func MapStrings(s []string, f func(string) string) []string {
-          r := make([]string, len(s))
-          for i, v := range s { r[i] = f(v) }
-          return r
-      }
-
+    before: "func Map[T any, U any](s []T, f func(T) U) []U {\n    r := make([]U,\
+      \ len(s))\n    for i, v := range s { r[i] = f(v) }\n    return r\n}\n"
+    after: "func MapStrings(s []string, f func(string) string) []string {\n    r :=\
+      \ make([]string, len(s))\n    for i, v := range s { r[i] = f(v) }\n    return\
+      \ r\n}\n"
 - id: go.1_18.any_type
   language: go
-  feature_name: "any (alias for interface{})"
-  introduced: "1.18"
+  feature_name: any (alias for interface{})
+  introduced: '1.18'
   category: syntax
-  description: "any is a predeclared identifier aliasing interface{}"
+  description: any is a predeclared identifier aliasing interface{}
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [any, interface, type]
+  tags:
+  - any
+  - interface
+  - type
   detection:
     primary:
       ast_type: type_identifier
@@ -57,72 +51,69 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: replace_identifier
-        find:
-          name: any
-        replace:
-          expression: "interface{}"
+    - type: replace_identifier
+      find:
+        name: any
+      replace:
+        expression: interface{}
   verification:
     re_detect: true
   test:
-    before: |
-      func process(data any) any { return data }
-    after: |
-      func process(data interface{}) interface{} { return data }
+    before: 'func process(data any) any { return data }
 
+      '
+    after: 'func process(data interface{}) interface{} { return data }
+
+      '
 - id: go.1_18.fuzzing
   language: go
-  feature_name: "fuzz testing"
-  introduced: "1.18"
+  feature_name: fuzz testing
+  introduced: '1.18'
   category: stdlib
-  description: "Built-in fuzz testing support in testing package"
+  description: Built-in fuzz testing support in testing package
   direction: downgrade
   severity: warning
   error_type: syntax_error
-  tags: [testing, fuzz]
+  tags:
+  - testing
+  - fuzz
   detection:
     primary:
       ast_type: function_declaration
       match:
         name_prefix: Fuzz
-        param_type: "*testing.F"
+        param_type: '*testing.F'
   fix:
-    strategy: manual
-    manual_instructions: |
-      Fuzz tests require Go 1.18+. Options:
-        1. Remove fuzz tests (they're optional)
-        2. Gate with build tags: //go:build go1.18
-        3. Convert to regular tests with hardcoded inputs
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: function_declaration
+        name_prefix: Fuzz
+        param_type: '*testing.F'
+      replace:
+        note: fuzz testing — go 1.18+
   verification:
     re_detect: true
   test:
-    before: |
-      func FuzzReverse(f *testing.F) {
-          f.Fuzz(func(t *testing.T, s string) {
-              if Reverse(Reverse(s)) != s { t.Fail() }
-          })
-      }
-    after: |
-      func TestReverse(t *testing.T) {
-          cases := []string{"hello", "世界", "!@#$"}
-          for _, s := range cases {
-              if Reverse(Reverse(s)) != s { t.Fail() }
-          }
-      }
-
-# ── Go 1.20 ──────────────────────────────────────────────────────
-
+    before: "func FuzzReverse(f *testing.F) {\n    f.Fuzz(func(t *testing.T, s string)\
+      \ {\n        if Reverse(Reverse(s)) != s { t.Fail() }\n    })\n}\n"
+    after: "func TestReverse(t *testing.T) {\n    cases := []string{\"hello\", \"\
+      世界\", \"!@#$\"}\n    for _, s := range cases {\n        if Reverse(Reverse(s))\
+      \ != s { t.Fail() }\n    }\n}\n"
 - id: go.1_20.errors_join
   language: go
-  feature_name: "errors.Join()"
-  introduced: "1.20"
+  feature_name: errors.Join()
+  introduced: '1.20'
   category: stdlib
-  description: "Join multiple errors into one"
+  description: Join multiple errors into one
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [errors, join]
+  tags:
+  - errors
+  - join
   detection:
     primary:
       ast_type: call_expression
@@ -130,40 +121,39 @@
         package: errors
         function: Join
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with a custom implementation:
-        func joinErrors(errs ...error) error {
-            var msgs []string
-            for _, e := range errs {
-                if e != nil { msgs = append(msgs, e.Error()) }
-            }
-            if len(msgs) == 0 { return nil }
-            return fmt.Errorf(strings.Join(msgs, "; "))
-        }
-      Or use hashicorp/go-multierror package.
+    strategy: rewrite_expression
     backport:
-      package: "github.com/hashicorp/go-multierror"
+      package: github.com/hashicorp/go-multierror
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: errors
+        function: Join
+      replace:
+        note: errors.Join() — go 1.20+
   verification:
     re_detect: true
   test:
-    before: |
-      err := errors.Join(err1, err2, err3)
-    after: |
-      err := multierror.Append(err1, err2, err3)
+    before: 'err := errors.Join(err1, err2, err3)
 
-# ── Go 1.22 ──────────────────────────────────────────────────────
+      '
+    after: 'err := multierror.Append(err1, err2, err3)
 
+      '
 - id: go.1_22.range_int
   language: go
-  feature_name: "for range over integer"
-  introduced: "1.22"
+  feature_name: for range over integer
+  introduced: '1.22'
   category: syntax
-  description: "for i := range N iterates from 0 to N-1"
+  description: for i := range N iterates from 0 to N-1
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [range, loop, syntax]
+  tags:
+  - range
+  - loop
+  - syntax
   detection:
     primary:
       ast_type: for_statement
@@ -172,55 +162,46 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_range_int
-        find:
-          ast_type: for_statement
-        replace:
-          template: "for {var} := 0; {var} < {n}; {var}++"
+    - type: rewrite_range_int
+      find:
+        ast_type: for_statement
+      replace:
+        template: for {var} := 0; {var} < {n}; {var}++
   verification:
     re_detect: true
   test:
-    before: |
-      for i := range 10 {
-          fmt.Println(i)
-      }
-    after: |
-      for i := 0; i < 10; i++ {
-          fmt.Println(i)
-      }
-
+    before: "for i := range 10 {\n    fmt.Println(i)\n}\n"
+    after: "for i := 0; i < 10; i++ {\n    fmt.Println(i)\n}\n"
 - id: go.1_22.range_func
   language: go
-  feature_name: "range over function"
-  introduced: "1.22"
+  feature_name: range over function
+  introduced: '1.22'
   category: syntax
-  description: "for x := range f iterates using a function iterator"
+  description: for x := range f iterates using a function iterator
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [range, iterator, syntax]
+  tags:
+  - range
+  - iterator
+  - syntax
   detection:
     primary:
       ast_type: for_statement
       match:
         range_over_func: true
   fix:
-    strategy: manual
-    manual_instructions: |
-      Range over functions requires Go 1.22+.
-      Replace with explicit function calls or callback patterns:
-        for k, v := range seq.All(m) { ... }
-        →
-        seq.All(m)(func(k K, v V) bool { ...; return true })
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: for_statement
+        range_over_func: true
+      replace:
+        note: range over function — go 1.22+
   verification:
     re_detect: true
   test:
-    before: |
-      for k, v := range maps.All(m) {
-          process(k, v)
-      }
-    after: |
-      maps.All(m)(func(k string, v int) bool {
-          process(k, v)
-          return true
-      })
+    before: "for k, v := range maps.All(m) {\n    process(k, v)\n}\n"
+    after: "maps.All(m)(func(k string, v int) bool {\n    process(k, v)\n    return\
+      \ true\n})\n"

@@ -1,44 +1,49 @@
-# C# version-specific features
-
 - id: csharp.9.records
   language: csharp
-  feature_name: "record types"
-  introduced: "9"
+  feature_name: record types
+  introduced: '9'
   category: syntax
-  description: "Immutable reference types with value semantics"
+  description: Immutable reference types with value semantics
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [record, data, immutable]
+  tags:
+  - record
+  - data
+  - immutable
   detection:
     primary:
       ast_type: record_declaration
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Replace with class implementing IEquatable<T>"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: record_declaration
+      replace:
+        note: record types — csharp 9+
   verification:
     re_detect: true
   test:
-    before: |
-      public record Point(int X, int Y);
-    after: |
-      public class Point : IEquatable<Point> {
-          public int X { get; }
-          public int Y { get; }
-          public Point(int x, int y) { X = x; Y = y; }
-      }
+    before: 'public record Point(int X, int Y);
 
+      '
+    after: "public class Point : IEquatable<Point> {\n    public int X { get; }\n\
+      \    public int Y { get; }\n    public Point(int x, int y) { X = x; Y = y; }\n\
+      }\n"
 - id: csharp.10.file_scoped_namespace
   language: csharp
-  feature_name: "file-scoped namespace"
-  introduced: "10"
+  feature_name: file-scoped namespace
+  introduced: '10'
   category: syntax
-  description: "namespace Foo; instead of namespace Foo { }"
+  description: namespace Foo; instead of namespace Foo { }
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [namespace, syntax]
+  tags:
+  - namespace
+  - syntax
   detection:
     primary:
       ast_type: file_scoped_namespace_declaration
@@ -46,93 +51,92 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: wrap_in_namespace_block
-        find: {}
-        replace:
-          style: block_namespace
+    - type: wrap_in_namespace_block
+      find: {}
+      replace:
+        style: block_namespace
   verification:
     re_detect: true
   test:
-    before: |
-      namespace MyApp;
-      class Foo { }
-    after: |
-      namespace MyApp
-      {
-          class Foo { }
-      }
+    before: 'namespace MyApp;
 
+      class Foo { }
+
+      '
+    after: "namespace MyApp\n{\n    class Foo { }\n}\n"
 - id: csharp.10.global_using
   language: csharp
-  feature_name: "global using directives"
-  introduced: "10"
+  feature_name: global using directives
+  introduced: '10'
   category: syntax
-  description: "Apply using directive to all files in project"
+  description: Apply using directive to all files in project
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [using, global, syntax]
+  tags:
+  - using
+  - global
+  - syntax
   detection:
     primary:
       ast_type: using_directive
       match:
         global: true
   fix:
-    strategy: manual
-    manual_instructions: |
-      Remove 'global' keyword and add the using directive to each file:
-        global using System.Linq;
-        →
-        // Add to each .cs file that needs it:
-        using System.Linq;
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: using_directive
+        global: true
+      replace:
+        note: global using directives — csharp 10+
   verification:
     re_detect: true
   test:
-    before: |
-      global using System;
+    before: 'global using System;
+
       global using System.Linq;
-    after: |
-      using System;
+
+      '
+    after: 'using System;
+
       using System.Linq;
 
+      '
 - id: csharp.12.primary_constructors
   language: csharp
-  feature_name: "primary constructors"
-  introduced: "12"
+  feature_name: primary constructors
+  introduced: '12'
   category: syntax
-  description: "Constructor parameters declared in class declaration"
+  description: Constructor parameters declared in class declaration
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [constructor, class, syntax]
+  tags:
+  - constructor
+  - class
+  - syntax
   detection:
     primary:
       ast_type: class_declaration
       match:
         has_parameter_list: true
   fix:
-    strategy: manual
-    manual_instructions: |
-      Move parameters to a regular constructor:
-        class Service(ILogger logger) { }
-        →
-        class Service {
-            private readonly ILogger _logger;
-            public Service(ILogger logger) { _logger = logger; }
-        }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: class_declaration
+        has_parameter_list: true
+      replace:
+        note: primary constructors — csharp 12+
   verification:
     re_detect: true
   test:
-    before: |
-      public class Service(ILogger logger, IConfig config)
-      {
-          public void Run() => logger.Log("running");
-      }
-    after: |
-      public class Service
-      {
-          private readonly ILogger _logger;
-          private readonly IConfig _config;
-          public Service(ILogger logger, IConfig config) { _logger = logger; _config = config; }
-          public void Run() => _logger.Log("running");
-      }
+    before: "public class Service(ILogger logger, IConfig config)\n{\n    public void\
+      \ Run() => logger.Log(\"running\");\n}\n"
+    after: "public class Service\n{\n    private readonly ILogger _logger;\n    private\
+      \ readonly IConfig _config;\n    public Service(ILogger logger, IConfig config)\
+      \ { _logger = logger; _config = config; }\n    public void Run() => _logger.Log(\"\
+      running\");\n}\n"

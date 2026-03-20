@@ -1,235 +1,355 @@
-# JavaScript batch — pushing to 600
-
 - id: js.es2015.iterator_return
   language: javascript
-  feature_name: "Iterator.return()"
-  introduced: "ES2015"
+  feature_name: Iterator.return()
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [iterator, return, protocol]
+  tags:
+  - iterator
+  - return
+  - protocol
   detection:
     primary:
       ast_type: call_expression
-      match: { method: return }
+      match:
+        method: return
   fix:
-    strategy: manual
-    manual_instructions: "Implement cleanup without iterator.return()."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: return
+      replace:
+        note: Iterator.return() — javascript ES2015+
+  verification:
+    re_detect: true
   test:
-    before: |
-      iter.return();
-    after: |
-      // Manual cleanup
+    before: 'iter.return();
 
+      '
+    after: '// Manual cleanup
+
+      '
 - id: js.es2015.string_iterator_protocol
   language: javascript
-  feature_name: "String[Symbol.iterator]()"
-  introduced: "ES2015"
+  feature_name: String[Symbol.iterator]()
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [string, iterator, symbol]
+  tags:
+  - string
+  - iterator
+  - symbol
   detection:
     primary:
       ast_type: computed_property_name
-      match: { expression_contains: "Symbol.iterator" }
+      match:
+        expression_contains: Symbol.iterator
   fix:
-    strategy: manual
-    manual_instructions: "Use split('') for character iteration."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: computed_property_name
+        expression_contains: Symbol.iterator
+      replace:
+        note: String[Symbol.iterator]() — javascript ES2015+
+  verification:
+    re_detect: true
   test:
-    before: |
-      const chars = [...str];
-    after: |
-      var chars = str.split('');
+    before: 'const chars = [...str];
 
+      '
+    after: 'var chars = str.split('''');
+
+      '
 - id: js.es2019.catch_binding_optional
   language: javascript
-  feature_name: "optional catch binding"
-  introduced: "ES2019"
+  feature_name: optional catch binding
+  introduced: ES2019
   category: es2019
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [catch, optional, binding]
+  tags:
+  - catch
+  - optional
+  - binding
   detection:
     primary:
       ast_type: catch_clause
-      match: { parameter: null }
+      match:
+        parameter: null
   fix:
-    strategy: manual
-    manual_instructions: "Add unused parameter: catch { } → catch(e) { }"
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: catch_clause
+        parameter: null
+      replace:
+        note: optional catch binding — javascript ES2019+
+  verification:
+    re_detect: true
   test:
-    before: |
-      try { risky(); } catch { safe(); }
-    after: |
-      try { risky(); } catch(e) { safe(); }
+    before: 'try { risky(); } catch { safe(); }
 
+      '
+    after: 'try { risky(); } catch(e) { safe(); }
+
+      '
 - id: js.es2020.bigint_literal
   language: javascript
-  feature_name: "BigInt literal (123n)"
-  introduced: "ES2020"
+  feature_name: BigInt literal (123n)
+  introduced: ES2020
   category: es2020
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [bigint, literal, number]
+  tags:
+  - bigint
+  - literal
+  - number
   detection:
     primary:
       ast_type: bigint
   fix:
-    strategy: manual
-    manual_instructions: "No polyfill for BigInt literal. Use string representation."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: bigint
+      replace:
+        note: BigInt literal (123n) — javascript ES2020+
+  verification:
+    re_detect: true
   test:
-    before: |
-      const big = 9007199254740993n;
-    after: |
-      const big = '9007199254740993';
+    before: 'const big = 9007199254740993n;
 
+      '
+    after: 'const big = ''9007199254740993'';
+
+      '
 - id: js.es2021.weakref_finalization
   language: javascript
-  feature_name: "FinalizationRegistry"
-  introduced: "ES2021"
+  feature_name: FinalizationRegistry
+  introduced: ES2021
   category: es2021
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [finalization, registry, gc]
+  tags:
+  - finalization
+  - registry
+  - gc
   detection:
     primary:
       ast_type: new_expression
-      match: { constructor: FinalizationRegistry }
+      match:
+        constructor: FinalizationRegistry
   fix:
-    strategy: manual
-    manual_instructions: "No polyfill. Use explicit cleanup/dispose patterns."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor: FinalizationRegistry
+      replace:
+        note: FinalizationRegistry — javascript ES2021+
+  verification:
+    re_detect: true
   test:
-    before: |
-      const registry = new FinalizationRegistry(callback);
-    after: |
-      // Use explicit dispose() calls
+    before: 'const registry = new FinalizationRegistry(callback);
 
+      '
+    after: '// Use explicit dispose() calls
+
+      '
 - id: js.es2022.class_static_fields
   language: javascript
-  feature_name: "class static public fields"
-  introduced: "ES2022"
+  feature_name: class static public fields
+  introduced: ES2022
   category: es2022
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [class, static, field]
+  tags:
+  - class
+  - static
+  - field
   detection:
     primary:
       ast_type: field_definition
-      match: { is_static: true }
+      match:
+        is_static: true
   fix:
-    strategy: manual
-    manual_instructions: "Move static fields after class: class X {} X.field = value;"
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: field_definition
+        is_static: true
+      replace:
+        note: class static public fields — javascript ES2022+
+  verification:
+    re_detect: true
   test:
-    before: |
-      class Config { static MAX = 100; }
-    after: |
-      class Config {} Config.MAX = 100;
+    before: 'class Config { static MAX = 100; }
 
+      '
+    after: 'class Config {} Config.MAX = 100;
+
+      '
 - id: js.es2023.hashbang
   language: javascript
-  feature_name: "hashbang (#!) grammar"
-  introduced: "ES2023"
+  feature_name: hashbang (#!) grammar
+  introduced: ES2023
   category: es2023
   direction: downgrade
   severity: warning
   error_type: syntax_error
-  tags: [hashbang, shebang, cli]
+  tags:
+  - hashbang
+  - shebang
+  - cli
   detection:
     primary:
       ast_type: hash_bang_line
   fix:
-    strategy: manual
-    manual_instructions: "Remove hashbang or use a wrapper script."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: hash_bang_line
+      replace:
+        note: hashbang (#!) grammar — javascript ES2023+
+  verification:
+    re_detect: true
   test:
-    before: |
-      #!/usr/bin/env node
-      console.log('hello');
-    after: |
-      console.log('hello');
+    before: '#!/usr/bin/env node
 
+      console.log(''hello'');
+
+      '
+    after: 'console.log(''hello'');
+
+      '
 - id: js.es2024.array_buffer_resize
   language: javascript
-  feature_name: "ArrayBuffer.prototype.resize()"
-  introduced: "ES2024"
+  feature_name: ArrayBuffer.prototype.resize()
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [arraybuffer, resize]
+  tags:
+  - arraybuffer
+  - resize
   detection:
     primary:
       ast_type: call_expression
-      match: { method: resize }
+      match:
+        method: resize
   fix:
-    strategy: manual
-    manual_instructions: "Create new ArrayBuffer and copy data."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: resize
+      replace:
+        note: ArrayBuffer.prototype.resize() — javascript ES2024+
+  verification:
+    re_detect: true
   test:
-    before: |
-      buffer.resize(newSize);
-    after: |
-      var newBuf = new ArrayBuffer(newSize);
+    before: 'buffer.resize(newSize);
+
+      '
+    after: 'var newBuf = new ArrayBuffer(newSize);
+
       new Uint8Array(newBuf).set(new Uint8Array(buffer));
+
       buffer = newBuf;
 
+      '
 - id: js.es2024.regexp_v_flag
   language: javascript
-  feature_name: "RegExp v flag (unicodeSets)"
-  introduced: "ES2024"
+  feature_name: RegExp v flag (unicodeSets)
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [regex, unicode, sets, flag]
+  tags:
+  - regex
+  - unicode
+  - sets
+  - flag
   detection:
     primary:
       ast_type: regex
-      match: { flags_contains: v }
+      match:
+        flags_contains: v
   fix:
-    strategy: manual
-    manual_instructions: "Replace v flag with u flag. Rewrite set notation patterns."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: regex
+        flags_contains: v
+      replace:
+        note: RegExp v flag (unicodeSets) — javascript ES2024+
+  verification:
+    re_detect: true
   test:
-    before: |
-      const re = /[\p{ASCII}&&\p{Letter}]/v;
-    after: |
-      const re = /[a-zA-Z]/u;
+    before: 'const re = /[\p{ASCII}&&\p{Letter}]/v;
 
+      '
+    after: 'const re = /[a-zA-Z]/u;
+
+      '
 - id: js.es2024.well_formed_unicode
   language: javascript
-  feature_name: "String.prototype.isWellFormed/toWellFormed"
-  introduced: "ES2024"
+  feature_name: String.prototype.isWellFormed/toWellFormed
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [string, unicode, wellformed]
+  tags:
+  - string
+  - unicode
+  - wellformed
   detection:
     primary:
       ast_type: call_expression
-      match: { method_in: [isWellFormed, toWellFormed] }
+      match:
+        method_in: &id001
+        - isWellFormed
+        - toWellFormed
   fix:
-    strategy: manual
-    manual_instructions: "Use encodeURIComponent/decodeURIComponent for validation."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id001
+      replace:
+        note: String.prototype.isWellFormed/toWellFormed — javascript ES2024+
+  verification:
+    re_detect: true
   test:
-    before: |
-      if (str.isWellFormed()) { safe(str); }
-    after: |
-      try { encodeURIComponent(str); safe(str); } catch(e) {}
+    before: 'if (str.isWellFormed()) { safe(str); }
+
+      '
+    after: 'try { encodeURIComponent(str); safe(str); } catch(e) {}
+
+      '

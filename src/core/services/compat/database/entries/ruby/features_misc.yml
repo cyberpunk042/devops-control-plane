@@ -1,39 +1,48 @@
-# Ruby misc features
-
 - id: ruby.2_7.pattern_matching_experimental
   language: ruby
-  feature_name: "pattern matching (experimental)"
-  introduced: "2.7"
+  feature_name: pattern matching (experimental)
+  introduced: '2.7'
   category: syntax
-  description: "Experimental case/in (finalized in 3.0)"
+  description: Experimental case/in (finalized in 3.0)
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [pattern, experimental]
+  tags:
+  - pattern
+  - experimental
   detection:
     primary:
       ast_type: case_match
   fix:
-    strategy: manual
-    manual_instructions: "Use case/when instead."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: case_match
+      replace:
+        note: pattern matching (experimental) — ruby 2.7+
   verification:
     re_detect: true
   test:
-    before: |
-      case obj in [Integer => x] then x end
-    after: |
-      x = obj.is_a?(Integer) ? obj : nil
+    before: 'case obj in [Integer => x] then x end
 
+      '
+    after: 'x = obj.is_a?(Integer) ? obj : nil
+
+      '
 - id: ruby.3_0.ractor_move
   language: ruby
-  feature_name: "Ractor.new with move"
-  introduced: "3.0"
+  feature_name: Ractor.new with move
+  introduced: '3.0'
   category: stdlib
-  description: "Move objects between Ractors"
+  description: Move objects between Ractors
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [ractor, move, concurrency]
+  tags:
+  - ractor
+  - move
+  - concurrency
   detection:
     primary:
       ast_type: call
@@ -41,26 +50,37 @@
         receiver: Ractor
         method: new
   fix:
-    strategy: manual
-    manual_instructions: "Use Marshal.dump/load for cross-thread data transfer."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        receiver: Ractor
+        method: new
+      replace:
+        note: Ractor.new with move — ruby 3.0+
   verification:
     re_detect: true
   test:
-    before: |
-      Ractor.new(data, move: true) { |d| process(d) }
-    after: |
-      Thread.new { process(Marshal.load(Marshal.dump(data))) }
+    before: 'Ractor.new(data, move: true) { |d| process(d) }
 
+      '
+    after: 'Thread.new { process(Marshal.load(Marshal.dump(data))) }
+
+      '
 - id: ruby.3_1.irb_improvements
   language: ruby
-  feature_name: "IRB improvements (debug integration)"
-  introduced: "3.1"
+  feature_name: IRB improvements (debug integration)
+  introduced: '3.1'
   category: stdlib
-  description: "IRB with debug gem integration"
+  description: IRB with debug gem integration
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [irb, debug, repl]
+  tags:
+  - irb
+  - debug
+  - repl
   detection:
     primary:
       ast_type: call
@@ -71,32 +91,38 @@
   verification:
     re_detect: false
   test:
-    before: |
-      binding.irb
-    after: |
-      binding.irb
+    before: 'binding.irb
 
+      '
+    after: 'binding.irb
+
+      '
 - id: ruby.3_2.immutable_strings
   language: ruby
-  feature_name: "frozen string literal improvements"
-  introduced: "3.2"
+  feature_name: frozen string literal improvements
+  introduced: '3.2'
   category: stdlib
-  description: "Improved frozen string literal performance"
+  description: Improved frozen string literal performance
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [frozen, string, performance]
+  tags:
+  - frozen
+  - string
+  - performance
   detection:
     primary:
       ast_type: comment
       match:
-        content: "frozen_string_literal: true"
+        content: 'frozen_string_literal: true'
   fix:
     strategy: no_fix_needed
   verification:
     re_detect: false
   test:
-    before: |
-      # frozen_string_literal: true
-    after: |
-      # frozen_string_literal: true
+    before: '# frozen_string_literal: true
+
+      '
+    after: '# frozen_string_literal: true
+
+      '

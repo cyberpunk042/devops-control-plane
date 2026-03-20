@@ -1,141 +1,348 @@
-# JavaScript — final for 800
-
 - id: js.es2015.for_of_iterators
   language: javascript
-  feature_name: "for...of with custom iterators"
-  introduced: "ES2015"
+  feature_name: for...of with custom iterators
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [for_of, iterator, custom]
-  detection: { primary: { ast_type: for_in_statement, match: { kind: of } } }
-  fix: { strategy: manual, manual_instructions: "Use toArray() and for loop." }
-  verification: { re_detect: true }
-  test: { before: "for (const x of iter) {}\n", after: "var arr = iter.toArray(); for (var i=0;i<arr.length;i++) {}\n" }
+  tags:
+  - for_of
+  - iterator
+  - custom
+  detection:
+    primary:
+      ast_type: for_in_statement
+      match:
+        kind: of
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: for_in_statement
+        kind: of
+      replace:
+        note: for...of with custom iterators — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'for (const x of iter) {}
 
+      '
+    after: 'var arr = iter.toArray(); for (var i=0;i<arr.length;i++) {}
+
+      '
 - id: js.es2015.class_accessor
   language: javascript
-  feature_name: "class getter/setter"
-  introduced: "ES2015"
+  feature_name: class getter/setter
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [class, getter, setter]
-  detection: { primary: { ast_type: method_definition, match: { kind_in: [get, set] } } }
-  fix: { strategy: manual, manual_instructions: "Use Object.defineProperty." }
-  verification: { re_detect: true }
-  test: { before: "class C { get x() { return 1; } }\n", after: "function C(){} Object.defineProperty(C.prototype,'x',{get:function(){return 1}});\n" }
+  tags:
+  - class
+  - getter
+  - setter
+  detection:
+    primary:
+      ast_type: method_definition
+      match:
+        kind_in: &id001
+        - get
+        - set
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_definition
+        kind_in: *id001
+      replace:
+        note: class getter/setter — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'class C { get x() { return 1; } }
 
+      '
+    after: 'function C(){} Object.defineProperty(C.prototype,''x'',{get:function(){return
+      1}});
+
+      '
 - id: js.es2015.iterator_protocol_next
   language: javascript
-  feature_name: "iterator protocol"
-  introduced: "ES2015"
+  feature_name: iterator protocol
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [iterator, protocol, next]
-  detection: { primary: { ast_type: call_expression, match: { method: next } } }
-  fix: { strategy: manual, manual_instructions: "Use index-based iteration." }
-  verification: { re_detect: false }
-  test: { before: "const val = iter.next().value;\n", after: "// Use array indexing\n" }
+  tags:
+  - iterator
+  - protocol
+  - next
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: next
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: next
+      replace:
+        note: iterator protocol — javascript ES2015+
+  verification:
+    re_detect: false
+  test:
+    before: 'const val = iter.next().value;
 
+      '
+    after: '// Use array indexing
+
+      '
 - id: js.es2020.nullish_assign_2
   language: javascript
-  feature_name: "nullish coalescing in assignments"
-  introduced: "ES2020"
+  feature_name: nullish coalescing in assignments
+  introduced: ES2020
   category: es2020
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [nullish, coalescing, assign]
-  detection: { primary: { ast_type: binary_expression, match: { operator: "??" } } }
-  fix: { strategy: manual, manual_instructions: "x ?? y → (x !== null && x !== undefined) ? x : y" }
-  verification: { re_detect: true }
-  test: { before: "const v = a ?? b;\n", after: "var v = (a !== null && a !== undefined) ? a : b;\n" }
+  tags:
+  - nullish
+  - coalescing
+  - assign
+  detection:
+    primary:
+      ast_type: binary_expression
+      match:
+        operator: ??
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: binary_expression
+        operator: ??
+      replace:
+        note: nullish coalescing in assignments — javascript ES2020+
+  verification:
+    re_detect: true
+  test:
+    before: 'const v = a ?? b;
 
+      '
+    after: 'var v = (a !== null && a !== undefined) ? a : b;
+
+      '
 - id: js.es2023.find_last_index
   language: javascript
-  feature_name: "Array.prototype.findLastIndex()"
-  introduced: "ES2023"
+  feature_name: Array.prototype.findLastIndex()
+  introduced: ES2023
   category: es2023
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [array, findLast, index]
-  detection: { primary: { ast_type: call_expression, match: { method: findLastIndex } } }
-  fix: { strategy: manual, manual_instructions: "Iterate backwards with for loop." }
-  verification: { re_detect: true }
-  test: { before: "const idx = arr.findLastIndex(fn);\n", after: "var idx=-1; for(var i=arr.length-1;i>=0;i--){if(fn(arr[i])){idx=i;break}}\n" }
+  tags:
+  - array
+  - findLast
+  - index
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: findLastIndex
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: findLastIndex
+      replace:
+        note: Array.prototype.findLastIndex() — javascript ES2023+
+  verification:
+    re_detect: true
+  test:
+    before: 'const idx = arr.findLastIndex(fn);
 
+      '
+    after: 'var idx=-1; for(var i=arr.length-1;i>=0;i--){if(fn(arr[i])){idx=i;break}}
+
+      '
 - id: js.es2024.set_difference
   language: javascript
-  feature_name: "Set.prototype.difference()"
-  introduced: "ES2024"
+  feature_name: Set.prototype.difference()
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [set, difference]
-  detection: { primary: { ast_type: call_expression, match: { method: difference } } }
-  fix: { strategy: manual, manual_instructions: "new Set([...a].filter(x => !b.has(x)))" }
-  verification: { re_detect: true }
-  test: { before: "const d = setA.difference(setB);\n", after: "var d = new Set([...setA].filter(function(x){return !setB.has(x)}));\n" }
+  tags:
+  - set
+  - difference
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: difference
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: difference
+      replace:
+        note: Set.prototype.difference() — javascript ES2024+
+  verification:
+    re_detect: true
+  test:
+    before: 'const d = setA.difference(setB);
 
+      '
+    after: 'var d = new Set([...setA].filter(function(x){return !setB.has(x)}));
+
+      '
 - id: js.es2024.set_intersection
   language: javascript
-  feature_name: "Set.prototype.intersection()"
-  introduced: "ES2024"
+  feature_name: Set.prototype.intersection()
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [set, intersection]
-  detection: { primary: { ast_type: call_expression, match: { method: intersection } } }
-  fix: { strategy: manual, manual_instructions: "new Set([...a].filter(x => b.has(x)))" }
-  verification: { re_detect: true }
-  test: { before: "const i = setA.intersection(setB);\n", after: "var i = new Set([...setA].filter(function(x){return setB.has(x)}));\n" }
+  tags:
+  - set
+  - intersection
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: intersection
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: intersection
+      replace:
+        note: Set.prototype.intersection() — javascript ES2024+
+  verification:
+    re_detect: true
+  test:
+    before: 'const i = setA.intersection(setB);
 
+      '
+    after: 'var i = new Set([...setA].filter(function(x){return setB.has(x)}));
+
+      '
 - id: js.es2024.set_symmetric_difference
   language: javascript
-  feature_name: "Set.prototype.symmetricDifference()"
-  introduced: "ES2024"
+  feature_name: Set.prototype.symmetricDifference()
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [set, symmetricDifference]
-  detection: { primary: { ast_type: call_expression, match: { method: symmetricDifference } } }
-  fix: { strategy: manual, manual_instructions: "Manual: union minus intersection." }
-  verification: { re_detect: true }
-  test: { before: "const sd = setA.symmetricDifference(setB);\n", after: "// Manual symmetric difference\n" }
+  tags:
+  - set
+  - symmetricDifference
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: symmetricDifference
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: symmetricDifference
+      replace:
+        note: Set.prototype.symmetricDifference() — javascript ES2024+
+  verification:
+    re_detect: true
+  test:
+    before: 'const sd = setA.symmetricDifference(setB);
 
+      '
+    after: '// Manual symmetric difference
+
+      '
 - id: js.es2024.set_issubset
   language: javascript
-  feature_name: "Set.prototype.isSubsetOf()"
-  introduced: "ES2024"
+  feature_name: Set.prototype.isSubsetOf()
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [set, subset]
-  detection: { primary: { ast_type: call_expression, match: { method: isSubsetOf } } }
-  fix: { strategy: manual, manual_instructions: "[...a].every(x => b.has(x))" }
-  verification: { re_detect: true }
-  test: { before: "setA.isSubsetOf(setB);\n", after: "[...setA].every(function(x){return setB.has(x)});\n" }
+  tags:
+  - set
+  - subset
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: isSubsetOf
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: isSubsetOf
+      replace:
+        note: Set.prototype.isSubsetOf() — javascript ES2024+
+  verification:
+    re_detect: true
+  test:
+    before: 'setA.isSubsetOf(setB);
 
+      '
+    after: '[...setA].every(function(x){return setB.has(x)});
+
+      '
 - id: js.es2024.set_issuperset
   language: javascript
-  feature_name: "Set.prototype.isSupersetOf()"
-  introduced: "ES2024"
+  feature_name: Set.prototype.isSupersetOf()
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [set, superset]
-  detection: { primary: { ast_type: call_expression, match: { method: isSupersetOf } } }
-  fix: { strategy: manual, manual_instructions: "[...b].every(x => a.has(x))" }
-  verification: { re_detect: true }
-  test: { before: "setA.isSupersetOf(setB);\n", after: "[...setB].every(function(x){return setA.has(x)});\n" }
+  tags:
+  - set
+  - superset
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: isSupersetOf
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: isSupersetOf
+      replace:
+        note: Set.prototype.isSupersetOf() — javascript ES2024+
+  verification:
+    re_detect: true
+  test:
+    before: 'setA.isSupersetOf(setB);
+
+      '
+    after: '[...setB].every(function(x){return setA.has(x)});
+
+      '

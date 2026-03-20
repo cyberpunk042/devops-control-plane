@@ -1,71 +1,156 @@
-# JavaScript — last for 900
-
 - id: js.es2015.unicode_regex
   language: javascript
-  feature_name: "Unicode in identifiers"
-  introduced: "ES2015"
+  feature_name: Unicode in identifiers
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [unicode, identifiers]
-  detection: { primary: { ast_type: identifier } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "const π = Math.PI;\n", after: "const pi = Math.PI;\n" }
+  tags:
+  - unicode
+  - identifiers
+  detection:
+    primary:
+      ast_type: identifier
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'const π = Math.PI;
 
+      '
+    after: 'const pi = Math.PI;
+
+      '
 - id: js.es2015.well_known_symbol_tostringtag
   language: javascript
-  feature_name: "Symbol.toStringTag"
-  introduced: "ES2015"
+  feature_name: Symbol.toStringTag
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [symbol, toStringTag]
-  detection: { primary: { ast_type: computed_property_name, match: { expression_contains: "Symbol.toStringTag" } } }
-  fix: { strategy: manual, manual_instructions: "Override toString() method." }
-  verification: { re_detect: true }
-  test: { before: "get [Symbol.toStringTag]() { return 'MyClass'; }\n", after: "toString() { return '[object MyClass]'; }\n" }
+  tags:
+  - symbol
+  - toStringTag
+  detection:
+    primary:
+      ast_type: computed_property_name
+      match:
+        expression_contains: Symbol.toStringTag
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: computed_property_name
+        expression_contains: Symbol.toStringTag
+      replace:
+        note: Symbol.toStringTag — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'get [Symbol.toStringTag]() { return ''MyClass''; }
 
+      '
+    after: 'toString() { return ''[object MyClass]''; }
+
+      '
 - id: js.es2015.well_known_symbol_toprimitive
   language: javascript
-  feature_name: "Symbol.toPrimitive"
-  introduced: "ES2015"
+  feature_name: Symbol.toPrimitive
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [symbol, toPrimitive]
-  detection: { primary: { ast_type: computed_property_name, match: { expression_contains: "Symbol.toPrimitive" } } }
-  fix: { strategy: manual, manual_instructions: "Use valueOf() and toString()." }
-  verification: { re_detect: true }
-  test: { before: "[Symbol.toPrimitive](hint) { return hint === 'number' ? this.value : this.name; }\n", after: "valueOf() { return this.value; } toString() { return this.name; }\n" }
+  tags:
+  - symbol
+  - toPrimitive
+  detection:
+    primary:
+      ast_type: computed_property_name
+      match:
+        expression_contains: Symbol.toPrimitive
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: computed_property_name
+        expression_contains: Symbol.toPrimitive
+      replace:
+        note: Symbol.toPrimitive — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: '[Symbol.toPrimitive](hint) { return hint === ''number'' ? this.value
+      : this.name; }
 
+      '
+    after: 'valueOf() { return this.value; } toString() { return this.name; }
+
+      '
 - id: js.es2015.object_is_extensible
   language: javascript
-  feature_name: "Object.isExtensible/preventExtensions/seal/freeze"
-  introduced: "ES2015"
+  feature_name: Object.isExtensible/preventExtensions/seal/freeze
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: info
   error_type: runtime_error
-  tags: [object, extensible, seal, freeze]
-  detection: { primary: { ast_type: call_expression, match: { object: Object, method_in: [isExtensible, preventExtensions, seal, freeze, isFrozen, isSealed] } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "Object.freeze(config);\n", after: "Object.freeze(config);\n" }
+  tags:
+  - object
+  - extensible
+  - seal
+  - freeze
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Object
+        method_in:
+        - isExtensible
+        - preventExtensions
+        - seal
+        - freeze
+        - isFrozen
+        - isSealed
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'Object.freeze(config);
 
+      '
+    after: 'Object.freeze(config);
+
+      '
 - id: js.es2015.tail_call_elimination
   language: javascript
-  feature_name: "proper tail calls (Safari only)"
-  introduced: "ES2015"
+  feature_name: proper tail calls (Safari only)
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [tail_call, optimization, safari]
-  detection: { primary: { ast_type: return_statement } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "return f(x-1);\n", after: "return f(x-1);\n" }
+  tags:
+  - tail_call
+  - optimization
+  - safari
+  detection:
+    primary:
+      ast_type: return_statement
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'return f(x-1);
+
+      '
+    after: 'return f(x-1);
+
+      '

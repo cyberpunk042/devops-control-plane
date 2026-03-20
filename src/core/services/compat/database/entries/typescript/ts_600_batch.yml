@@ -1,110 +1,145 @@
-# TypeScript batch
-
 - id: ts.4_2.template_literal_type_improv
   language: typescript
-  feature_name: "template literal type improvements"
-  introduced: "4.2"
+  feature_name: template literal type improvements
+  introduced: '4.2'
   category: ts4
   direction: downgrade
   severity: warning
   error_type: type_error
-  tags: [template, literal, types]
+  tags:
+  - template
+  - literal
+  - types
   detection:
     primary:
       ast_type: template_literal_type
   fix:
-    strategy: manual
-    manual_instructions: "Replace with string union or string type."
-  verification: { re_detect: true }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: template_literal_type
+      replace:
+        note: template literal type improvements — typescript 4.2+
+  verification:
+    re_detect: true
   test:
-    before: |
-      type Color = `${string}Color`;
-    after: |
-      type Color = string;
+    before: 'type Color = `${string}Color`;
 
+      '
+    after: 'type Color = string;
+
+      '
 - id: ts.4_6.control_flow_analysis
   language: typescript
-  feature_name: "control flow analysis for destructured unions"
-  introduced: "4.6"
+  feature_name: control flow analysis for destructured unions
+  introduced: '4.6'
   category: ts4
   direction: downgrade
   severity: info
   error_type: type_error
-  tags: [control_flow, destructuring, unions]
+  tags:
+  - control_flow
+  - destructuring
+  - unions
   detection:
     primary:
       ast_type: variable_declaration
-      match: { is_destructuring: true }
+      match:
+        is_destructuring: true
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      const { kind, payload } = message;
-    after: |
-      const { kind, payload } = message;
+    before: 'const { kind, payload } = message;
 
+      '
+    after: 'const { kind, payload } = message;
+
+      '
 - id: ts.4_8.improved_intersections
   language: typescript
-  feature_name: "improved intersection type reductions"
-  introduced: "4.8"
+  feature_name: improved intersection type reductions
+  introduced: '4.8'
   category: ts4
   direction: downgrade
   severity: info
   error_type: type_error
-  tags: [intersection, reduction, types]
+  tags:
+  - intersection
+  - reduction
+  - types
   detection:
     primary:
       ast_type: intersection_type
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      type A = string & {};
-    after: |
-      type A = string;
+    before: 'type A = string & {};
 
+      '
+    after: 'type A = string;
+
+      '
 - id: ts.5_3.import_attributes_with
   language: typescript
-  feature_name: "import attributes (with keyword)"
-  introduced: "5.3"
+  feature_name: import attributes (with keyword)
+  introduced: '5.3'
   category: ts5
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [import, attributes, with]
+  tags:
+  - import
+  - attributes
+  - with
   detection:
     primary:
       ast_type: import_statement
-      match: { has_with_clause: true }
+      match:
+        has_with_clause: true
   fix:
-    strategy: manual
-    manual_instructions: "Remove 'with' clause from import."
-  verification: { re_detect: true }
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        ast_type: import_statement
+      replace:
+        note: import attributes (with keyword) — typescript 5.3+
+  verification:
+    re_detect: true
   test:
-    before: |
-      import data from './data.json' with { type: 'json' };
-    after: |
-      import data from './data.json';
+    before: 'import data from ''./data.json'' with { type: ''json'' };
 
+      '
+    after: 'import data from ''./data.json'';
+
+      '
 - id: ts.5_5.regular_expression_type
   language: typescript
-  feature_name: "regular expression syntax checking"
-  introduced: "5.5"
+  feature_name: regular expression syntax checking
+  introduced: '5.5'
   category: ts5
   direction: downgrade
   severity: info
   error_type: type_error
-  tags: [regex, type_checking]
+  tags:
+  - regex
+  - type_checking
   detection:
     primary:
       ast_type: regex
   fix:
     strategy: no_fix_needed
-  verification: { re_detect: false }
+  verification:
+    re_detect: false
   test:
-    before: |
-      const re = /\d+/g;
-    after: |
-      const re = /\d+/g;
+    before: 'const re = /\d+/g;
+
+      '
+    after: 'const re = /\d+/g;
+
+      '

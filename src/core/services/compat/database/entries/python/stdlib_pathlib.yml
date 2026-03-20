@@ -55,8 +55,13 @@
       match:
         func_attr: readlink
   fix:
-    strategy: manual
-    manual_instructions: "Replace with os.readlink():\n  path.readlink() → Path(os.readlink(str(path)))\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: readlink
+      replace:
+        note: Path.readlink() — requires Python 3.9+
   verification:
     re_detect: true
   test:
@@ -87,9 +92,13 @@
       match:
         func_attr: hardlink_to
   fix:
-    strategy: manual
-    manual_instructions: "Replace with os.link():\n  target.hardlink_to(source) →\
-      \ os.link(str(source), str(target))\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: hardlink_to
+      replace:
+        note: Path.hardlink_to() — requires Python 3.10+
   verification:
     re_detect: true
   test:
@@ -121,9 +130,13 @@
       match:
         func_attr: with_stem
   fix:
-    strategy: manual
-    manual_instructions: "Replace with with_name():\n  path.with_stem(\"new_name\"\
-      )\n  → path.with_name(\"new_name\" + path.suffix)\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: with_stem
+      replace:
+        note: Path.with_stem() — requires Python 3.9+
   verification:
     re_detect: true
   test:

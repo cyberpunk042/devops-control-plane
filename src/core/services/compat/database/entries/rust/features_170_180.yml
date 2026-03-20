@@ -1,15 +1,16 @@
-# Rust 1.70-1.80 features
-
 - id: rust.1_73.thiserror_provide
   language: rust
-  feature_name: "Error::provide (RFC 3192)"
-  introduced: "1.73"
+  feature_name: Error::provide (RFC 3192)
+  introduced: '1.73'
   category: std
-  description: "Custom error context via provide method"
+  description: Custom error context via provide method
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [error, provide, context]
+  tags:
+  - error
+  - provide
+  - context
   detection:
     primary:
       ast_type: method_definition
@@ -17,101 +18,132 @@
         name: provide
         context: impl_Error
   fix:
-    strategy: manual
-    manual_instructions: "Use custom methods for error context."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_definition
+        name: provide
+        context: impl_Error
+      replace:
+        note: Error::provide (RFC 3192) — rust 1.73+
   verification:
     re_detect: true
   test:
-    before: |
-      impl std::error::Error for MyError {
-          fn provide<'a>(&'a self, request: &mut Request<'a>) { ... }
-      }
-    after: |
-      impl std::error::Error for MyError {}
-      impl MyError {
-          fn context(&self) -> &str { ... }
-      }
-
+    before: "impl std::error::Error for MyError {\n    fn provide<'a>(&'a self, request:\
+      \ &mut Request<'a>) { ... }\n}\n"
+    after: "impl std::error::Error for MyError {}\nimpl MyError {\n    fn context(&self)\
+      \ -> &str { ... }\n}\n"
 - id: rust.1_76.arc_unwrap_or_clone
   language: rust
-  feature_name: "Arc::unwrap_or_clone()"
-  introduced: "1.76"
+  feature_name: Arc::unwrap_or_clone()
+  introduced: '1.76'
   category: std
-  description: "Unwrap Arc or clone the inner value"
+  description: Unwrap Arc or clone the inner value
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [arc, unwrap, clone]
+  tags:
+  - arc
+  - unwrap
+  - clone
   detection:
     primary:
       ast_type: method_call_expression
       match:
         method: unwrap_or_clone
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with Arc::try_unwrap + clone:
-        Arc::unwrap_or_clone(arc)
-        → Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_call_expression
+        method: unwrap_or_clone
+      replace:
+        note: Arc::unwrap_or_clone() — rust 1.76+
   verification:
     re_detect: true
   test:
-    before: |
-      let value = Arc::unwrap_or_clone(shared);
-    after: |
-      let value = Arc::try_unwrap(shared).unwrap_or_else(|a| (*a).clone());
+    before: 'let value = Arc::unwrap_or_clone(shared);
 
+      '
+    after: 'let value = Arc::try_unwrap(shared).unwrap_or_else(|a| (*a).clone());
+
+      '
 - id: rust.1_79.inline_const
   language: rust
-  feature_name: "inline const expressions"
-  introduced: "1.79"
+  feature_name: inline const expressions
+  introduced: '1.79'
   category: syntax
-  description: "const { expr } for compile-time evaluation in expressions"
+  description: const { expr } for compile-time evaluation in expressions
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [const, inline, expression]
+  tags:
+  - const
+  - inline
+  - expression
   detection:
     primary:
       ast_type: block
       match:
         has_const_keyword: true
   fix:
-    strategy: manual
-    manual_instructions: "Extract to a named const: const VALUE: Type = expr;"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: block
+        has_const_keyword: true
+      replace:
+        note: inline const expressions — rust 1.79+
   verification:
     re_detect: true
   test:
-    before: |
-      let arr = [0u8; const { 1 << 10 }];
-    after: |
-      const SIZE: usize = 1 << 10;
+    before: 'let arr = [0u8; const { 1 << 10 }];
+
+      '
+    after: 'const SIZE: usize = 1 << 10;
+
       let arr = [0u8; SIZE];
 
+      '
 - id: rust.1_78.diagnostic_on_unimplemented
   language: rust
-  feature_name: "#[diagnostic::on_unimplemented]"
-  introduced: "1.78"
+  feature_name: '#[diagnostic::on_unimplemented]'
+  introduced: '1.78'
   category: syntax
-  description: "Custom error messages for unimplemented trait bounds"
+  description: Custom error messages for unimplemented trait bounds
   direction: downgrade
   severity: warning
   error_type: syntax_error
-  tags: [diagnostic, trait, error_message]
+  tags:
+  - diagnostic
+  - trait
+  - error_message
   detection:
     primary:
       ast_type: attribute
       match:
-        path: "diagnostic::on_unimplemented"
+        path: diagnostic::on_unimplemented
   fix:
-    strategy: manual
-    manual_instructions: "Remove the attribute — error messages will be default."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: attribute
+        path: diagnostic::on_unimplemented
+      replace:
+        note: '#[diagnostic::on_unimplemented] — rust 1.78+'
   verification:
     re_detect: true
   test:
-    before: |
-      #[diagnostic::on_unimplemented(message = "Type must be Printable")]
+    before: '#[diagnostic::on_unimplemented(message = "Type must be Printable")]
+
       trait Printable { fn print(&self); }
-    after: |
-      trait Printable { fn print(&self); }
+
+      '
+    after: 'trait Printable { fn print(&self); }
+
+      '

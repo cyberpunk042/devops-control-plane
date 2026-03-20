@@ -1,169 +1,400 @@
-# Go/PHP/Ruby/Java/C#/TS/Rust/Elixir — final for 800
-
 - id: go.1_21.maps_equal
   language: go
-  feature_name: "maps.Equal()"
-  introduced: "1.21"
+  feature_name: maps.Equal()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [maps, equal]
-  detection: { primary: { ast_type: call_expression, match: { package: maps, function: Equal } } }
-  fix: { strategy: manual, manual_instructions: "Compare maps manually." }
-  verification: { re_detect: true }
-  test: { before: "maps.Equal(m1, m2)\n", after: "// Manual comparison\n" }
+  tags:
+  - maps
+  - equal
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: maps
+        function: Equal
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: maps
+        function: Equal
+      replace:
+        note: maps.Equal() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 'maps.Equal(m1, m2)
 
+      '
+    after: '// Manual comparison
+
+      '
 - id: go.1_22.slices_contains
   language: go
-  feature_name: "slices.Contains()"
-  introduced: "1.21"
+  feature_name: slices.Contains()
+  introduced: '1.21'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: import_error
-  tags: [slices, contains]
-  detection: { primary: { ast_type: call_expression, match: { package: slices, function: Contains } } }
-  fix: { strategy: manual, manual_instructions: "Use a for loop to check." }
-  verification: { re_detect: true }
-  test: { before: "slices.Contains(s, v)\n", after: "// for loop\n" }
+  tags:
+  - slices
+  - contains
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        package: slices
+        function: Contains
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        package: slices
+        function: Contains
+      replace:
+        note: slices.Contains() — go 1.21+
+  verification:
+    re_detect: true
+  test:
+    before: 'slices.Contains(s, v)
 
+      '
+    after: '// for loop
+
+      '
 - id: php.8_1.array_is_list
   language: php
-  feature_name: "array_is_list()"
-  introduced: "8.1"
+  feature_name: array_is_list()
+  introduced: '8.1'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [array, list, function]
-  detection: { primary: { ast_type: function_call_expression, match: { function: array_is_list } } }
-  fix: { strategy: manual, manual_instructions: "function array_is_list($a){return $a===[]||array_keys($a)===range(0,count($a)-1)}" }
-  verification: { re_detect: true }
-  test: { before: "array_is_list($arr)\n", after: "// Manual check\n" }
+  tags:
+  - array
+  - list
+  - function
+  detection:
+    primary:
+      ast_type: function_call_expression
+      match:
+        function: array_is_list
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: function_call_expression
+        function: array_is_list
+      replace:
+        note: array_is_list() — php 8.1+
+  verification:
+    re_detect: true
+  test:
+    before: 'array_is_list($arr)
 
+      '
+    after: '// Manual check
+
+      '
 - id: php.8_2.random_engine
   language: php
-  feature_name: "Random\\Engine interface"
-  introduced: "8.2"
+  feature_name: Random\Engine interface
+  introduced: '8.2'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [random, engine, interface]
-  detection: { primary: { ast_type: qualified_name, match: { name_contains: "Random\\Engine" } } }
-  fix: { strategy: manual, manual_instructions: "Use mt_rand() or random_int()." }
-  verification: { re_detect: true }
-  test: { before: "new Random\\Engine\\Secure()\n", after: "// Use random_int()\n" }
+  tags:
+  - random
+  - engine
+  - interface
+  detection:
+    primary:
+      ast_type: qualified_name
+      match:
+        name_contains: Random\Engine
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: qualified_name
+        name_contains: Random\Engine
+      replace:
+        note: Random\Engine interface — php 8.2+
+  verification:
+    re_detect: true
+  test:
+    before: 'new Random\Engine\Secure()
 
+      '
+    after: '// Use random_int()
+
+      '
 - id: ruby.3_1.syntax_suggest
   language: ruby
-  feature_name: "syntax_suggest gem (bundled)"
-  introduced: "3.1"
+  feature_name: syntax_suggest gem (bundled)
+  introduced: '3.1'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [syntax, suggest, error]
-  detection: { primary: { ast_type: call, match: { function: require } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "require 'syntax_suggest'\n", after: "# Not available\n" }
+  tags:
+  - syntax
+  - suggest
+  - error
+  detection:
+    primary:
+      ast_type: call
+      match:
+        function: require
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'require ''syntax_suggest''
 
+      '
+    after: '# Not available
+
+      '
 - id: ruby.3_2.proc_dup
   language: ruby
-  feature_name: "Proc#dup"
-  introduced: "3.2"
+  feature_name: Proc#dup
+  introduced: '3.2'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [proc, dup, clone]
-  detection: { primary: { ast_type: call, match: { method: dup } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "proc_copy = my_proc.dup\n", after: "proc_copy = my_proc.dup\n" }
+  tags:
+  - proc
+  - dup
+  - clone
+  detection:
+    primary:
+      ast_type: call
+      match:
+        method: dup
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'proc_copy = my_proc.dup
 
+      '
+    after: 'proc_copy = my_proc.dup
+
+      '
 - id: java.17.stream_mapMulti
   language: java
-  feature_name: "Stream.mapMulti()"
-  introduced: "16"
+  feature_name: Stream.mapMulti()
+  introduced: '16'
   category: api
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [stream, mapMulti]
-  detection: { primary: { ast_type: method_invocation, match: { method: mapMulti } } }
-  fix: { strategy: manual, manual_instructions: "Use flatMap instead." }
-  verification: { re_detect: true }
-  test: { before: "stream.mapMulti((s, c) -> { c.accept(s.toUpperCase()); })\n", after: "stream.flatMap(s -> Stream.of(s.toUpperCase()))\n" }
+  tags:
+  - stream
+  - mapMulti
+  detection:
+    primary:
+      ast_type: method_invocation
+      match:
+        method: mapMulti
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_invocation
+        method: mapMulti
+      replace:
+        note: Stream.mapMulti() — java 16+
+  verification:
+    re_detect: true
+  test:
+    before: 'stream.mapMulti((s, c) -> { c.accept(s.toUpperCase()); })
 
+      '
+    after: 'stream.flatMap(s -> Stream.of(s.toUpperCase()))
+
+      '
 - id: csharp.11.generic_attributes
   language: csharp
-  feature_name: "generic attributes"
-  introduced: "11"
+  feature_name: generic attributes
+  introduced: '11'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [generic, attribute, type]
-  detection: { primary: { ast_type: attribute, match: { has_type_argument: true } } }
-  fix: { strategy: manual, manual_instructions: "Use typeof() parameter instead of generic." }
-  verification: { re_detect: true }
-  test: { before: "[Validate<User>]\n", after: "[Validate(typeof(User))]\n" }
+  tags:
+  - generic
+  - attribute
+  - type
+  detection:
+    primary:
+      ast_type: attribute
+      match:
+        has_type_argument: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: attribute
+        has_type_argument: true
+      replace:
+        note: generic attributes — csharp 11+
+  verification:
+    re_detect: true
+  test:
+    before: '[Validate<User>]
 
+      '
+    after: '[Validate(typeof(User))]
+
+      '
 - id: rust.1_59.destructuring_assignment
   language: rust
-  feature_name: "destructuring assignment"
-  introduced: "1.59"
+  feature_name: destructuring assignment
+  introduced: '1.59'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [destructuring, assignment, tuple]
-  detection: { primary: { ast_type: assignment_expression, match: { is_destructuring: true } } }
-  fix: { strategy: manual, manual_instructions: "Use separate assignments." }
-  verification: { re_detect: true }
-  test: { before: "(a, b) = (b, a);\n", after: "let tmp = a; a = b; b = tmp;\n" }
+  tags:
+  - destructuring
+  - assignment
+  - tuple
+  detection:
+    primary:
+      ast_type: assignment_expression
+      match:
+        is_destructuring: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: assignment_expression
+        is_destructuring: true
+      replace:
+        note: destructuring assignment — rust 1.59+
+  verification:
+    re_detect: true
+  test:
+    before: '(a, b) = (b, a);
 
+      '
+    after: 'let tmp = a; a = b; b = tmp;
+
+      '
 - id: elixir.1_13.map_new_from_struct
   language: elixir
-  feature_name: "Map.from_struct improvements"
-  introduced: "1.13"
+  feature_name: Map.from_struct improvements
+  introduced: '1.13'
   category: stdlib
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [map, struct, conversion]
-  detection: { primary: { ast_type: call, match: { module: Map, function: from_struct } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "Map.from_struct(my_struct)\n", after: "Map.from_struct(my_struct)\n" }
+  tags:
+  - map
+  - struct
+  - conversion
+  detection:
+    primary:
+      ast_type: call
+      match:
+        module: Map
+        function: from_struct
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'Map.from_struct(my_struct)
 
+      '
+    after: 'Map.from_struct(my_struct)
+
+      '
 - id: ts.5_0.moduleresolution_bundler
   language: typescript
-  feature_name: "moduleResolution: bundler"
-  introduced: "5.0"
+  feature_name: 'moduleResolution: bundler'
+  introduced: '5.0'
   category: ts5
   direction: downgrade
   severity: warning
   error_type: behavioral_change
-  tags: [module, resolution, bundler]
-  detection: { primary: { ast_type: tsconfig_json, match: { moduleResolution: bundler } } }
-  fix: { strategy: manual, manual_instructions: "Change to node or node16." }
-  verification: { re_detect: true }
-  test: { before: "{ \"moduleResolution\": \"bundler\" }\n", after: "{ \"moduleResolution\": \"node\" }\n" }
+  tags:
+  - module
+  - resolution
+  - bundler
+  detection:
+    primary:
+      ast_type: tsconfig_json
+      match:
+        moduleResolution: bundler
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: tsconfig_json
+        moduleResolution: bundler
+      replace:
+        note: 'moduleResolution: bundler — typescript 5.0+'
+  verification:
+    re_detect: true
+  test:
+    before: '{ "moduleResolution": "bundler" }
 
+      '
+    after: '{ "moduleResolution": "node" }
+
+      '
 - id: ts.5_4.noinfer_type
   language: typescript
-  feature_name: "NoInfer utility type"
-  introduced: "5.4"
+  feature_name: NoInfer utility type
+  introduced: '5.4'
   category: ts5
   direction: downgrade
   severity: warning
   error_type: type_error
-  tags: [noinfer, utility]
-  detection: { primary: { ast_type: type_reference, match: { name: NoInfer } } }
-  fix: { strategy: manual, manual_instructions: "Remove NoInfer wrapper." }
-  verification: { re_detect: true }
-  test: { before: "function f<T>(a: T, b: NoInfer<T>) {}\n", after: "function f<T>(a: T, b: T) {}\n" }
+  tags:
+  - noinfer
+  - utility
+  detection:
+    primary:
+      ast_type: type_reference
+      match:
+        name: NoInfer
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: type_reference
+        name: NoInfer
+      replace:
+        note: NoInfer utility type — typescript 5.4+
+  verification:
+    re_detect: true
+  test:
+    before: 'function f<T>(a: T, b: NoInfer<T>) {}
+
+      '
+    after: 'function f<T>(a: T, b: T) {}
+
+      '

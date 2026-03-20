@@ -1,304 +1,324 @@
-# PHP extended features
-
-# ── PHP 8.0 ──────────────────────────────────────────────────────
-
 - id: php.8_0.nullsafe_operator
   language: php
-  feature_name: "null-safe operator (?->)"
-  introduced: "8.0"
+  feature_name: null-safe operator (?->)
+  introduced: '8.0'
   category: syntax
-  description: "Short-circuit null check on method chains"
+  description: Short-circuit null check on method chains
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [nullsafe, operator, chain]
+  tags:
+  - nullsafe
+  - operator
+  - chain
   detection:
     primary:
       ast_type: nullsafe_member_access_expression
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with explicit null checks:
-        $country = $user?->address?->country;
-        →
-        $country = ($user !== null && $user->address !== null)
-            ? $user->address->country
-            : null;
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: nullsafe_member_access_expression
+      replace:
+        note: null-safe operator (?->) — php 8.0+
   verification:
     re_detect: true
   test:
-    before: |
-      $country = $user?->address?->country;
-    after: |
-      $country = ($user !== null && $user->address !== null) ? $user->address->country : null;
+    before: '$country = $user?->address?->country;
 
+      '
+    after: '$country = ($user !== null && $user->address !== null) ? $user->address->country
+      : null;
+
+      '
 - id: php.8_0.constructor_promotion
   language: php
-  feature_name: "constructor promotion"
-  introduced: "8.0"
+  feature_name: constructor promotion
+  introduced: '8.0'
   category: syntax
-  description: "Declare and assign properties in constructor parameters"
+  description: Declare and assign properties in constructor parameters
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [constructor, promotion, class]
+  tags:
+  - constructor
+  - promotion
+  - class
   detection:
     primary:
       ast_type: property_promotion_parameter
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: |
-      Expand into property declaration + constructor assignment:
-        public function __construct(private string $name, public int $age) {}
-        →
-        private string $name;
-        public int $age;
-        public function __construct(string $name, int $age) {
-            $this->name = $name;
-            $this->age = $age;
-        }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: property_promotion_parameter
+      replace:
+        note: constructor promotion — php 8.0+
   verification:
     re_detect: true
   test:
-    before: |
-      class User {
-          public function __construct(
-              private string $name,
-              public int $age,
-          ) {}
-      }
-    after: |
-      class User {
-          private string $name;
-          public int $age;
-          public function __construct(string $name, int $age) {
-              $this->name = $name;
-              $this->age = $age;
-          }
-      }
-
+    before: "class User {\n    public function __construct(\n        private string\
+      \ $name,\n        public int $age,\n    ) {}\n}\n"
+    after: "class User {\n    private string $name;\n    public int $age;\n    public\
+      \ function __construct(string $name, int $age) {\n        $this->name = $name;\n\
+      \        $this->age = $age;\n    }\n}\n"
 - id: php.8_0.str_functions
   language: php
-  feature_name: "str_contains/str_starts_with/str_ends_with"
-  introduced: "8.0"
+  feature_name: str_contains/str_starts_with/str_ends_with
+  introduced: '8.0'
   category: stdlib
-  description: "New string functions for common operations"
+  description: New string functions for common operations
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [string, functions]
+  tags:
+  - string
+  - functions
   detection:
     primary:
       ast_type: function_call_expression
       match:
-        function_in: [str_contains, str_starts_with, str_ends_with]
+        function_in: &id001
+        - str_contains
+        - str_starts_with
+        - str_ends_with
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with older equivalents:
-        str_contains($h, $n) → strpos($h, $n) !== false
-        str_starts_with($h, $n) → substr($h, 0, strlen($n)) === $n
-        str_ends_with($h, $n) → substr($h, -strlen($n)) === $n
-      Or use symfony/polyfill-php80.
+    strategy: rewrite_expression
     backport:
-      package: "symfony/polyfill-php80"
-      install_command: "composer require symfony/polyfill-php80"
+      package: symfony/polyfill-php80
+      install_command: composer require symfony/polyfill-php80
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: function_call_expression
+        function_in: *id001
+      replace:
+        note: str_contains/str_starts_with/str_ends_with — php 8.0+
   verification:
     re_detect: true
   test:
-    before: |
-      if (str_contains($haystack, $needle)) { found(); }
-    after: |
-      if (strpos($haystack, $needle) !== false) { found(); }
+    before: 'if (str_contains($haystack, $needle)) { found(); }
 
-# ── PHP 8.1 ──────────────────────────────────────────────────────
+      '
+    after: 'if (strpos($haystack, $needle) !== false) { found(); }
 
+      '
 - id: php.8_1.intersection_types
   language: php
-  feature_name: "intersection types (A&B)"
-  introduced: "8.1"
+  feature_name: intersection types (A&B)
+  introduced: '8.1'
   category: syntax
-  description: "Type must satisfy all specified types"
+  description: Type must satisfy all specified types
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [types, intersection, syntax]
+  tags:
+  - types
+  - intersection
+  - syntax
   detection:
     primary:
       ast_type: intersection_type
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Remove intersection type or use PHPDoc @param"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: intersection_type
+      replace:
+        note: intersection types (A&B) — php 8.1+
   verification:
     re_detect: true
   test:
-    before: |
-      function process(Iterator&Countable $items): void { }
-    after: |
-      /** @param Iterator&Countable $items */
+    before: 'function process(Iterator&Countable $items): void { }
+
+      '
+    after: '/** @param Iterator&Countable $items */
+
       function process($items): void { }
 
+      '
 - id: php.8_1.fibers
   language: php
-  feature_name: "Fiber class"
-  introduced: "8.1"
+  feature_name: Fiber class
+  introduced: '8.1'
   category: stdlib
-  description: "Lightweight cooperative concurrency"
+  description: Lightweight cooperative concurrency
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [fiber, async, concurrency]
+  tags:
+  - fiber
+  - async
+  - concurrency
   detection:
     primary:
       ast_type: object_creation_expression
       match:
         class: Fiber
   fix:
-    strategy: manual
-    manual_instructions: "Use generators for cooperative concurrency or ReactPHP for async."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: object_creation_expression
+        class: Fiber
+      replace:
+        note: Fiber class — php 8.1+
   verification:
     re_detect: true
   test:
-    before: |
-      $fiber = new Fiber(function(): void { Fiber::suspend('hello'); });
-    after: |
-      // Use generators or ReactPHP for async patterns
+    before: '$fiber = new Fiber(function(): void { Fiber::suspend(''hello''); });
 
-# ── PHP 8.2 ──────────────────────────────────────────────────────
+      '
+    after: '// Use generators or ReactPHP for async patterns
 
+      '
 - id: php.8_2.readonly_classes
   language: php
-  feature_name: "readonly class"
-  introduced: "8.2"
+  feature_name: readonly class
+  introduced: '8.2'
   category: syntax
-  description: "All properties in a readonly class are implicitly readonly"
+  description: All properties in a readonly class are implicitly readonly
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [readonly, class, syntax]
+  tags:
+  - readonly
+  - class
+  - syntax
   detection:
     primary:
       ast_type: class_declaration
       match:
         modifiers_contains: readonly
   fix:
-    strategy: manual
-    manual_instructions: |
-      Remove readonly from class, add to each property:
-        readonly class Config { public string $name; public int $port; }
-        →
-        class Config { public readonly string $name; public readonly int $port; }
-      Note: readonly properties require PHP 8.1.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: class_declaration
+        modifiers_contains: readonly
+      replace:
+        note: readonly class — php 8.2+
   verification:
     re_detect: true
   test:
-    before: |
-      readonly class Config {
-          public function __construct(public string $name, public int $port) {}
-      }
-    after: |
-      class Config {
-          public function __construct(
-              public readonly string $name,
-              public readonly int $port,
-          ) {}
-      }
-
+    before: "readonly class Config {\n    public function __construct(public string\
+      \ $name, public int $port) {}\n}\n"
+    after: "class Config {\n    public function __construct(\n        public readonly\
+      \ string $name,\n        public readonly int $port,\n    ) {}\n}\n"
 - id: php.8_2.true_false_null_types
   language: php
-  feature_name: "true/false/null standalone types"
-  introduced: "8.2"
+  feature_name: true/false/null standalone types
+  introduced: '8.2'
   category: syntax
-  description: "Use true, false, null as standalone type declarations"
+  description: Use true, false, null as standalone type declarations
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [types, standalone, syntax]
+  tags:
+  - types
+  - standalone
+  - syntax
   detection:
     primary:
       ast_type: named_type
       match:
-        name_in: [true, false, "null"]
+        name_in: &id002
+        - true
+        - false
+        - 'null'
         context: type_declaration
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with bool or union type:
-        function isEnabled(): true { return true; }
-        → function isEnabled(): bool { return true; }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: named_type
+        name_in: *id002
+        context: type_declaration
+      replace:
+        note: true/false/null standalone types — php 8.2+
   verification:
     re_detect: true
   test:
-    before: |
-      function alwaysTrue(): true { return true; }
-    after: |
-      function alwaysTrue(): bool { return true; }
+    before: 'function alwaysTrue(): true { return true; }
 
-# ── PHP 8.3 ──────────────────────────────────────────────────────
+      '
+    after: 'function alwaysTrue(): bool { return true; }
 
+      '
 - id: php.8_3.typed_constants
   language: php
-  feature_name: "typed class constants"
-  introduced: "8.3"
+  feature_name: typed class constants
+  introduced: '8.3'
   category: syntax
-  description: "Type declarations on class constants"
+  description: Type declarations on class constants
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [constants, types, class]
+  tags:
+  - constants
+  - types
+  - class
   detection:
     primary:
       ast_type: const_declaration
       match:
         has_type: true
   fix:
-    strategy: manual
-    manual_instructions: "Remove the type declaration from the constant."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: const_declaration
+        has_type: true
+      replace:
+        note: typed class constants — php 8.3+
   verification:
     re_detect: true
   test:
-    before: |
-      class Config {
-          const string VERSION = '1.0.0';
-      }
-    after: |
-      class Config {
-          const VERSION = '1.0.0';
-      }
-
+    before: "class Config {\n    const string VERSION = '1.0.0';\n}\n"
+    after: "class Config {\n    const VERSION = '1.0.0';\n}\n"
 - id: php.8_3.override_attribute
   language: php
-  feature_name: "#[Override] attribute"
-  introduced: "8.3"
+  feature_name: '#[Override] attribute'
+  introduced: '8.3'
   category: syntax
-  description: "Explicitly declare a method overrides a parent method"
+  description: Explicitly declare a method overrides a parent method
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [override, attribute, method]
+  tags:
+  - override
+  - attribute
+  - method
   detection:
     primary:
       ast_type: attribute
       match:
         name: Override
   fix:
-    strategy: manual
-    manual_instructions: "Remove the #[Override] attribute. Use PHPDoc @override instead."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: attribute
+        name: Override
+      replace:
+        note: '#[Override] attribute — php 8.3+'
   verification:
     re_detect: true
   test:
-    before: |
-      class Child extends Parent {
-          #[Override]
-          public function method(): void {}
-      }
-    after: |
-      class Child extends Parent {
-          /** @override */
-          public function method(): void {}
-      }
+    before: "class Child extends Parent {\n    #[Override]\n    public function method():\
+      \ void {}\n}\n"
+    after: "class Child extends Parent {\n    /** @override */\n    public function\
+      \ method(): void {}\n}\n"

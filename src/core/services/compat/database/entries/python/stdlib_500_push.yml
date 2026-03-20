@@ -104,10 +104,14 @@
         module: asyncio
         names_contains: to_thread
   fix:
-    strategy: manual
-    manual_instructions: "Use loop.run_in_executor():\n  await asyncio.to_thread(blocking_func,\
-      \ arg)\n  → loop = asyncio.get_event_loop()\n    await loop.run_in_executor(None,\
-      \ blocking_func, arg)\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: to_thread
+      replace:
+        try_import: '# asyncio.to_thread() — Python 3.9+'
+        except_import: 'pass  # to_thread not available in older Python'
   verification:
     re_detect: true
   test:
@@ -183,8 +187,13 @@
         func_attr: compile
         func_value_id: re
   fix:
-    strategy: manual
-    manual_instructions: 'Remove possessive quantifiers: *+ → *, ++ → +, ?+ → ?'
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: compile
+      replace:
+        note: regex possessive quantifiers — requires Python 3.11+
   verification:
     re_detect: false
   test:
@@ -243,9 +252,13 @@
       match:
         func_id: reveal_type
   fix:
-    strategy: manual
-    manual_instructions: 'Remove reveal_type calls or define: def reveal_type(x):
-      return x'
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        function: reveal_type
+      replace:
+        note: reveal_type builtin (3.11) — requires Python 3.11+
   verification:
     re_detect: true
   test:
@@ -280,8 +293,14 @@
         module: inspect
         names_contains: get_annotations
   fix:
-    strategy: manual
-    manual_instructions: Use typing.get_type_hints() or obj.__annotations__.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: get_annotations
+      replace:
+        try_import: '# inspect.get_annotations() — Python 3.10+'
+        except_import: 'pass  # get_annotations not available in older Python'
   verification:
     re_detect: true
   test:

@@ -1,43 +1,54 @@
-# Web platform APIs commonly used in Node.js
-
 - id: js.web.urlpattern
   language: javascript
-  feature_name: "URLPattern"
-  introduced: "ES2024"
+  feature_name: URLPattern
+  introduced: ES2024
   category: node_api
-  description: "Pattern matching for URLs"
+  description: Pattern matching for URLs
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [url, pattern, routing]
+  tags:
+  - url
+  - pattern
+  - routing
   detection:
     primary:
       ast_type: new_expression
       match:
         constructor: URLPattern
   fix:
-    strategy: manual
-    manual_instructions: "Use path-to-regexp or URL parsing with regex."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor: URLPattern
+      replace:
+        note: URLPattern — javascript ES2024+
   verification:
     re_detect: true
   test:
-    before: |
-      const pattern = new URLPattern({ pathname: '/users/:id' });
-    after: |
-      const { pathToRegexp } = require('path-to-regexp');
+    before: 'const pattern = new URLPattern({ pathname: ''/users/:id'' });
 
+      '
+    after: 'const { pathToRegexp } = require(''path-to-regexp'');
+
+      '
 - id: js.web.url_canparse
   language: javascript
-  feature_name: "URL.canParse()"
-  introduced: "ES2024"
+  feature_name: URL.canParse()
+  introduced: ES2024
   category: node_api
-  description: "Check if string is a valid URL without throwing"
+  description: Check if string is a valid URL without throwing
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [url, validation, parse]
+  tags:
+  - url
+  - validation
+  - parse
   detection:
     primary:
       ast_type: call_expression
@@ -45,30 +56,40 @@
         object: URL
         method: canParse
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use try/catch:
-        URL.canParse(str)
-        → (() => { try { new URL(str); return true; } catch { return false; } })()
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: URL
+        method: canParse
+      replace:
+        note: URL.canParse() — javascript ES2024+
   verification:
     re_detect: true
   test:
-    before: |
-      if (URL.canParse(input)) { process(new URL(input)); }
-    after: |
-      let isValid; try { new URL(input); isValid = true; } catch { isValid = false; }
+    before: 'if (URL.canParse(input)) { process(new URL(input)); }
+
+      '
+    after: 'let isValid; try { new URL(input); isValid = true; } catch { isValid =
+      false; }
+
       if (isValid) { process(new URL(input)); }
 
+      '
 - id: js.web.navigator_useragentdata
   language: javascript
-  feature_name: "navigator.userAgentData"
-  introduced: "ES2022"
+  feature_name: navigator.userAgentData
+  introduced: ES2022
   category: node_api
-  description: "Structured user agent information"
+  description: Structured user agent information
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [navigator, useragent, browser]
+  tags:
+  - navigator
+  - useragent
+  - browser
   detection:
     primary:
       ast_type: member_expression
@@ -76,131 +97,179 @@
         object: navigator
         property: userAgentData
   fix:
-    strategy: manual
-    manual_instructions: "Use navigator.userAgent string parsing."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: member_expression
+        object: navigator
+        property: userAgentData
+      replace:
+        note: navigator.userAgentData — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      const mobile = navigator.userAgentData.mobile;
-    after: |
-      const mobile = /Mobile|Android/.test(navigator.userAgent);
+    before: 'const mobile = navigator.userAgentData.mobile;
 
+      '
+    after: 'const mobile = /Mobile|Android/.test(navigator.userAgent);
+
+      '
 - id: js.web.compression_streams
   language: javascript
-  feature_name: "CompressionStream/DecompressionStream"
-  introduced: "ES2022"
+  feature_name: CompressionStream/DecompressionStream
+  introduced: ES2022
   category: node_api
-  description: "Built-in compression using streams"
+  description: Built-in compression using streams
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [compression, stream, gzip]
+  tags:
+  - compression
+  - stream
+  - gzip
   detection:
     primary:
       ast_type: new_expression
       match:
-        constructor_in: [CompressionStream, DecompressionStream]
+        constructor_in: &id001
+        - CompressionStream
+        - DecompressionStream
   fix:
-    strategy: manual
-    manual_instructions: "Use zlib module (Node.js) or pako library (browser)."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor_in: *id001
+      replace:
+        note: CompressionStream/DecompressionStream — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      const cs = new CompressionStream('gzip');
-    after: |
-      const zlib = require('zlib');
+    before: 'const cs = new CompressionStream(''gzip'');
 
+      '
+    after: 'const zlib = require(''zlib'');
+
+      '
 - id: js.web.readable_stream
   language: javascript
-  feature_name: "ReadableStream (global)"
-  introduced: "ES2022"
+  feature_name: ReadableStream (global)
+  introduced: ES2022
   category: node_api
-  description: "Web Streams API globally available"
+  description: Web Streams API globally available
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [stream, readable, web]
+  tags:
+  - stream
+  - readable
+  - web
   detection:
     primary:
       ast_type: new_expression
       match:
         constructor: ReadableStream
   fix:
-    strategy: manual
-    manual_instructions: "Use Node.js Readable stream or web-streams-polyfill."
+    strategy: rewrite_expression
     backport:
       package: web-streams-polyfill
-      install_command: "npm install web-streams-polyfill"
+      install_command: npm install web-streams-polyfill
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor: ReadableStream
+      replace:
+        note: ReadableStream (global) — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      const stream = new ReadableStream({ pull(controller) { ... } });
-    after: |
-      const { Readable } = require('stream');
+    before: 'const stream = new ReadableStream({ pull(controller) { ... } });
 
+      '
+    after: 'const { Readable } = require(''stream'');
+
+      '
 - id: js.web.crypto_randomuuid
   language: javascript
-  feature_name: "crypto.randomUUID()"
-  introduced: "ES2022"
+  feature_name: crypto.randomUUID()
+  introduced: ES2022
   category: node_api
-  description: "Generate UUID v4"
+  description: Generate UUID v4
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [crypto, uuid, random]
+  tags:
+  - crypto
+  - uuid
+  - random
   detection:
     primary:
       ast_type: call_expression
       match:
         method: randomUUID
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use uuid package:
-        npm install uuid
-        const { v4: uuidv4 } = require('uuid');
-        const id = uuidv4();
+    strategy: rewrite_expression
     backport:
       package: uuid
-      install_command: "npm install uuid"
+      install_command: npm install uuid
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: randomUUID
+      replace:
+        note: crypto.randomUUID() — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      const id = crypto.randomUUID();
-    after: |
-      const { v4: uuidv4 } = require('uuid');
+    before: 'const id = crypto.randomUUID();
+
+      '
+    after: 'const { v4: uuidv4 } = require(''uuid'');
+
       const id = uuidv4();
 
+      '
 - id: js.web.at_method_string
   language: javascript
-  feature_name: "String.prototype.at()"
-  introduced: "ES2022"
+  feature_name: String.prototype.at()
+  introduced: ES2022
   category: es2022
-  description: "Access string characters with negative indices"
+  description: Access string characters with negative indices
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [string, at, method]
+  tags:
+  - string
+  - at
+  - method
   detection:
     primary:
       ast_type: call_expression
       match:
         method: at
   fix:
-    strategy: manual
-    manual_instructions: "Use charAt with length calculation for negative indices."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: at
+      replace:
+        note: String.prototype.at() — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      const last = str.at(-1);
-    after: |
-      const last = str.charAt(str.length - 1);
+    before: 'const last = str.at(-1);
+
+      '
+    after: 'const last = str.charAt(str.length - 1);
+
+      '

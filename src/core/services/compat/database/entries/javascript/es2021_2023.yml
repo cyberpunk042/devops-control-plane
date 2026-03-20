@@ -1,55 +1,68 @@
-# JavaScript ES2021–ES2023 features
-
-# ── ES2021 ───────────────────────────────────────────────────────
-
 - id: js.es2021.logical_assignment
   language: javascript
-  feature_name: "logical assignment (&&=, ||=, ??=)"
-  introduced: "ES2021"
+  feature_name: logical assignment (&&=, ||=, ??=)
+  introduced: ES2021
   category: es2021
-  description: "Logical assignment operators"
+  description: Logical assignment operators
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [operator, assignment]
+  tags:
+  - operator
+  - assignment
   detection:
     primary:
       ast_type: assignment_expression
       match:
-        operator_in: ["&&=", "||=", "??="]
+        operator_in:
+        - '&&='
+        - '||='
+        - ??=
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_logical_assignment
-        find:
-          operator_in: ["&&=", "||=", "??="]
-        replace:
-          template_and: "{left} = {left} && {right}"
-          template_or: "{left} = {left} || {right}"
-          template_nullish: "{left} = ({left} !== null && {left} !== undefined) ? {left} : {right}"
+    - type: rewrite_logical_assignment
+      find:
+        operator_in:
+        - '&&='
+        - '||='
+        - ??=
+      replace:
+        template_and: '{left} = {left} && {right}'
+        template_or: '{left} = {left} || {right}'
+        template_nullish: '{left} = ({left} !== null && {left} !== undefined) ? {left}
+          : {right}'
   verification:
     re_detect: true
   test:
-    before: |
-      config.debug &&= isDevMode();
-      config.name ||= 'default';
-      config.timeout ??= 3000;
-    after: |
-      config.debug = config.debug && isDevMode();
-      config.name = config.name || 'default';
-      config.timeout = (config.timeout !== null && config.timeout !== undefined) ? config.timeout : 3000;
+    before: 'config.debug &&= isDevMode();
 
+      config.name ||= ''default'';
+
+      config.timeout ??= 3000;
+
+      '
+    after: 'config.debug = config.debug && isDevMode();
+
+      config.name = config.name || ''default'';
+
+      config.timeout = (config.timeout !== null && config.timeout !== undefined) ?
+      config.timeout : 3000;
+
+      '
 - id: js.es2021.replaceall
   language: javascript
-  feature_name: "String.prototype.replaceAll()"
-  introduced: "ES2021"
+  feature_name: String.prototype.replaceAll()
+  introduced: ES2021
   category: es2021
-  description: "Replace all occurrences of a string"
+  description: Replace all occurrences of a string
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [string, method]
+  tags:
+  - string
+  - method
   detection:
     primary:
       ast_type: call_expression
@@ -58,30 +71,33 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_method_call
-        find:
-          method: replaceAll
-        replace:
-          template: "{receiver}.split({arg}).join({arg2})"
+    - type: rewrite_method_call
+      find:
+        method: replaceAll
+      replace:
+        template: '{receiver}.split({arg}).join({arg2})'
   verification:
     re_detect: true
   test:
-    before: |
-      const clean = input.replaceAll('-', '_');
-    after: |
-      const clean = input.split('-').join('_');
+    before: 'const clean = input.replaceAll(''-'', ''_'');
 
+      '
+    after: 'const clean = input.split(''-'').join(''_'');
+
+      '
 - id: js.es2021.promise_any
   language: javascript
-  feature_name: "Promise.any()"
-  introduced: "ES2021"
+  feature_name: Promise.any()
+  introduced: ES2021
   category: es2021
-  description: "Resolves when any promise resolves, rejects when all reject"
+  description: Resolves when any promise resolves, rejects when all reject
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [promise, async]
+  tags:
+  - promise
+  - async
   detection:
     primary:
       ast_type: call_expression
@@ -89,106 +105,108 @@
         object: Promise
         method: any
   fix:
-    strategy: manual
-    manual_instructions: |
-      No simple polyfill. Use a library like core-js or implement:
-        Promise.any = Promise.any || function(promises) {
-          return new Promise((resolve, reject) => {
-            let errors = [];
-            let pending = promises.length;
-            promises.forEach((p, i) => {
-              Promise.resolve(p).then(resolve, (err) => {
-                errors[i] = err;
-                if (--pending === 0) reject(new AggregateError(errors));
-              });
-            });
-          });
-        };
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Promise
+        method: any
+      replace:
+        note: Promise.any() — javascript ES2021+
   verification:
     re_detect: true
   test:
-    before: |
-      const first = await Promise.any([fetch(url1), fetch(url2)]);
-    after: |
-      const first = await Promise.any([fetch(url1), fetch(url2)]);
+    before: 'const first = await Promise.any([fetch(url1), fetch(url2)]);
 
+      '
+    after: 'const first = await Promise.any([fetch(url1), fetch(url2)]);
+
+      '
 - id: js.es2021.weakref
   language: javascript
-  feature_name: "WeakRef"
-  introduced: "ES2021"
+  feature_name: WeakRef
+  introduced: ES2021
   category: es2021
-  description: "Weak references to objects"
+  description: Weak references to objects
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [memory, weakref]
+  tags:
+  - memory
+  - weakref
   detection:
     primary:
       ast_type: new_expression
       match:
         constructor: WeakRef
   fix:
-    strategy: manual
-    manual_instructions: "No polyfill — WeakRef requires engine support. Redesign to avoid weak references."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor: WeakRef
+      replace:
+        note: WeakRef — javascript ES2021+
   verification:
     re_detect: true
   test:
-    before: |
-      const ref = new WeakRef(target);
-    after: |
-      const ref = new WeakRef(target);
+    before: 'const ref = new WeakRef(target);
 
-# ── ES2022 ───────────────────────────────────────────────────────
+      '
+    after: 'const ref = new WeakRef(target);
 
+      '
 - id: js.es2022.top_level_await
   language: javascript
-  feature_name: "top-level await"
-  introduced: "ES2022"
+  feature_name: top-level await
+  introduced: ES2022
   category: es2022
-  description: "await at module top level without wrapping in async function"
+  description: await at module top level without wrapping in async function
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [async, await, module]
+  tags:
+  - async
+  - await
+  - module
   detection:
     primary:
       ast_type: await_expression
       context: module_level
   fix:
-    strategy: manual
-    manual_instructions: |
-      Wrap in an async IIFE:
-        const data = await fetch(url);
-        →
-        (async () => {
-          const data = await fetch(url);
-        })();
-      Note: this changes the module's timing behavior.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: await_expression
+      replace:
+        note: top-level await — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      const config = await loadConfig();
-      export default config;
-    after: |
-      let config;
-      (async () => {
-        config = await loadConfig();
-      })();
+    before: 'const config = await loadConfig();
+
       export default config;
 
+      '
+    after: "let config;\n(async () => {\n  config = await loadConfig();\n})();\nexport\
+      \ default config;\n"
 - id: js.es2022.array_at
   language: javascript
-  feature_name: "Array.prototype.at()"
-  introduced: "ES2022"
+  feature_name: Array.prototype.at()
+  introduced: ES2022
   category: es2022
-  description: "Access array elements with negative indices"
+  description: Access array elements with negative indices
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [array, method]
+  tags:
+  - array
+  - method
   detection:
     primary:
       ast_type: call_expression
@@ -197,150 +215,178 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_method_call
-        find:
-          method: at
-        replace:
-          template: "{receiver}[{arg} < 0 ? {receiver}.length + {arg} : {arg}]"
+    - type: rewrite_method_call
+      find:
+        method: at
+      replace:
+        template: '{receiver}[{arg} < 0 ? {receiver}.length + {arg} : {arg}]'
   verification:
     re_detect: true
   test:
-    before: |
-      const last = arr.at(-1);
-    after: |
-      const last = arr[-1 < 0 ? arr.length + -1 : -1];
+    before: 'const last = arr.at(-1);
 
+      '
+    after: 'const last = arr[-1 < 0 ? arr.length + -1 : -1];
+
+      '
 - id: js.es2022.error_cause
   language: javascript
-  feature_name: "Error cause"
-  introduced: "ES2022"
+  feature_name: Error cause
+  introduced: ES2022
   category: es2022
-  description: "Pass cause option when creating errors"
+  description: Pass cause option when creating errors
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [error, cause]
+  tags:
+  - error
+  - cause
   detection:
     primary:
       ast_type: new_expression
       match:
-        constructor_in: [Error, TypeError, RangeError, SyntaxError, ReferenceError]
+        constructor_in: &id001
+        - Error
+        - TypeError
+        - RangeError
+        - SyntaxError
+        - ReferenceError
         has_options_arg: true
   fix:
-    strategy: manual
-    manual_instructions: |
-      Remove the cause option:
-        throw new Error("msg", { cause: err });
-        →
-        const wrapped = new Error("msg");
-        wrapped.cause = err;  // manual property
-        throw wrapped;
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor_in: *id001
+        has_options_arg: true
+      replace:
+        note: Error cause — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      throw new Error("Failed", { cause: originalError });
-    after: |
-      const err = new Error("Failed");
+    before: 'throw new Error("Failed", { cause: originalError });
+
+      '
+    after: 'const err = new Error("Failed");
+
       err.cause = originalError;
+
       throw err;
 
+      '
 - id: js.es2022.class_static_block
   language: javascript
-  feature_name: "class static initialization block"
-  introduced: "ES2022"
+  feature_name: class static initialization block
+  introduced: ES2022
   category: es2022
-  description: "static { } block in class body for complex initialization"
+  description: static { } block in class body for complex initialization
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [class, static, initialization]
+  tags:
+  - class
+  - static
+  - initialization
   detection:
     primary:
       ast_type: static_block
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Move static initialization to after the class declaration."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: static_block
+      replace:
+        note: class static initialization block — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      class Config {
-        static debug;
-        static { Config.debug = process.env.DEBUG === 'true'; }
-      }
-    after: |
-      class Config {
-        static debug;
-      }
-      Config.debug = process.env.DEBUG === 'true';
-
-# ── ES2023 ───────────────────────────────────────────────────────
-
+    before: "class Config {\n  static debug;\n  static { Config.debug = process.env.DEBUG\
+      \ === 'true'; }\n}\n"
+    after: "class Config {\n  static debug;\n}\nConfig.debug = process.env.DEBUG ===\
+      \ 'true';\n"
 - id: js.es2023.findlast
   language: javascript
-  feature_name: "Array.prototype.findLast()"
-  introduced: "ES2023"
+  feature_name: Array.prototype.findLast()
+  introduced: ES2023
   category: es2023
-  description: "Find the last matching element in an array"
+  description: Find the last matching element in an array
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [array, method, search]
+  tags:
+  - array
+  - method
+  - search
   detection:
     primary:
       ast_type: call_expression
       match:
-        method_in: [findLast, findLastIndex]
+        method_in: &id002
+        - findLast
+        - findLastIndex
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with spread + reverse + find:
-        arr.findLast(fn)       → [...arr].reverse().find(fn)
-        arr.findLastIndex(fn)  → arr.length - 1 - [...arr].reverse().findIndex(fn)
-      Or use a for loop counting down.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id002
+      replace:
+        note: Array.prototype.findLast() — javascript ES2023+
   verification:
     re_detect: true
   test:
-    before: |
-      const lastEven = numbers.findLast(n => n % 2 === 0);
-    after: |
-      const lastEven = [...numbers].reverse().find(n => n % 2 === 0);
+    before: 'const lastEven = numbers.findLast(n => n % 2 === 0);
 
+      '
+    after: 'const lastEven = [...numbers].reverse().find(n => n % 2 === 0);
+
+      '
 - id: js.es2023.change_array_by_copy
   language: javascript
-  feature_name: "toSorted/toReversed/toSpliced/with"
-  introduced: "ES2023"
+  feature_name: toSorted/toReversed/toSpliced/with
+  introduced: ES2023
   category: es2023
-  description: "Non-mutating array methods"
+  description: Non-mutating array methods
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [array, method, immutable]
+  tags:
+  - array
+  - method
+  - immutable
   detection:
     primary:
       ast_type: call_expression
       match:
-        method_in: [toSorted, toReversed, toSpliced]
+        method_in: &id003
+        - toSorted
+        - toReversed
+        - toSpliced
     alternatives:
-      - ast_type: call_expression
-        match:
-          method: with
+    - ast_type: call_expression
+      match:
+        method: with
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with spread + mutating method:
-        arr.toSorted()    → [...arr].sort()
-        arr.toReversed()  → [...arr].reverse()
-        arr.toSpliced(i, n, ...items) → (() => { const a = [...arr]; a.splice(i, n, ...items); return a; })()
-        arr.with(i, val)  → arr.map((v, j) => j === i ? val : v)
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id003
+      replace:
+        note: toSorted/toReversed/toSpliced/with — javascript ES2023+
   verification:
     re_detect: true
   test:
-    before: |
-      const sorted = data.toSorted((a, b) => a - b);
-    after: |
-      const sorted = [...data].sort((a, b) => a - b);
+    before: 'const sorted = data.toSorted((a, b) => a - b);
+
+      '
+    after: 'const sorted = [...data].sort((a, b) => a - b);
+
+      '

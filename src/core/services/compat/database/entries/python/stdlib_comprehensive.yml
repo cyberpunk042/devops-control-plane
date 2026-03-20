@@ -23,8 +23,14 @@
         module: calendar
         names_contains: Day
   fix:
-    strategy: manual
-    manual_instructions: Use integer constants instead (calendar.JANUARY = 1, etc.)
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: Month
+      replace:
+        try_import: '# calendar.Month/Day enums — requires Python 3.12+'
+        except_import: 'pass  # calendar.Month/Day enums not available'
   verification:
     re_detect: true
   test:
@@ -58,8 +64,13 @@
         has_keyword: strict
         func_value_id: csv
   fix:
-    strategy: manual
-    manual_instructions: Remove strict=True parameter from csv.reader()
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: reader
+      replace:
+        note: csv strict mode — requires Python 3.12+
   verification:
     re_detect: false
   test:
@@ -93,9 +104,14 @@
         module: asyncio
         names_contains: Runner
   fix:
-    strategy: manual
-    manual_instructions: "Replace with asyncio.run() or manual event loop:\n  with\
-      \ asyncio.Runner() as runner:\n      runner.run(main())\n  → asyncio.run(main())\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: Runner
+      replace:
+        try_import: from asyncio import Runner
+        except_import: 'pass  # No backport for Runner'
   verification:
     re_detect: true
   test:
@@ -126,11 +142,14 @@
         module: contextlib
         names_contains: chdir
   fix:
-    strategy: manual
-    manual_instructions: "Replace with manual chdir:\n  import os\n  from contextlib\
-      \ import contextmanager\n  @contextmanager\n  def chdir(path):\n      old =\
-      \ os.getcwd()\n      try:\n          os.chdir(path)\n          yield\n     \
-      \ finally:\n          os.chdir(old)\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: chdir
+      replace:
+        try_import: '# contextlib.chdir — requires Python 3.11+'
+        except_import: 'pass  # contextlib.chdir not available'
   verification:
     re_detect: true
   test:
@@ -156,8 +175,14 @@
         module: enum
         names_contains: show_flag_values
   fix:
-    strategy: manual
-    manual_instructions: Remove show_flag_values — use custom __repr__ instead.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: show_flag_values
+      replace:
+        try_import: '# enum.show_flag_values — requires Python 3.11+'
+        except_import: 'pass  # enum.show_flag_values not available'
   verification:
     re_detect: true
   test:
@@ -234,10 +259,14 @@
         module: contextlib
         names_contains: aclosing
   fix:
-    strategy: manual
-    manual_instructions: "Implement manually:\n  @asynccontextmanager\n  async def\
-      \ aclosing(thing):\n      try:\n          yield thing\n      finally:\n    \
-      \      await thing.aclose()\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: aclosing
+      replace:
+        try_import: '# contextlib.aclosing — requires Python 3.10+'
+        except_import: 'pass  # contextlib.aclosing not available'
   verification:
     re_detect: true
   test:
@@ -267,9 +296,14 @@
         module: functools
         names_contains: cache
   fix:
-    strategy: manual
-    manual_instructions: "Replace with lru_cache(maxsize=None):\n  from functools\
-      \ import cache → from functools import lru_cache\n  @cache → @lru_cache(maxsize=None)\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: cache
+      replace:
+        try_import: from functools import cache
+        except_import: from functools import lru_cache; cache = lru_cache(maxsize=None)
   verification:
     re_detect: true
   test:
@@ -361,8 +395,14 @@
         value_id: os
         attr: pidfd_open
   fix:
-    strategy: manual
-    manual_instructions: Use os.waitpid() or subprocess module instead.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: pidfd_open
+      replace:
+        try_import: '# os.pidfd_open() — Python 3.9+'
+        except_import: 'pass  # pidfd_open not available in older Python'
   verification:
     re_detect: true
   test:

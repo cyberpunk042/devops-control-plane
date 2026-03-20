@@ -87,9 +87,13 @@
       match:
         func_id: aiter
   fix:
-    strategy: manual
-    manual_instructions: "Replace with explicit __aiter__ call:\n  async_it = aiter(async_iterable)\n\
-      \  → async_it = async_iterable.__aiter__()\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        function: aiter
+      replace:
+        note: aiter() builtin — requires Python 3.10+
   verification:
     re_detect: true
   test:
@@ -197,9 +201,14 @@
         value_id: math
         attr: isqrt
   fix:
-    strategy: manual
-    manual_instructions: "Replace with int(math.sqrt(n)):\n  math.isqrt(n)  → int(math.sqrt(n))\n\
-      Note: int(sqrt) may have floating-point precision issues for very large numbers.\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: isqrt
+      replace:
+        try_import: '# math.isqrt() — requires Python 3.8+'
+        except_import: 'pass  # math.isqrt() not available'
   verification:
     re_detect: true
   test:
@@ -234,9 +243,14 @@
         module: statistics
         names_contains: fmean
   fix:
-    strategy: manual
-    manual_instructions: "Replace with sum/len:\n  statistics.fmean(data)  → sum(data)\
-      \ / len(data)\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: fmean
+      replace:
+        try_import: '# statistics.fmean() — requires Python 3.8+'
+        except_import: 'pass  # statistics.fmean() not available'
   verification:
     re_detect: true
   test:

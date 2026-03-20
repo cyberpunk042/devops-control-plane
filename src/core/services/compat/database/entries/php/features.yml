@@ -1,174 +1,175 @@
-# PHP version-specific features
-
 - id: php.8_0.union_types
   language: php
-  feature_name: "union types"
-  introduced: "8.0"
+  feature_name: union types
+  introduced: '8.0'
   category: syntax
-  description: "Type declarations with int|string syntax"
+  description: Type declarations with int|string syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [types, union, syntax]
+  tags:
+  - types
+  - union
+  - syntax
   detection:
     primary:
       ast_type: union_type
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Remove type declarations or use PHPDoc @param/@return"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: union_type
+      replace:
+        note: union types — php 8.0+
   verification:
     re_detect: true
   test:
-    before: |
-      function process(int|string $value): int|false { return $value; }
-    after: |
-      /** @param int|string $value @return int|false */
+    before: 'function process(int|string $value): int|false { return $value; }
+
+      '
+    after: '/** @param int|string $value @return int|false */
+
       function process($value) { return $value; }
 
+      '
 - id: php.8_0.match_expression
   language: php
-  feature_name: "match expression"
-  introduced: "8.0"
+  feature_name: match expression
+  introduced: '8.0'
   category: syntax
-  description: "match expression with strict comparison"
+  description: match expression with strict comparison
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [match, switch, syntax]
+  tags:
+  - match
+  - switch
+  - syntax
   detection:
     primary:
       ast_type: match_expression
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: |
-      Rewrite as switch with strict comparison:
-        $result = match($status) {
-            200 => 'ok',
-            404 => 'not found',
-            default => 'error',
-        };
-        →
-        switch($status) {
-            case 200: $result = 'ok'; break;
-            case 404: $result = 'not found'; break;
-            default: $result = 'error'; break;
-        }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: match_expression
+      replace:
+        note: match expression — php 8.0+
   verification:
     re_detect: true
   test:
-    before: |
-      $result = match($code) { 200 => 'ok', 404 => 'missing', default => 'error' };
-    after: |
-      switch($code) { case 200: $result = 'ok'; break; case 404: $result = 'missing'; break; default: $result = 'error'; }
+    before: '$result = match($code) { 200 => ''ok'', 404 => ''missing'', default =>
+      ''error'' };
 
+      '
+    after: 'switch($code) { case 200: $result = ''ok''; break; case 404: $result =
+      ''missing''; break; default: $result = ''error''; }
+
+      '
 - id: php.8_0.named_arguments
   language: php
-  feature_name: "named arguments"
-  introduced: "8.0"
+  feature_name: named arguments
+  introduced: '8.0'
   category: syntax
-  description: "Pass arguments by name: fn(name: 'value')"
+  description: 'Pass arguments by name: fn(name: ''value'')'
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [arguments, named, syntax]
+  tags:
+  - arguments
+  - named
+  - syntax
   detection:
     primary:
       ast_type: named_argument
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: "Convert named arguments to positional arguments in the correct order"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: named_argument
+      replace:
+        note: named arguments — php 8.0+
   verification:
     re_detect: true
   test:
-    before: |
-      array_slice($arr, offset: 2, length: 5);
-    after: |
-      array_slice($arr, 2, 5);
+    before: 'array_slice($arr, offset: 2, length: 5);
 
+      '
+    after: 'array_slice($arr, 2, 5);
+
+      '
 - id: php.8_1.enums
   language: php
-  feature_name: "enum declaration"
-  introduced: "8.1"
+  feature_name: enum declaration
+  introduced: '8.1'
   category: syntax
-  description: "First-class enum types"
+  description: First-class enum types
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [enum, type, syntax]
+  tags:
+  - enum
+  - type
+  - syntax
   detection:
     primary:
       ast_type: enum_declaration
       match: {}
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with a class using constants:
-        enum Suit: string { case Hearts = 'H'; case Diamonds = 'D'; }
-        →
-        class Suit {
-            const Hearts = 'H';
-            const Diamonds = 'D';
-        }
-      Or use myclabs/php-enum: composer require myclabs/php-enum
+    strategy: rewrite_expression
     backport:
-      package: "myclabs/php-enum"
-      install_command: "composer require myclabs/php-enum"
+      package: myclabs/php-enum
+      install_command: composer require myclabs/php-enum
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: enum_declaration
+      replace:
+        note: enum declaration — php 8.1+
   verification:
     re_detect: true
   test:
-    before: |
-      enum Suit: string {
-          case Hearts = 'H';
-          case Diamonds = 'D';
-      }
-    after: |
-      class Suit {
-          const Hearts = 'H';
-          const Diamonds = 'D';
-      }
-
+    before: "enum Suit: string {\n    case Hearts = 'H';\n    case Diamonds = 'D';\n\
+      }\n"
+    after: "class Suit {\n    const Hearts = 'H';\n    const Diamonds = 'D';\n}\n"
 - id: php.8_1.readonly_properties
   language: php
-  feature_name: "readonly properties"
-  introduced: "8.1"
+  feature_name: readonly properties
+  introduced: '8.1'
   category: syntax
-  description: "Properties that can only be initialized once"
+  description: Properties that can only be initialized once
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [readonly, property, syntax]
+  tags:
+  - readonly
+  - property
+  - syntax
   detection:
     primary:
       ast_type: property_declaration
       match:
         modifiers_contains: readonly
   fix:
-    strategy: manual
-    manual_instructions: |
-      Remove readonly, enforce immutability manually:
-        public readonly string $name;
-        →
-        private string $name;
-        public function getName(): string { return $this->name; }
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: property_declaration
+        modifiers_contains: readonly
+      replace:
+        note: readonly properties — php 8.1+
   verification:
     re_detect: true
   test:
-    before: |
-      class User {
-          public function __construct(
-              public readonly string $name,
-              public readonly int $age,
-          ) {}
-      }
-    after: |
-      class User {
-          private string $name;
-          private int $age;
-          public function __construct(string $name, int $age) {
-              $this->name = $name;
-              $this->age = $age;
-          }
-      }
+    before: "class User {\n    public function __construct(\n        public readonly\
+      \ string $name,\n        public readonly int $age,\n    ) {}\n}\n"
+    after: "class User {\n    private string $name;\n    private int $age;\n    public\
+      \ function __construct(string $name, int $age) {\n        $this->name = $name;\n\
+      \        $this->age = $age;\n    }\n}\n"

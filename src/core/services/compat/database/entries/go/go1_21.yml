@@ -1,16 +1,17 @@
-# Go 1.21 features
-
 - id: go.1_21.slices_package
   language: go
-  feature_name: "slices package"
-  introduced: "1.21"
+  feature_name: slices package
+  introduced: '1.21'
   category: stdlib
-  description: "Generic slice manipulation functions in stdlib"
+  description: Generic slice manipulation functions in stdlib
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_module
-  tags: [slices, generics, stdlib]
+  tags:
+  - slices
+  - generics
+  - stdlib
   detection:
     primary:
       ast_type: import_spec
@@ -19,39 +20,44 @@
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_statement
-        find:
-          import_pattern: '"slices"'
-        replace:
-          import_statement: '"golang.org/x/exp/slices"'
+    - type: replace_import_statement
+      find:
+        import_pattern: '"slices"'
+      replace:
+        import_statement: '"golang.org/x/exp/slices"'
     backport:
-      package: "golang.org/x/exp/slices"
-      install_command: "go get golang.org/x/exp/slices"
-      supports_versions: ">=1.18"
+      package: golang.org/x/exp/slices
+      install_command: go get golang.org/x/exp/slices
+      supports_versions: '>=1.18'
       maintained: true
-      notes: "Experimental precursor — API mostly compatible"
+      notes: Experimental precursor — API mostly compatible
   verification:
     re_detect: true
   test:
-    before: |
-      import "slices"
-      func main() { slices.Sort(data) }
-    after: |
-      import "golang.org/x/exp/slices"
+    before: 'import "slices"
+
       func main() { slices.Sort(data) }
 
+      '
+    after: 'import "golang.org/x/exp/slices"
 
+      func main() { slices.Sort(data) }
+
+      '
 - id: go.1_21.maps_package
   language: go
-  feature_name: "maps package"
-  introduced: "1.21"
+  feature_name: maps package
+  introduced: '1.21'
   category: stdlib
-  description: "Generic map manipulation functions in stdlib"
+  description: Generic map manipulation functions in stdlib
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_module
-  tags: [maps, generics, stdlib]
+  tags:
+  - maps
+  - generics
+  - stdlib
   detection:
     primary:
       ast_type: import_spec
@@ -60,38 +66,43 @@
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_statement
-        find:
-          import_pattern: '"maps"'
-        replace:
-          import_statement: '"golang.org/x/exp/maps"'
+    - type: replace_import_statement
+      find:
+        import_pattern: '"maps"'
+      replace:
+        import_statement: '"golang.org/x/exp/maps"'
     backport:
-      package: "golang.org/x/exp/maps"
-      install_command: "go get golang.org/x/exp/maps"
-      supports_versions: ">=1.18"
+      package: golang.org/x/exp/maps
+      install_command: go get golang.org/x/exp/maps
+      supports_versions: '>=1.18'
       maintained: true
   verification:
     re_detect: true
   test:
-    before: |
-      import "maps"
-      func main() { keys := maps.Keys(m) }
-    after: |
-      import "golang.org/x/exp/maps"
+    before: 'import "maps"
+
       func main() { keys := maps.Keys(m) }
 
+      '
+    after: 'import "golang.org/x/exp/maps"
 
+      func main() { keys := maps.Keys(m) }
+
+      '
 - id: go.1_21.slog
   language: go
-  feature_name: "log/slog structured logging"
-  introduced: "1.21"
+  feature_name: log/slog structured logging
+  introduced: '1.21'
   category: stdlib
-  description: "Structured logging package in stdlib"
+  description: Structured logging package in stdlib
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_module
-  tags: [logging, structured, stdlib]
+  tags:
+  - logging
+  - structured
+  - stdlib
   detection:
     primary:
       ast_type: import_spec
@@ -100,75 +111,85 @@
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_statement
-        find:
-          import_pattern: '"log/slog"'
-        replace:
-          import_statement: '"golang.org/x/exp/slog"'
+    - type: replace_import_statement
+      find:
+        import_pattern: '"log/slog"'
+      replace:
+        import_statement: '"golang.org/x/exp/slog"'
     backport:
-      package: "golang.org/x/exp/slog"
-      install_command: "go get golang.org/x/exp/slog"
-      supports_versions: ">=1.20"
+      package: golang.org/x/exp/slog
+      install_command: go get golang.org/x/exp/slog
+      supports_versions: '>=1.20'
       maintained: true
-      notes: "API may differ slightly from stdlib version"
+      notes: API may differ slightly from stdlib version
   verification:
     re_detect: true
   test:
-    before: |
-      import "log/slog"
-      func main() { slog.Info("hello") }
-    after: |
-      import "golang.org/x/exp/slog"
+    before: 'import "log/slog"
+
       func main() { slog.Info("hello") }
 
+      '
+    after: 'import "golang.org/x/exp/slog"
 
+      func main() { slog.Info("hello") }
+
+      '
 - id: go.1_21.min_max_builtins
   language: go
-  feature_name: "min/max builtin functions"
-  introduced: "1.21"
+  feature_name: min/max builtin functions
+  introduced: '1.21'
   category: syntax
-  description: "Built-in min() and max() functions for ordered types"
+  description: Built-in min() and max() functions for ordered types
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_builtin
-  tags: [builtin, math]
+  tags:
+  - builtin
+  - math
   detection:
     primary:
       ast_type: call_expression
       match:
-        function_in: [min, max]
+        function_in: &id001
+        - min
+        - max
         is_builtin: true
   fix:
-    strategy: manual
-    manual_instructions: |
-      min/max builtins require Go 1.21+. Options:
-        1. Define helper functions:
-           func min(a, b int) int { if a < b { return a }; return b }
-           func max(a, b int) int { if a > b { return a }; return b }
-        2. Use math.Min/math.Max for float64
-        3. Note: generic min/max requires type-specific implementations without generics
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        function_in: *id001
+        is_builtin: true
+      replace:
+        note: min/max builtin functions — go 1.21+
   verification:
     re_detect: true
   test:
-    before: |
-      func smallest(a, b int) int { return min(a, b) }
-    after: |
-      func min(a, b int) int { if a < b { return a }; return b }
+    before: 'func smallest(a, b int) int { return min(a, b) }
+
+      '
+    after: 'func min(a, b int) int { if a < b { return a }; return b }
+
       func smallest(a, b int) int { return min(a, b) }
 
-
+      '
 - id: go.1_21.clear_builtin
   language: go
-  feature_name: "clear() builtin"
-  introduced: "1.21"
+  feature_name: clear() builtin
+  introduced: '1.21'
   category: syntax
-  description: "Built-in clear() for maps and slices"
+  description: Built-in clear() for maps and slices
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_builtin
-  tags: [builtin, clear]
+  tags:
+  - builtin
+  - clear
   detection:
     primary:
       ast_type: call_expression
@@ -176,15 +197,21 @@
         function: clear
         is_builtin: true
   fix:
-    strategy: manual
-    manual_instructions: |
-      clear() builtin requires Go 1.21+. Replacements:
-        For maps: for k := range m { delete(m, k) }
-        For slices: s = s[:0]
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        function: clear
+        is_builtin: true
+      replace:
+        note: clear() builtin — go 1.21+
   verification:
     re_detect: true
   test:
-    before: |
-      func reset(m map[string]int) { clear(m) }
-    after: |
-      func reset(m map[string]int) { for k := range m { delete(m, k) } }
+    before: 'func reset(m map[string]int) { clear(m) }
+
+      '
+    after: 'func reset(m map[string]int) { for k := range m { delete(m, k) } }
+
+      '

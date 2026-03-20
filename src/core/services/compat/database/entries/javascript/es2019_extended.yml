@@ -1,74 +1,92 @@
-# JavaScript ES2019 features — extended
-
 - id: js.es2019.string_trimstart
   language: javascript
-  feature_name: "String.prototype.trimStart/trimEnd"
-  introduced: "ES2019"
+  feature_name: String.prototype.trimStart/trimEnd
+  introduced: ES2019
   category: es2019
-  description: "Directional string trimming"
+  description: Directional string trimming
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [string, trim, method]
+  tags:
+  - string
+  - trim
+  - method
   detection:
     primary:
       ast_type: call_expression
       match:
-        method_in: [trimStart, trimEnd]
+        method_in: &id001
+        - trimStart
+        - trimEnd
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with trimLeft/trimRight (older aliases):
-        s.trimStart() → s.trimLeft()  (or s.replace(/^\s+/, ''))
-        s.trimEnd() → s.trimRight()    (or s.replace(/\s+$/, ''))
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id001
+      replace:
+        note: String.prototype.trimStart/trimEnd — javascript ES2019+
   verification:
     re_detect: true
   test:
-    before: |
-      const clean = input.trimStart();
-    after: |
-      const clean = input.trimLeft();
+    before: 'const clean = input.trimStart();
 
+      '
+    after: 'const clean = input.trimLeft();
+
+      '
 - id: js.es2019.symbol_description
   language: javascript
-  feature_name: "Symbol.prototype.description"
-  introduced: "ES2019"
+  feature_name: Symbol.prototype.description
+  introduced: ES2019
   category: es2019
-  description: "Access the description of a Symbol"
+  description: Access the description of a Symbol
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [symbol, description, property]
+  tags:
+  - symbol
+  - description
+  - property
   detection:
     primary:
       ast_type: member_expression
       match:
         property: description
   fix:
-    strategy: manual
-    manual_instructions: |
-      Extract from toString():
-        sym.description → sym.toString().slice(7, -1)
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: member_expression
+        property: description
+      replace:
+        note: Symbol.prototype.description — javascript ES2019+
   verification:
     re_detect: true
   test:
-    before: |
-      const desc = mySymbol.description;
-    after: |
-      const desc = mySymbol.toString().slice(7, -1);
+    before: 'const desc = mySymbol.description;
 
+      '
+    after: 'const desc = mySymbol.toString().slice(7, -1);
+
+      '
 - id: js.es2019.json_superset
   language: javascript
-  feature_name: "JSON superset (U+2028/2029 in strings)"
-  introduced: "ES2019"
+  feature_name: JSON superset (U+2028/2029 in strings)
+  introduced: ES2019
   category: es2019
-  description: "Line separator and paragraph separator in string literals"
+  description: Line separator and paragraph separator in string literals
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [json, unicode, strings]
+  tags:
+  - json
+  - unicode
+  - strings
   detection:
     primary:
       ast_type: string
@@ -79,21 +97,25 @@
   verification:
     re_detect: false
   test:
-    before: |
-      const s = "line\u2028separator";
-    after: |
-      const s = "line\u2028separator";
+    before: 'const s = "line\u2028separator";
 
+      '
+    after: 'const s = "line\u2028separator";
+
+      '
 - id: js.es2019.array_sort_stable
   language: javascript
-  feature_name: "Array.prototype.sort (stable)"
-  introduced: "ES2019"
+  feature_name: Array.prototype.sort (stable)
+  introduced: ES2019
   category: es2019
-  description: "Array sort guaranteed to be stable"
+  description: Array sort guaranteed to be stable
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [array, sort, stable]
+  tags:
+  - array
+  - sort
+  - stable
   detection:
     primary:
       ast_type: call_expression
@@ -104,7 +126,9 @@
   verification:
     re_detect: false
   test:
-    before: |
-      items.sort((a, b) => a.priority - b.priority);
-    after: |
-      items.sort((a, b) => a.priority - b.priority);
+    before: 'items.sort((a, b) => a.priority - b.priority);
+
+      '
+    after: 'items.sort((a, b) => a.priority - b.priority);
+
+      '

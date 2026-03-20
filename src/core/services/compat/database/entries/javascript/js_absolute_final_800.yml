@@ -1,169 +1,421 @@
-# JavaScript — absolute final for 800
-
 - id: js.es2015.class_static_methods
   language: javascript
-  feature_name: "class static methods"
-  introduced: "ES2015"
+  feature_name: class static methods
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [class, static, methods]
-  detection: { primary: { ast_type: method_definition, match: { is_static: true } } }
-  fix: { strategy: manual, manual_instructions: "Move to function on constructor: Foo.method = function() {}" }
-  verification: { re_detect: true }
-  test: { before: "class Foo { static bar() {} }\n", after: "function Foo(){} Foo.bar = function(){};\n" }
+  tags:
+  - class
+  - static
+  - methods
+  detection:
+    primary:
+      ast_type: method_definition
+      match:
+        is_static: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_definition
+        is_static: true
+      replace:
+        note: class static methods — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'class Foo { static bar() {} }
 
+      '
+    after: 'function Foo(){} Foo.bar = function(){};
+
+      '
 - id: js.es2015.class_constructor
   language: javascript
-  feature_name: "class constructor()"
-  introduced: "ES2015"
+  feature_name: class constructor()
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [class, constructor]
-  detection: { primary: { ast_type: method_definition, match: { kind: constructor } } }
-  fix: { strategy: manual, manual_instructions: "Use constructor function pattern." }
-  verification: { re_detect: true }
-  test: { before: "class Foo { constructor(x) { this.x = x; } }\n", after: "function Foo(x) { this.x = x; }\n" }
+  tags:
+  - class
+  - constructor
+  detection:
+    primary:
+      ast_type: method_definition
+      match:
+        kind: constructor
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_definition
+        kind: constructor
+      replace:
+        note: class constructor() — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'class Foo { constructor(x) { this.x = x; } }
 
+      '
+    after: 'function Foo(x) { this.x = x; }
+
+      '
 - id: js.es2015.const_declarations
   language: javascript
-  feature_name: "const declaration"
-  introduced: "ES2015"
+  feature_name: const declaration
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [const, variable]
-  detection: { primary: { ast_type: lexical_declaration, match: { kind: const } } }
-  fix: { strategy: manual, manual_instructions: "const → var (loses immutability)." }
-  verification: { re_detect: true }
-  test: { before: "const MAX = 100;\n", after: "var MAX = 100;\n" }
+  tags:
+  - const
+  - variable
+  detection:
+    primary:
+      ast_type: lexical_declaration
+      match:
+        kind: const
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: lexical_declaration
+        kind: const
+      replace:
+        note: const declaration — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'const MAX = 100;
 
+      '
+    after: 'var MAX = 100;
+
+      '
 - id: js.es2015.let_declarations
   language: javascript
-  feature_name: "let declaration"
-  introduced: "ES2015"
+  feature_name: let declaration
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [let, variable, block_scope]
-  detection: { primary: { ast_type: lexical_declaration, match: { kind: let } } }
-  fix: { strategy: manual, manual_instructions: "let → var (loses block scoping)." }
-  verification: { re_detect: true }
-  test: { before: "let count = 0;\n", after: "var count = 0;\n" }
+  tags:
+  - let
+  - variable
+  - block_scope
+  detection:
+    primary:
+      ast_type: lexical_declaration
+      match:
+        kind: let
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: lexical_declaration
+        kind: let
+      replace:
+        note: let declaration — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'let count = 0;
 
+      '
+    after: 'var count = 0;
+
+      '
 - id: js.es2024.set_isdisjoint
   language: javascript
-  feature_name: "Set.prototype.isDisjointFrom()"
-  introduced: "ES2024"
+  feature_name: Set.prototype.isDisjointFrom()
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [set, disjoint]
-  detection: { primary: { ast_type: call_expression, match: { method: isDisjointFrom } } }
-  fix: { strategy: manual, manual_instructions: "![...a].some(x => b.has(x))" }
-  verification: { re_detect: true }
-  test: { before: "setA.isDisjointFrom(setB);\n", after: "![...setA].some(function(x){return setB.has(x)});\n" }
+  tags:
+  - set
+  - disjoint
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: isDisjointFrom
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: isDisjointFrom
+      replace:
+        note: Set.prototype.isDisjointFrom() — javascript ES2024+
+  verification:
+    re_detect: true
+  test:
+    before: 'setA.isDisjointFrom(setB);
 
+      '
+    after: '![...setA].some(function(x){return setB.has(x)});
+
+      '
 - id: js.es2015.promise_catch
   language: javascript
-  feature_name: "Promise.prototype.catch"
-  introduced: "ES2015"
+  feature_name: Promise.prototype.catch
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [promise, catch]
-  detection: { primary: { ast_type: call_expression, match: { method: catch } } }
-  fix: { strategy: manual, manual_instructions: "Use .then(null, errorHandler)." }
-  verification: { re_detect: false }
-  test: { before: "p.catch(err => log(err));\n", after: "p.then(null, function(err){ log(err); });\n" }
+  tags:
+  - promise
+  - catch
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: catch
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: catch
+      replace:
+        note: Promise.prototype.catch — javascript ES2015+
+  verification:
+    re_detect: false
+  test:
+    before: 'p.catch(err => log(err));
 
+      '
+    after: 'p.then(null, function(err){ log(err); });
+
+      '
 - id: js.es2015.string_raw_template
   language: javascript
-  feature_name: "String.raw tag"
-  introduced: "ES2015"
+  feature_name: String.raw tag
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [string, raw, tag]
-  detection: { primary: { ast_type: tagged_template_expression } }
-  fix: { strategy: manual, manual_instructions: "Double backslashes manually." }
-  verification: { re_detect: false }
-  test: { before: "String.raw`\\n`;\n", after: "'\\\\n';\n" }
+  tags:
+  - string
+  - raw
+  - tag
+  detection:
+    primary:
+      ast_type: tagged_template_expression
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: tagged_template_expression
+      replace:
+        note: String.raw tag — javascript ES2015+
+  verification:
+    re_detect: false
+  test:
+    before: 'String.raw`\n`;
 
+      '
+    after: '''\\n'';
+
+      '
 - id: js.es2015.yield_expressions
   language: javascript
-  feature_name: "yield expression"
-  introduced: "ES2015"
+  feature_name: yield expression
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [yield, generator, expression]
-  detection: { primary: { ast_type: yield_expression } }
-  fix: { strategy: manual, manual_instructions: "Convert generator to array builder." }
-  verification: { re_detect: true }
-  test: { before: "yield value;\n", after: "result.push(value);\n" }
+  tags:
+  - yield
+  - generator
+  - expression
+  detection:
+    primary:
+      ast_type: yield_expression
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: yield_expression
+      replace:
+        note: yield expression — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'yield value;
 
+      '
+    after: 'result.push(value);
+
+      '
 - id: js.es2015.for_of_break
   language: javascript
-  feature_name: "for...of with break/continue"
-  introduced: "ES2015"
+  feature_name: for...of with break/continue
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [for_of, break, control]
-  detection: { primary: { ast_type: for_in_statement, match: { kind: of } } }
-  fix: { strategy: manual, manual_instructions: "Use index-based loop." }
-  verification: { re_detect: false }
-  test: { before: "for (const x of arr) { if (x > 5) break; }\n", after: "for (var i=0;i<arr.length;i++) { if (arr[i]>5) break; }\n" }
+  tags:
+  - for_of
+  - break
+  - control
+  detection:
+    primary:
+      ast_type: for_in_statement
+      match:
+        kind: of
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: for_in_statement
+        kind: of
+      replace:
+        note: for...of with break/continue — javascript ES2015+
+  verification:
+    re_detect: false
+  test:
+    before: 'for (const x of arr) { if (x > 5) break; }
 
+      '
+    after: 'for (var i=0;i<arr.length;i++) { if (arr[i]>5) break; }
+
+      '
 - id: js.es2015.iterator_next_value
   language: javascript
-  feature_name: "iterator next() with value"
-  introduced: "ES2015"
+  feature_name: iterator next() with value
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [iterator, next, value]
-  detection: { primary: { ast_type: call_expression, match: { method: next } } }
-  fix: { strategy: manual, manual_instructions: "Use array indexing." }
-  verification: { re_detect: false }
-  test: { before: "gen.next(42);\n", after: "// Manual state management\n" }
+  tags:
+  - iterator
+  - next
+  - value
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: next
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: next
+      replace:
+        note: iterator next() with value — javascript ES2015+
+  verification:
+    re_detect: false
+  test:
+    before: 'gen.next(42);
 
+      '
+    after: '// Manual state management
+
+      '
 - id: js.es2015.generator_yield_star
   language: javascript
-  feature_name: "yield* delegation"
-  introduced: "ES2015"
+  feature_name: yield* delegation
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [yield, delegation, star]
-  detection: { primary: { ast_type: yield_expression, match: { delegate: true } } }
-  fix: { strategy: manual, manual_instructions: "Flatten generator outputs manually." }
-  verification: { re_detect: true }
-  test: { before: "yield* otherGen();\n", after: "for (var v of otherGen()) result.push(v);\n" }
+  tags:
+  - yield
+  - delegation
+  - star
+  detection:
+    primary:
+      ast_type: yield_expression
+      match:
+        delegate: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: yield_expression
+        delegate: true
+      replace:
+        note: yield* delegation — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'yield* otherGen();
 
+      '
+    after: 'for (var v of otherGen()) result.push(v);
+
+      '
 - id: js.es2024.iterator_helpers
   language: javascript
-  feature_name: "Iterator helpers (map/filter/take/etc.)"
-  introduced: "ES2024"
+  feature_name: Iterator helpers (map/filter/take/etc.)
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [iterator, helpers, lazy]
-  detection: { primary: { ast_type: call_expression, match: { method_in: [map, filter, take, drop, flatMap, reduce, toArray, forEach, some, every, find] } } }
-  fix: { strategy: manual, manual_instructions: "Use Array methods after collecting with [...iter]." }
-  verification: { re_detect: false }
-  test: { before: "iter.map(fn).filter(pred).toArray();\n", after: "[...iter].map(fn).filter(pred);\n" }
+  tags:
+  - iterator
+  - helpers
+  - lazy
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method_in: &id001
+        - map
+        - filter
+        - take
+        - drop
+        - flatMap
+        - reduce
+        - toArray
+        - forEach
+        - some
+        - every
+        - find
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method_in: *id001
+      replace:
+        note: Iterator helpers (map/filter/take/etc.) — javascript ES2024+
+  verification:
+    re_detect: false
+  test:
+    before: 'iter.map(fn).filter(pred).toArray();
+
+      '
+    after: '[...iter].map(fn).filter(pred);
+
+      '

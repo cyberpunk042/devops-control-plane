@@ -1,211 +1,519 @@
-# JavaScript — THE FINAL entries for 1000
-
 - id: js.es2015.symbol_hasinstance
   language: javascript
-  feature_name: "Symbol.hasInstance"
-  introduced: "ES2015"
+  feature_name: Symbol.hasInstance
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [symbol, hasInstance, instanceof]
-  detection: { primary: { ast_type: computed_property_name, match: { expression_contains: "Symbol.hasInstance" } } }
-  fix: { strategy: manual, manual_instructions: "Remove custom instanceof behavior." }
-  verification: { re_detect: true }
-  test: { before: "static [Symbol.hasInstance](obj) { return typeof obj === 'number'; }\n", after: "// Remove custom instanceof\n" }
+  tags:
+  - symbol
+  - hasInstance
+  - instanceof
+  detection:
+    primary:
+      ast_type: computed_property_name
+      match:
+        expression_contains: Symbol.hasInstance
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: computed_property_name
+        expression_contains: Symbol.hasInstance
+      replace:
+        note: Symbol.hasInstance — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'static [Symbol.hasInstance](obj) { return typeof obj === ''number'';
+      }
 
+      '
+    after: '// Remove custom instanceof
+
+      '
 - id: js.es2015.symbol_isConcatSpreadable
   language: javascript
-  feature_name: "Symbol.isConcatSpreadable"
-  introduced: "ES2015"
+  feature_name: Symbol.isConcatSpreadable
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [symbol, concat, spreadable]
-  detection: { primary: { ast_type: computed_property_name, match: { expression_contains: "Symbol.isConcatSpreadable" } } }
-  fix: { strategy: manual, manual_instructions: "Manual array handling." }
-  verification: { re_detect: true }
-  test: { before: "obj[Symbol.isConcatSpreadable] = true;\n", after: "// Manual concat handling\n" }
+  tags:
+  - symbol
+  - concat
+  - spreadable
+  detection:
+    primary:
+      ast_type: computed_property_name
+      match:
+        expression_contains: Symbol.isConcatSpreadable
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: computed_property_name
+        expression_contains: Symbol.isConcatSpreadable
+      replace:
+        note: Symbol.isConcatSpreadable — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'obj[Symbol.isConcatSpreadable] = true;
 
+      '
+    after: '// Manual concat handling
+
+      '
 - id: js.es2015.array_species_symbol
   language: javascript
-  feature_name: "Symbol.species on Array"
-  introduced: "ES2015"
+  feature_name: Symbol.species on Array
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [symbol, species, array]
-  detection: { primary: { ast_type: computed_property_name, match: { expression_contains: "Symbol.species" } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "static get [Symbol.species]() { return Array; }\n", after: "// Not needed\n" }
+  tags:
+  - symbol
+  - species
+  - array
+  detection:
+    primary:
+      ast_type: computed_property_name
+      match:
+        expression_contains: Symbol.species
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'static get [Symbol.species]() { return Array; }
 
+      '
+    after: '// Not needed
+
+      '
 - id: js.es2015.math_imul
   language: javascript
-  feature_name: "Math.imul()"
-  introduced: "ES2015"
+  feature_name: Math.imul()
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [math, imul, multiplication]
-  detection: { primary: { ast_type: call_expression, match: { object: Math, method: imul } } }
-  fix: { strategy: manual, manual_instructions: "Math.imul polyfill or (a*b)|0." }
-  verification: { re_detect: true }
-  test: { before: "Math.imul(a, b);\n", after: "(a * b) | 0;\n" }
+  tags:
+  - math
+  - imul
+  - multiplication
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Math
+        method: imul
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Math
+        method: imul
+      replace:
+        note: Math.imul() — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'Math.imul(a, b);
 
+      '
+    after: '(a * b) | 0;
+
+      '
 - id: js.es2015.math_fround
   language: javascript
-  feature_name: "Math.fround()"
-  introduced: "ES2015"
+  feature_name: Math.fround()
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [math, fround, float32]
-  detection: { primary: { ast_type: call_expression, match: { object: Math, method: fround } } }
-  fix: { strategy: manual, manual_instructions: "new Float32Array([x])[0]" }
-  verification: { re_detect: true }
-  test: { before: "Math.fround(5.5);\n", after: "new Float32Array([5.5])[0];\n" }
+  tags:
+  - math
+  - fround
+  - float32
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Math
+        method: fround
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Math
+        method: fround
+      replace:
+        note: Math.fround() — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'Math.fround(5.5);
 
+      '
+    after: 'new Float32Array([5.5])[0];
+
+      '
 - id: js.es2015.math_clz32
   language: javascript
-  feature_name: "Math.clz32()"
-  introduced: "ES2015"
+  feature_name: Math.clz32()
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [math, clz32, bits]
-  detection: { primary: { ast_type: call_expression, match: { object: Math, method: clz32 } } }
-  fix: { strategy: manual, manual_instructions: "Manual leading zeros count." }
-  verification: { re_detect: true }
-  test: { before: "Math.clz32(1);\n", after: "// Manual: 31 - Math.floor(Math.log2(x))\n" }
+  tags:
+  - math
+  - clz32
+  - bits
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Math
+        method: clz32
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Math
+        method: clz32
+      replace:
+        note: Math.clz32() — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'Math.clz32(1);
 
+      '
+    after: '// Manual: 31 - Math.floor(Math.log2(x))
+
+      '
 - id: js.es2015.array_of_impl
   language: javascript
-  feature_name: "Array.of() implementation"
-  introduced: "ES2015"
+  feature_name: Array.of() implementation
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [array, of]
-  detection: { primary: { ast_type: call_expression, match: { object: Array, method: of } } }
-  fix: { strategy: manual, manual_instructions: "Use array literal." }
-  verification: { re_detect: true }
-  test: { before: "Array.of(1, 2, 3);\n", after: "[1, 2, 3];\n" }
+  tags:
+  - array
+  - of
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Array
+        method: of
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Array
+        method: of
+      replace:
+        note: Array.of() implementation — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'Array.of(1, 2, 3);
 
+      '
+    after: '[1, 2, 3];
+
+      '
 - id: js.es2015.typed_array_from
   language: javascript
-  feature_name: "TypedArray.from()"
-  introduced: "ES2015"
+  feature_name: TypedArray.from()
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [typedarray, from]
-  detection: { primary: { ast_type: call_expression, match: { method: from } } }
-  fix: { strategy: manual, manual_instructions: "Manual typed array creation." }
-  verification: { re_detect: false }
-  test: { before: "Float64Array.from([1.1, 2.2]);\n", after: "var a = new Float64Array(2); a[0]=1.1; a[1]=2.2;\n" }
+  tags:
+  - typedarray
+  - from
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: from
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: from
+      replace:
+        note: TypedArray.from() — javascript ES2015+
+  verification:
+    re_detect: false
+  test:
+    before: 'Float64Array.from([1.1, 2.2]);
 
+      '
+    after: 'var a = new Float64Array(2); a[0]=1.1; a[1]=2.2;
+
+      '
 - id: js.es2015.string_codepoint_at
   language: javascript
-  feature_name: "String.fromCodePoint()"
-  introduced: "ES2015"
+  feature_name: String.fromCodePoint()
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [string, codepoint, unicode]
-  detection: { primary: { ast_type: call_expression, match: { object: String, method: fromCodePoint } } }
-  fix: { strategy: manual, manual_instructions: "Use String.fromCharCode with surrogate pair handling." }
-  verification: { re_detect: true }
-  test: { before: "String.fromCodePoint(0x1F600);\n", after: "String.fromCharCode(0xD83D, 0xDE00);\n" }
+  tags:
+  - string
+  - codepoint
+  - unicode
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: String
+        method: fromCodePoint
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: String
+        method: fromCodePoint
+      replace:
+        note: String.fromCodePoint() — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'String.fromCodePoint(0x1F600);
 
+      '
+    after: 'String.fromCharCode(0xD83D, 0xDE00);
+
+      '
 - id: js.es2015.number_parseint
   language: javascript
-  feature_name: "Number.parseInt/parseFloat"
-  introduced: "ES2015"
+  feature_name: Number.parseInt/parseFloat
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [number, parseInt, parseFloat]
-  detection: { primary: { ast_type: call_expression, match: { object: Number, method_in: [parseInt, parseFloat] } } }
-  fix: { strategy: manual, manual_instructions: "Use global parseInt/parseFloat." }
-  verification: { re_detect: true }
-  test: { before: "Number.parseInt('42');\n", after: "parseInt('42');\n" }
+  tags:
+  - number
+  - parseInt
+  - parseFloat
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Number
+        method_in: &id001
+        - parseInt
+        - parseFloat
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: Number
+        method_in: *id001
+      replace:
+        note: Number.parseInt/parseFloat — javascript ES2015+
+  verification:
+    re_detect: true
+  test:
+    before: 'Number.parseInt(''42'');
 
+      '
+    after: 'parseInt(''42'');
+
+      '
 - id: js.es2015.object_keys_symbol
   language: javascript
-  feature_name: "Object.keys ignores symbols"
-  introduced: "ES2015"
+  feature_name: Object.keys ignores symbols
+  introduced: ES2015
   category: es2015
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [object, keys, symbols]
-  detection: { primary: { ast_type: call_expression, match: { object: Object, method: keys } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "Object.keys(obj);\n", after: "Object.keys(obj);\n" }
+  tags:
+  - object
+  - keys
+  - symbols
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: Object
+        method: keys
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'Object.keys(obj);
 
+      '
+    after: 'Object.keys(obj);
+
+      '
 - id: js.es2017.async_iteration_protocol
   language: javascript
-  feature_name: "async iteration protocol"
-  introduced: "ES2018"
+  feature_name: async iteration protocol
+  introduced: ES2018
   category: es2018
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [async, iteration, protocol]
-  detection: { primary: { ast_type: computed_property_name, match: { expression_contains: "Symbol.asyncIterator" } } }
-  fix: { strategy: manual, manual_instructions: "Use callback-based async." }
-  verification: { re_detect: true }
-  test: { before: "[Symbol.asyncIterator]() {}\n", after: "// callback pattern\n" }
+  tags:
+  - async
+  - iteration
+  - protocol
+  detection:
+    primary:
+      ast_type: computed_property_name
+      match:
+        expression_contains: Symbol.asyncIterator
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: computed_property_name
+        expression_contains: Symbol.asyncIterator
+      replace:
+        note: async iteration protocol — javascript ES2018+
+  verification:
+    re_detect: true
+  test:
+    before: '[Symbol.asyncIterator]() {}
 
+      '
+    after: '// callback pattern
+
+      '
 - id: js.es2020.bigint_methods
   language: javascript
-  feature_name: "BigInt methods"
-  introduced: "ES2020"
+  feature_name: BigInt methods
+  introduced: ES2020
   category: es2020
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [bigint, methods]
-  detection: { primary: { ast_type: call_expression, match: { object: BigInt, method_in: [asIntN, asUintN] } } }
-  fix: { strategy: manual, manual_instructions: "No polyfill for BigInt methods." }
-  verification: { re_detect: true }
-  test: { before: "BigInt.asIntN(64, value);\n", after: "// No polyfill\n" }
+  tags:
+  - bigint
+  - methods
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        object: BigInt
+        method_in: &id002
+        - asIntN
+        - asUintN
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object: BigInt
+        method_in: *id002
+      replace:
+        note: BigInt methods — javascript ES2020+
+  verification:
+    re_detect: true
+  test:
+    before: 'BigInt.asIntN(64, value);
 
+      '
+    after: '// No polyfill
+
+      '
 - id: js.es2022.error_cause_impl
   language: javascript
-  feature_name: "Error cause property"
-  introduced: "ES2022"
+  feature_name: Error cause property
+  introduced: ES2022
   category: es2022
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [error, cause]
-  detection: { primary: { ast_type: member_expression, match: { property: cause } } }
-  fix: { strategy: no_fix_needed }
-  verification: { re_detect: false }
-  test: { before: "err.cause\n", after: "err.cause\n" }
+  tags:
+  - error
+  - cause
+  detection:
+    primary:
+      ast_type: member_expression
+      match:
+        property: cause
+  fix:
+    strategy: no_fix_needed
+  verification:
+    re_detect: false
+  test:
+    before: 'err.cause
 
+      '
+    after: 'err.cause
+
+      '
 - id: js.es2024.set_isdisjoint_impl
   language: javascript
-  feature_name: "Set.isDisjointFrom implementation"
-  introduced: "ES2024"
+  feature_name: Set.isDisjointFrom implementation
+  introduced: ES2024
   category: es2024
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [set, disjoint]
-  detection: { primary: { ast_type: call_expression, match: { method: isDisjointFrom } } }
-  fix: { strategy: manual, manual_instructions: "![...a].some(x => b.has(x))" }
-  verification: { re_detect: true }
-  test: { before: "a.isDisjointFrom(b);\n", after: "![...a].some(x=>b.has(x));\n" }
+  tags:
+  - set
+  - disjoint
+  detection:
+    primary:
+      ast_type: call_expression
+      match:
+        method: isDisjointFrom
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        method: isDisjointFrom
+      replace:
+        note: Set.isDisjointFrom implementation — javascript ES2024+
+  verification:
+    re_detect: true
+  test:
+    before: 'a.isDisjointFrom(b);
+
+      '
+    after: '![...a].some(x=>b.has(x));
+
+      '

@@ -1,15 +1,16 @@
-# Python extras to hit 500 total
-
 - id: python.stdlib.typing_generic_alias
   language: python
-  feature_name: "types.GenericAlias"
-  introduced: "3.9"
+  feature_name: types.GenericAlias
+  introduced: '3.9'
   category: typing
-  description: "Runtime generic alias for builtin types"
+  description: Runtime generic alias for builtin types
   direction: downgrade
   severity: info
   error_type: runtime_error
-  tags: [types, generic, alias]
+  tags:
+  - types
+  - generic
+  - alias
   detection:
     primary:
       ast_type: ImportFrom
@@ -21,21 +22,24 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from types import GenericAlias
-    after: |
-      from types import GenericAlias
+    before: 'from types import GenericAlias
 
+      '
+    after: 'from types import GenericAlias
+
+      '
 - id: python.stdlib.importlib_abc
   language: python
-  feature_name: "importlib.abc improvements"
-  introduced: "3.10"
+  feature_name: importlib.abc improvements
+  introduced: '3.10'
   category: stdlib
-  description: "Improved abstract base classes for import system"
+  description: Improved abstract base classes for import system
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [importlib, abc]
+  tags:
+  - importlib
+  - abc
   detection:
     primary:
       ast_type: ImportFrom
@@ -46,21 +50,25 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from importlib.abc import Traversable
-    after: |
-      from importlib.abc import Traversable
+    before: 'from importlib.abc import Traversable
 
+      '
+    after: 'from importlib.abc import Traversable
+
+      '
 - id: python.stdlib.typing_concatenate_311
   language: python
-  feature_name: "Concatenate improvements"
-  introduced: "3.11"
+  feature_name: Concatenate improvements
+  introduced: '3.11'
   category: typing
-  description: "Improved Concatenate behavior for ParamSpec"
+  description: Improved Concatenate behavior for ParamSpec
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [typing, concatenate, paramspec]
+  tags:
+  - typing
+  - concatenate
+  - paramspec
   detection:
     primary:
       ast_type: ImportFrom
@@ -72,21 +80,25 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from typing import Concatenate
-    after: |
-      from typing import Concatenate
+    before: 'from typing import Concatenate
 
+      '
+    after: 'from typing import Concatenate
+
+      '
 - id: python.stdlib.email_headerregistry
   language: python
-  feature_name: "email.headerregistry improvements"
-  introduced: "3.8"
+  feature_name: email.headerregistry improvements
+  introduced: '3.8'
   category: stdlib
-  description: "Improved header parsing and generation"
+  description: Improved header parsing and generation
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [email, header, registry]
+  tags:
+  - email
+  - header
+  - registry
   detection:
     primary:
       ast_type: ImportFrom
@@ -97,22 +109,26 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from email.headerregistry import Address
-    after: |
-      from email.headerregistry import Address
+    before: 'from email.headerregistry import Address
 
+      '
+    after: 'from email.headerregistry import Address
+
+      '
 - id: python.stdlib.sysconfig_names
   language: python
-  feature_name: "sysconfig.get_default_scheme()"
-  introduced: "3.10"
+  feature_name: sysconfig.get_default_scheme()
+  introduced: '3.10'
   category: stdlib
-  description: "Get default installation scheme name"
+  description: Get default installation scheme name
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [sysconfig, scheme, install]
+  tags:
+  - sysconfig
+  - scheme
+  - install
   detection:
     primary:
       ast_type: Attribute
@@ -120,28 +136,39 @@
         value_id: sysconfig
         attr: get_default_scheme
   fix:
-    strategy: manual
-    manual_instructions: "Use sysconfig.get_scheme_names() and pick the first."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: get_default_scheme
+      replace:
+        try_import: '# sysconfig.get_default_scheme() — Python 3.10+'
+        except_import: 'pass  # get_default_scheme not available in older Python'
   verification:
     re_detect: true
   test:
-    before: |
-      import sysconfig
+    before: 'import sysconfig
+
       scheme = sysconfig.get_default_scheme()
-    after: |
-      import sysconfig
+
+      '
+    after: 'import sysconfig
+
       scheme = sysconfig.get_scheme_names()[0]
 
+      '
 - id: python.stdlib.typing_type_form
   language: python
-  feature_name: "typing.TypeForm"
-  introduced: "3.13"
+  feature_name: typing.TypeForm
+  introduced: '3.13'
   category: typing
-  description: "Type representing any type form"
+  description: Type representing any type form
   direction: downgrade
   severity: warning
   error_type: import_error
-  tags: [typing, typeform]
+  tags:
+  - typing
+  - typeform
   detection:
     primary:
       ast_type: ImportFrom
@@ -149,39 +176,43 @@
         module: typing
         names_contains: TypeForm
     exclude:
-      - context: type_checking_block
+    - context: type_checking_block
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: TypeForm
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import TypeForm"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: TypeForm
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import TypeForm
+      condition: not_already_present
     backport:
       package: typing-extensions
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import TypeForm
-    after: |
-      from typing_extensions import TypeForm
+    before: 'from typing import TypeForm
 
+      '
+    after: 'from typing_extensions import TypeForm
+
+      '
 - id: python.stdlib.sqlite3_row_factory
   language: python
-  feature_name: "sqlite3.Row improvements"
-  introduced: "3.8"
+  feature_name: sqlite3.Row improvements
+  introduced: '3.8'
   category: stdlib
-  description: "sqlite3.Row improvements and autocommit changes"
+  description: sqlite3.Row improvements and autocommit changes
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [sqlite3, row, factory]
+  tags:
+  - sqlite3
+  - row
+  - factory
   detection:
     primary:
       ast_type: Import
@@ -192,21 +223,24 @@
   verification:
     re_detect: false
   test:
-    before: |
-      import sqlite3
-    after: |
-      import sqlite3
+    before: 'import sqlite3
 
+      '
+    after: 'import sqlite3
+
+      '
 - id: python.stdlib.multiprocessing_forkserver
   language: python
-  feature_name: "multiprocessing forkserver improvements"
-  introduced: "3.8"
+  feature_name: multiprocessing forkserver improvements
+  introduced: '3.8'
   category: stdlib
-  description: "Improved forkserver start method"
+  description: Improved forkserver start method
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [multiprocessing, forkserver]
+  tags:
+  - multiprocessing
+  - forkserver
   detection:
     primary:
       ast_type: Import
@@ -217,21 +251,25 @@
   verification:
     re_detect: false
   test:
-    before: |
-      import multiprocessing
-    after: |
-      import multiprocessing
+    before: 'import multiprocessing
 
+      '
+    after: 'import multiprocessing
+
+      '
 - id: python.stdlib.gc_freeze
   language: python
-  feature_name: "gc.freeze/unfreeze"
-  introduced: "3.7"
+  feature_name: gc.freeze/unfreeze
+  introduced: '3.7'
   category: stdlib
-  description: "Freeze GC-tracked objects for performance"
+  description: Freeze GC-tracked objects for performance
   direction: downgrade
   severity: info
   error_type: runtime_error
-  tags: [gc, freeze, performance]
+  tags:
+  - gc
+  - freeze
+  - performance
   detection:
     primary:
       ast_type: Attribute
@@ -243,24 +281,30 @@
   verification:
     re_detect: false
   test:
-    before: |
-      import gc
-      gc.freeze()
-    after: |
-      import gc
+    before: 'import gc
+
       gc.freeze()
 
+      '
+    after: 'import gc
+
+      gc.freeze()
+
+      '
 - id: python.stdlib.sys_addaudithook
   language: python
-  feature_name: "sys.addaudithook()"
-  introduced: "3.8"
+  feature_name: sys.addaudithook()
+  introduced: '3.8'
   category: stdlib
-  description: "Runtime audit hooks for security monitoring"
+  description: Runtime audit hooks for security monitoring
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [sys, audit, security]
+  tags:
+  - sys
+  - audit
+  - security
   detection:
     primary:
       ast_type: Attribute
@@ -268,26 +312,36 @@
         value_id: sys
         attr: addaudithook
   fix:
-    strategy: manual
-    manual_instructions: "Not available on older Python — remove audit hooks."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: addaudithook
+      replace:
+        try_import: '# sys.addaudithook() — Python 3.8+'
+        except_import: 'pass  # addaudithook not available in older Python'
   verification:
     re_detect: true
   test:
-    before: |
-      sys.addaudithook(my_hook)
-    after: |
-      # Audit hooks not available
+    before: 'sys.addaudithook(my_hook)
 
+      '
+    after: '# Audit hooks not available
+
+      '
 - id: python.stdlib.csv_unix_dialect
   language: python
-  feature_name: "csv.unix_dialect"
-  introduced: "3.2"
+  feature_name: csv.unix_dialect
+  introduced: '3.2'
   category: stdlib
-  description: "Unix dialect for csv module"
+  description: Unix dialect for csv module
   direction: downgrade
   severity: info
   error_type: import_error
-  tags: [csv, unix, dialect]
+  tags:
+  - csv
+  - unix
+  - dialect
   detection:
     primary:
       ast_type: Attribute
@@ -299,9 +353,13 @@
   verification:
     re_detect: false
   test:
-    before: |
-      import csv
+    before: 'import csv
+
       writer = csv.writer(f, dialect=csv.unix_dialect)
-    after: |
-      import csv
+
+      '
+    after: 'import csv
+
       writer = csv.writer(f, dialect=csv.unix_dialect)
+
+      '

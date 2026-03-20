@@ -1,71 +1,175 @@
-# PHP batch — 900
-
 - id: php.8_0.mixed_return_type
   language: php
-  feature_name: "mixed return type"
-  introduced: "8.0"
+  feature_name: mixed return type
+  introduced: '8.0'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [mixed, return, type]
-  detection: { primary: { ast_type: named_type, match: { name: mixed } } }
-  fix: { strategy: manual, manual_instructions: "Remove return type." }
-  verification: { re_detect: true }
-  test: { before: "function f(): mixed {}\n", after: "function f() {}\n" }
+  tags:
+  - mixed
+  - return
+  - type
+  detection:
+    primary:
+      ast_type: named_type
+      match:
+        name: mixed
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: named_type
+        name: mixed
+      replace:
+        note: mixed return type — php 8.0+
+  verification:
+    re_detect: true
+  test:
+    before: 'function f(): mixed {}
 
+      '
+    after: 'function f() {}
+
+      '
 - id: php.8_1.fiber_suspend
   language: php
-  feature_name: "Fiber::suspend()"
-  introduced: "8.1"
+  feature_name: Fiber::suspend()
+  introduced: '8.1'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [fiber, suspend, async]
-  detection: { primary: { ast_type: scoped_call_expression, match: { method: suspend } } }
-  fix: { strategy: manual, manual_instructions: "Use generators for cooperative multitasking." }
-  verification: { re_detect: true }
-  test: { before: "Fiber::suspend($value);\n", after: "yield $value;\n" }
+  tags:
+  - fiber
+  - suspend
+  - async
+  detection:
+    primary:
+      ast_type: scoped_call_expression
+      match:
+        method: suspend
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: scoped_call_expression
+        method: suspend
+      replace:
+        note: Fiber::suspend() — php 8.1+
+  verification:
+    re_detect: true
+  test:
+    before: 'Fiber::suspend($value);
 
+      '
+    after: 'yield $value;
+
+      '
 - id: php.8_2.sensitive_parameter
   language: php
-  feature_name: "#[SensitiveParameter]"
-  introduced: "8.2"
+  feature_name: '#[SensitiveParameter]'
+  introduced: '8.2'
   category: syntax
   direction: downgrade
   severity: warning
   error_type: syntax_error
-  tags: [sensitive, parameter, security]
-  detection: { primary: { ast_type: attribute, match: { name: SensitiveParameter } } }
-  fix: { strategy: manual, manual_instructions: "Remove attribute." }
-  verification: { re_detect: true }
-  test: { before: "function login(#[SensitiveParameter] string $password) {}\n", after: "function login(string $password) {}\n" }
+  tags:
+  - sensitive
+  - parameter
+  - security
+  detection:
+    primary:
+      ast_type: attribute
+      match:
+        name: SensitiveParameter
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: attribute
+        name: SensitiveParameter
+      replace:
+        note: '#[SensitiveParameter] — php 8.2+'
+  verification:
+    re_detect: true
+  test:
+    before: 'function login(#[SensitiveParameter] string $password) {}
 
+      '
+    after: 'function login(string $password) {}
+
+      '
 - id: php.8_3.random_interop
   language: php
-  feature_name: "Random\\IntervalBoundary"
-  introduced: "8.3"
+  feature_name: Random\IntervalBoundary
+  introduced: '8.3'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [random, boundary, enum]
-  detection: { primary: { ast_type: qualified_name, match: { name_contains: "Random\\IntervalBoundary" } } }
-  fix: { strategy: manual, manual_instructions: "Use random_int() for integer ranges." }
-  verification: { re_detect: true }
-  test: { before: "Random\\IntervalBoundary::ClosedOpen\n", after: "// Use random_int()\n" }
+  tags:
+  - random
+  - boundary
+  - enum
+  detection:
+    primary:
+      ast_type: qualified_name
+      match:
+        name_contains: Random\IntervalBoundary
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: qualified_name
+        name_contains: Random\IntervalBoundary
+      replace:
+        note: Random\IntervalBoundary — php 8.3+
+  verification:
+    re_detect: true
+  test:
+    before: 'Random\IntervalBoundary::ClosedOpen
 
+      '
+    after: '// Use random_int()
+
+      '
 - id: php.8_0.weak_map
   language: php
-  feature_name: "WeakMap"
-  introduced: "8.0"
+  feature_name: WeakMap
+  introduced: '8.0'
   category: stdlib
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [weakmap, cache, gc]
-  detection: { primary: { ast_type: new_expression, match: { class: WeakMap } } }
-  fix: { strategy: manual, manual_instructions: "Use SplObjectStorage or array with manual cleanup." }
-  verification: { re_detect: true }
-  test: { before: "$cache = new WeakMap();\n", after: "$cache = new SplObjectStorage();\n" }
+  tags:
+  - weakmap
+  - cache
+  - gc
+  detection:
+    primary:
+      ast_type: new_expression
+      match:
+        class: WeakMap
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        class: WeakMap
+      replace:
+        note: WeakMap — php 8.0+
+  verification:
+    re_detect: true
+  test:
+    before: '$cache = new WeakMap();
+
+      '
+    after: '$cache = new SplObjectStorage();
+
+      '

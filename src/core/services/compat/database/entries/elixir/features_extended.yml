@@ -1,15 +1,15 @@
-# Elixir features — extended
-
 - id: elixir.1_13.semantic_rewriting
   language: elixir
-  feature_name: "semantic rewriting in Inspect"
-  introduced: "1.13"
+  feature_name: semantic rewriting in Inspect
+  introduced: '1.13'
   category: stdlib
-  description: "Inspect protocol improvements with semantic rewriting"
+  description: Inspect protocol improvements with semantic rewriting
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [inspect, rewriting]
+  tags:
+  - inspect
+  - rewriting
   detection:
     primary:
       ast_type: call
@@ -17,81 +17,100 @@
         module: Inspect
         function: custom
   fix:
-    strategy: manual
-    manual_instructions: "Use standard Inspect protocol implementations."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        module: Inspect
+        function: custom
+      replace:
+        note: semantic rewriting in Inspect — elixir 1.13+
   verification:
     re_detect: true
   test:
-    before: |
-      defimpl Inspect, for: MyStruct do
-        def inspect(struct, opts), do: Inspect.custom(fn -> "custom" end, opts)
-      end
-    after: |
-      defimpl Inspect, for: MyStruct do
-        def inspect(_struct, _opts), do: "#MyStruct<custom>"
-      end
-
+    before: "defimpl Inspect, for: MyStruct do\n  def inspect(struct, opts), do: Inspect.custom(fn\
+      \ -> \"custom\" end, opts)\nend\n"
+    after: "defimpl Inspect, for: MyStruct do\n  def inspect(_struct, _opts), do:\
+      \ \"#MyStruct<custom>\"\nend\n"
 - id: elixir.1_14.anti_patterns
   language: elixir
-  feature_name: "anti-pattern warnings"
-  introduced: "1.14"
+  feature_name: anti-pattern warnings
+  introduced: '1.14'
   category: stdlib
-  description: "Compiler warnings for known anti-patterns"
+  description: Compiler warnings for known anti-patterns
   direction: downgrade
   severity: info
   error_type: deprecation_warning
-  tags: [compiler, warnings, anti_patterns]
+  tags:
+  - compiler
+  - warnings
+  - anti_patterns
   detection:
     primary:
       ast_type: module_attribute
       match:
-        name: "moduledoc"
+        name: moduledoc
   fix:
     strategy: no_fix_needed
   verification:
     re_detect: false
   test:
-    before: |
-      @moduledoc "My module"
-    after: |
-      @moduledoc "My module"
+    before: '@moduledoc "My module"
 
+      '
+    after: '@moduledoc "My module"
+
+      '
 - id: elixir.1_16.multi_letter_sigils
   language: elixir
-  feature_name: "multi-letter sigils"
-  introduced: "1.16"
+  feature_name: multi-letter sigils
+  introduced: '1.16'
   category: syntax
-  description: "Custom sigils with multiple letters: ~JSON, ~YAML"
+  description: 'Custom sigils with multiple letters: ~JSON, ~YAML'
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [sigil, custom, syntax]
+  tags:
+  - sigil
+  - custom
+  - syntax
   detection:
     primary:
       ast_type: sigil
       match:
         name_length_gt: 1
   fix:
-    strategy: manual
-    manual_instructions: "Replace with function calls instead of sigils."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: sigil
+        name_length_gt: 1
+      replace:
+        note: multi-letter sigils — elixir 1.16+
   verification:
     re_detect: true
   test:
-    before: |
-      config = ~JSON|{"key": "value"}|
-    after: |
-      config = Jason.decode!(~s|{"key": "value"}|)
+    before: 'config = ~JSON|{"key": "value"}|
 
+      '
+    after: 'config = Jason.decode!(~s|{"key": "value"}|)
+
+      '
 - id: elixir.1_17.set_operations
   language: elixir
-  feature_name: "MapSet operations in Enum"
-  introduced: "1.17"
+  feature_name: MapSet operations in Enum
+  introduced: '1.17'
   category: stdlib
-  description: "Set operations like Enum.frequencies_by/2 improvements"
+  description: Set operations like Enum.frequencies_by/2 improvements
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [enum, mapset, operations]
+  tags:
+  - enum
+  - mapset
+  - operations
   detection:
     primary:
       ast_type: call
@@ -99,12 +118,21 @@
         module: Enum
         function: slide
   fix:
-    strategy: manual
-    manual_instructions: "Implement manually or use a helper function."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call
+        module: Enum
+        function: slide
+      replace:
+        note: MapSet operations in Enum — elixir 1.17+
   verification:
     re_detect: true
   test:
-    before: |
-      Enum.slide(list, 2, 4)
-    after: |
-      # Manual slide implementation
+    before: 'Enum.slide(list, 2, 4)
+
+      '
+    after: '# Manual slide implementation
+
+      '

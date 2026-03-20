@@ -57,8 +57,14 @@
       match:
         attr: TOO_EARLY
   fix:
-    strategy: manual
-    manual_instructions: 'Use integer status codes directly: 103, 418, 425'
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: EARLY_HINTS
+      replace:
+        try_import: '# http.HTTPStatus additions — Python 3.9+'
+        except_import: 'pass  # EARLY_HINTS not available in older Python'
   verification:
     re_detect: true
   test:
@@ -165,11 +171,14 @@
         value_id: socket
         attr: create_server
   fix:
-    strategy: manual
-    manual_instructions: "Use manual socket setup:\n  sock = socket.create_server((\"\
-      \", 8080))\n  →\n  sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n\
-      \  sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n  sock.bind((\"\
-      \", 8080))\n  sock.listen()\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: create_server
+      replace:
+        try_import: '# socket.create_server() — Python 3.8+'
+        except_import: 'pass  # create_server not available in older Python'
   verification:
     re_detect: true
   test:

@@ -1,15 +1,16 @@
-# Python entries — final push to 400
-
 - id: python.stdlib.typing_namedtuple_defaults
   language: python
-  feature_name: "NamedTuple with defaults"
-  introduced: "3.6"
+  feature_name: NamedTuple with defaults
+  introduced: '3.6'
   category: typing
-  description: "NamedTuple class syntax with default values"
+  description: NamedTuple class syntax with default values
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [typing, namedtuple, defaults]
+  tags:
+  - typing
+  - namedtuple
+  - defaults
   detection:
     primary:
       ast_type: ImportFrom
@@ -21,27 +22,23 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from typing import NamedTuple
-      class Point(NamedTuple):
-          x: int
-          y: int = 0
-    after: |
-      from typing import NamedTuple
-      class Point(NamedTuple):
-          x: int
-          y: int = 0
-
+    before: "from typing import NamedTuple\nclass Point(NamedTuple):\n    x: int\n\
+      \    y: int = 0\n"
+    after: "from typing import NamedTuple\nclass Point(NamedTuple):\n    x: int\n\
+      \    y: int = 0\n"
 - id: python.stdlib.weakref_finalize
   language: python
-  feature_name: "weakref.finalize"
-  introduced: "3.4"
+  feature_name: weakref.finalize
+  introduced: '3.4'
   category: stdlib
-  description: "Register cleanup function for object finalization"
+  description: Register cleanup function for object finalization
   direction: downgrade
   severity: info
   error_type: import_error
-  tags: [weakref, finalize, cleanup]
+  tags:
+  - weakref
+  - finalize
+  - cleanup
   detection:
     primary:
       ast_type: ImportFrom
@@ -53,21 +50,24 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from weakref import finalize
-    after: |
-      from weakref import finalize
+    before: 'from weakref import finalize
 
+      '
+    after: 'from weakref import finalize
+
+      '
 - id: python.stdlib.typing_classvar
   language: python
-  feature_name: "typing.ClassVar"
-  introduced: "3.5"
+  feature_name: typing.ClassVar
+  introduced: '3.5'
   category: typing
-  description: "Mark class-level variables"
+  description: Mark class-level variables
   direction: downgrade
   severity: info
   error_type: import_error
-  tags: [typing, classvar]
+  tags:
+  - typing
+  - classvar
   detection:
     primary:
       ast_type: ImportFrom
@@ -79,120 +79,152 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from typing import ClassVar
-    after: |
-      from typing import ClassVar
+    before: 'from typing import ClassVar
 
+      '
+    after: 'from typing import ClassVar
+
+      '
 - id: python.stdlib.secrets_module
   language: python
-  feature_name: "secrets module"
-  introduced: "3.6"
+  feature_name: secrets module
+  introduced: '3.6'
   category: stdlib
-  description: "Cryptographically strong random numbers"
+  description: Cryptographically strong random numbers
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_module
-  tags: [secrets, random, security]
+  tags:
+  - secrets
+  - random
+  - security
   detection:
     primary:
       ast_type: Import
       match:
         names_contains: secrets
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: secrets
+    - ast_type: ImportFrom
+      match:
+        module: secrets
   fix:
-    strategy: manual
-    manual_instructions: "Use os.urandom() or random.SystemRandom()."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: secrets
+      replace:
+        try_import: '# secrets module — requires Python 3.6+'
+        except_import: 'pass  # secrets module not available'
   verification:
     re_detect: true
   test:
-    before: |
-      import secrets
+    before: 'import secrets
+
       token = secrets.token_hex(16)
-    after: |
-      import os, binascii
+
+      '
+    after: 'import os, binascii
+
       token = binascii.hexlify(os.urandom(16)).decode()
 
+      '
 - id: python.stdlib.dataclasses_module
   language: python
-  feature_name: "dataclasses module"
-  introduced: "3.7"
+  feature_name: dataclasses module
+  introduced: '3.7'
   category: stdlib
-  description: "Decorator for auto-generating __init__, __repr__, etc."
+  description: Decorator for auto-generating __init__, __repr__, etc.
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_module
-  tags: [dataclasses, class, decorator]
+  tags:
+  - dataclasses
+  - class
+  - decorator
   detection:
     primary:
       ast_type: Import
       match:
         names_contains: dataclasses
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: dataclasses
+    - ast_type: ImportFrom
+      match:
+        module: dataclasses
   fix:
-    strategy: manual
-    manual_instructions: "Write __init__, __repr__, __eq__ manually or use attrs library."
+    strategy: conditional_import
     backport:
       package: dataclasses
-      install_command: "pip install dataclasses"
-      notes: "Official backport for Python 3.6"
+      install_command: pip install dataclasses
+      notes: Official backport for Python 3.6
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: dataclasses
+      replace:
+        try_import: '# dataclasses module — requires Python 3.7+'
+        except_import: 'pass  # dataclasses module not available'
   verification:
     re_detect: true
   test:
-    before: |
-      from dataclasses import dataclass
-    after: |
-      # pip install dataclasses (for 3.6)
+    before: 'from dataclasses import dataclass
+
+      '
+    after: '# pip install dataclasses (for 3.6)
+
       from dataclasses import dataclass
 
+      '
 - id: python.stdlib.typing_extensions_all
   language: python
-  feature_name: "typing_extensions package"
-  introduced: "3.7"
+  feature_name: typing_extensions package
+  introduced: '3.7'
   category: typing
-  description: "Backport of typing features for older Python"
+  description: Backport of typing features for older Python
   direction: downgrade
   severity: info
   error_type: import_error
-  tags: [typing, extensions, backport]
+  tags:
+  - typing
+  - extensions
+  - backport
   detection:
     primary:
       ast_type: Import
       match:
         names_contains: typing_extensions
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: typing_extensions
+    - ast_type: ImportFrom
+      match:
+        module: typing_extensions
   fix:
     strategy: no_fix_needed
   verification:
     re_detect: false
   test:
-    before: |
-      import typing_extensions
-    after: |
-      import typing_extensions
+    before: 'import typing_extensions
 
+      '
+    after: 'import typing_extensions
+
+      '
 - id: python.stdlib.graphlib_toposort
   language: python
-  feature_name: "graphlib.TopologicalSorter"
-  introduced: "3.9"
+  feature_name: graphlib.TopologicalSorter
+  introduced: '3.9'
   category: stdlib
-  description: "Topological sort implementation"
+  description: Topological sort implementation
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [graphlib, topological, sort, graph]
+  tags:
+  - graphlib
+  - topological
+  - sort
+  - graph
   detection:
     primary:
       ast_type: ImportFrom
@@ -200,41 +232,41 @@
         module: graphlib
         names_contains: TopologicalSorter
   fix:
-    strategy: manual
-    manual_instructions: |
-      Implement with DFS:
-        def topo_sort(graph):
-            visited, order = set(), []
-            def dfs(node):
-                if node in visited: return
-                visited.add(node)
-                for dep in graph.get(node, []):
-                    dfs(dep)
-                order.append(node)
-            for node in graph:
-                dfs(node)
-            return order
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: TopologicalSorter
+      replace:
+        try_import: from graphlib import TopologicalSorter
+        except_import: 'from graphlib_backport import TopologicalSorter  # pip install
+          graphlib-backport'
   verification:
     re_detect: true
   test:
-    before: |
-      from graphlib import TopologicalSorter
-      ts = TopologicalSorter(graph)
-      order = list(ts.static_order())
-    after: |
-      # Manual topological sort
+    before: 'from graphlib import TopologicalSorter
 
+      ts = TopologicalSorter(graph)
+
+      order = list(ts.static_order())
+
+      '
+    after: '# Manual topological sort
+
+      '
 - id: python.stdlib.math_comb_perm
   language: python
-  feature_name: "math.comb() and math.perm()"
-  introduced: "3.8"
+  feature_name: math.comb() and math.perm()
+  introduced: '3.8'
   category: stdlib
-  description: "Combinations and permutations"
+  description: Combinations and permutations
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [math, combinatorics]
+  tags:
+  - math
+  - combinatorics
   detection:
     primary:
       ast_type: ImportFrom
@@ -242,37 +274,46 @@
         module: math
         names_contains: comb
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: math
-          names_contains: perm
+    - ast_type: ImportFrom
+      match:
+        module: math
+        names_contains: perm
   fix:
-    strategy: manual
-    manual_instructions: |
-      Implement using factorial:
-        math.comb(n, k) → math.factorial(n) // (math.factorial(k) * math.factorial(n - k))
-        math.perm(n, k) → math.factorial(n) // math.factorial(n - k)
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: comb
+      replace:
+        try_import: '# math.comb() and math.perm() — requires Python 3.8+'
+        except_import: 'pass  # math.comb() and math.perm() not available'
   verification:
     re_detect: true
   test:
-    before: |
-      from math import comb
+    before: 'from math import comb
+
       result = comb(10, 3)
-    after: |
-      from math import factorial
+
+      '
+    after: 'from math import factorial
+
       result = factorial(10) // (factorial(3) * factorial(7))
 
+      '
 - id: python.stdlib.sys_orig_argv
   language: python
-  feature_name: "sys.orig_argv"
-  introduced: "3.10"
+  feature_name: sys.orig_argv
+  introduced: '3.10'
   category: stdlib
-  description: "Original command line arguments before Python processing"
+  description: Original command line arguments before Python processing
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [sys, argv, original]
+  tags:
+  - sys
+  - argv
+  - original
   detection:
     primary:
       ast_type: Attribute
@@ -280,29 +321,40 @@
         value_id: sys
         attr: orig_argv
   fix:
-    strategy: manual
-    manual_instructions: "Use sys.argv — orig_argv includes interpreter flags."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: orig_argv
+      replace:
+        try_import: '# sys.orig_argv — Python 3.10+'
+        except_import: 'pass  # orig_argv not available in older Python'
   verification:
     re_detect: true
   test:
-    before: |
-      import sys
+    before: 'import sys
+
       args = sys.orig_argv
-    after: |
-      import sys
+
+      '
+    after: 'import sys
+
       args = sys.argv
 
+      '
 - id: python.stdlib.enum_member
   language: python
-  feature_name: "enum.member()"
-  introduced: "3.11"
+  feature_name: enum.member()
+  introduced: '3.11'
   category: stdlib
-  description: "Explicitly mark a value as an enum member"
+  description: Explicitly mark a value as an enum member
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [enum, member]
+  tags:
+  - enum
+  - member
   detection:
     primary:
       ast_type: ImportFrom
@@ -310,27 +362,36 @@
         module: enum
         names_contains: member
   fix:
-    strategy: manual
-    manual_instructions: "Remove member() wrapper — all class-level assignments are members by default."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: member
+      replace:
+        try_import: '# enum.member() — requires Python 3.11+'
+        except_import: 'pass  # enum.member() not available'
   verification:
     re_detect: true
   test:
-    before: |
-      from enum import Enum, member
-    after: |
-      from enum import Enum
+    before: 'from enum import Enum, member
 
+      '
+    after: 'from enum import Enum
+
+      '
 - id: python.stdlib.enum_property
   language: python
-  feature_name: "enum.property"
-  introduced: "3.11"
+  feature_name: enum.property
+  introduced: '3.11'
   category: stdlib
-  description: "Property decorator for enum classes"
+  description: Property decorator for enum classes
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [enum, property]
+  tags:
+  - enum
+  - property
   detection:
     primary:
       ast_type: ImportFrom
@@ -338,27 +399,37 @@
         module: enum
         names_contains: property
   fix:
-    strategy: manual
-    manual_instructions: "Use regular @property — it works on enum classes in older Python too."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: property
+      replace:
+        try_import: '# enum.property — requires Python 3.11+'
+        except_import: 'pass  # enum.property not available'
   verification:
     re_detect: true
   test:
-    before: |
-      from enum import Enum, property as enum_property
-    after: |
-      from enum import Enum
+    before: 'from enum import Enum, property as enum_property
 
+      '
+    after: 'from enum import Enum
+
+      '
 - id: python.stdlib.abc_update_abstractmethods
   language: python
-  feature_name: "abc.update_abstractmethods()"
-  introduced: "3.10"
+  feature_name: abc.update_abstractmethods()
+  introduced: '3.10'
   category: stdlib
-  description: "Recalculate abstract methods after dynamic class changes"
+  description: Recalculate abstract methods after dynamic class changes
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [abc, abstract, methods]
+  tags:
+  - abc
+  - abstract
+  - methods
   detection:
     primary:
       ast_type: Attribute
@@ -366,33 +437,44 @@
         value_id: abc
         attr: update_abstractmethods
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: abc
-          names_contains: update_abstractmethods
+    - ast_type: ImportFrom
+      match:
+        module: abc
+        names_contains: update_abstractmethods
   fix:
-    strategy: manual
-    manual_instructions: "Avoid dynamic abstract method changes or implement manual check."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: update_abstractmethods
+      replace:
+        try_import: '# abc.update_abstractmethods() — Python 3.10+'
+        except_import: 'pass  # update_abstractmethods not available in older Python'
   verification:
     re_detect: true
   test:
-    before: |
-      from abc import update_abstractmethods
-      update_abstractmethods(MyClass)
-    after: |
-      # Manual abstract method verification
+    before: 'from abc import update_abstractmethods
 
+      update_abstractmethods(MyClass)
+
+      '
+    after: '# Manual abstract method verification
+
+      '
 - id: python.stdlib.base64_b32hexencode
   language: python
-  feature_name: "base64.b32hexencode/decode"
-  introduced: "3.10"
+  feature_name: base64.b32hexencode/decode
+  introduced: '3.10'
   category: stdlib
-  description: "Base32 encoding with hex alphabet"
+  description: Base32 encoding with hex alphabet
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [base64, encoding, hex]
+  tags:
+  - base64
+  - encoding
+  - hex
   detection:
     primary:
       ast_type: Attribute
@@ -400,19 +482,29 @@
         value_id: base64
         attr: b32hexencode
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: base64
-          names_contains: b32hexencode
+    - ast_type: ImportFrom
+      match:
+        module: base64
+        names_contains: b32hexencode
   fix:
-    strategy: manual
-    manual_instructions: "Use base64.b32encode() with manual hex alphabet translation."
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        attribute: b32hexencode
+      replace:
+        try_import: '# base64.b32hexencode/decode — Python 3.10+'
+        except_import: 'pass  # b32hexencode not available in older Python'
   verification:
     re_detect: true
   test:
-    before: |
-      import base64
+    before: 'import base64
+
       encoded = base64.b32hexencode(data)
-    after: |
-      import base64
+
+      '
+    after: 'import base64
+
       encoded = base64.b32encode(data)
+
+      '

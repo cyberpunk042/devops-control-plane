@@ -1,128 +1,161 @@
-# Rust features — extended
-
 - id: rust.1_80.lazy_lock
   language: rust
-  feature_name: "std::sync::LazyLock"
-  introduced: "1.80"
+  feature_name: std::sync::LazyLock
+  introduced: '1.80'
   category: std
-  description: "Thread-safe lazy initialization (stabilized)"
+  description: Thread-safe lazy initialization (stabilized)
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [sync, lazy, initialization]
+  tags:
+  - sync
+  - lazy
+  - initialization
   detection:
     primary:
       ast_type: use_declaration
       match:
-        path_contains: "sync::LazyLock"
+        path_contains: sync::LazyLock
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_statement
-        find:
-          import_pattern: "use std::sync::LazyLock"
-        replace:
-          import_statement: "use once_cell::sync::Lazy"
+    - type: replace_import_statement
+      find:
+        import_pattern: use std::sync::LazyLock
+      replace:
+        import_statement: use once_cell::sync::Lazy
     backport:
       package: once_cell
-      install_command: "cargo add once_cell"
+      install_command: cargo add once_cell
   verification:
     re_detect: true
   test:
-    before: |
-      use std::sync::LazyLock;
+    before: 'use std::sync::LazyLock;
+
       static CONFIG: LazyLock<Config> = LazyLock::new(|| load_config());
-    after: |
-      use once_cell::sync::Lazy;
+
+      '
+    after: 'use once_cell::sync::Lazy;
+
       static CONFIG: Lazy<Config> = Lazy::new(|| load_config());
 
+      '
 - id: rust.1_77.cstr_literal
   language: rust
-  feature_name: "C string literals (c\"...\")"
-  introduced: "1.77"
+  feature_name: C string literals (c"...")
+  introduced: '1.77'
   category: syntax
-  description: "C string literal syntax for FFI"
+  description: C string literal syntax for FFI
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [cstring, ffi, literal]
+  tags:
+  - cstring
+  - ffi
+  - literal
   detection:
     primary:
       ast_type: string_literal
       match:
         c_string: true
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with CStr::from_bytes_with_nul:
-        c"hello" → CStr::from_bytes_with_nul(b"hello\0").unwrap()
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: string_literal
+        c_string: true
+      replace:
+        note: C string literals (c"...") — rust 1.77+
   verification:
     re_detect: true
   test:
-    before: |
-      let s = c"hello world";
-    after: |
-      use std::ffi::CStr;
+    before: 'let s = c"hello world";
+
+      '
+    after: 'use std::ffi::CStr;
+
       let s = CStr::from_bytes_with_nul(b"hello world\0").unwrap();
 
+      '
 - id: rust.1_72.cfg_overflow_checks
   language: rust
-  feature_name: "cfg(overflow_checks)"
-  introduced: "1.72"
+  feature_name: cfg(overflow_checks)
+  introduced: '1.72'
   category: syntax
-  description: "Conditional compilation based on overflow check status"
+  description: Conditional compilation based on overflow check status
   direction: downgrade
   severity: warning
   error_type: syntax_error
-  tags: [cfg, overflow, conditional]
+  tags:
+  - cfg
+  - overflow
+  - conditional
   detection:
     primary:
       ast_type: attribute
       match:
-        path: "cfg"
-        args_contains: "overflow_checks"
+        path: cfg
+        args_contains: overflow_checks
   fix:
-    strategy: manual
-    manual_instructions: "Remove or replace with a custom cfg flag."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: attribute
+        path: cfg
+        args_contains: overflow_checks
+      replace:
+        note: cfg(overflow_checks) — rust 1.72+
   verification:
     re_detect: true
   test:
-    before: |
-      #[cfg(overflow_checks)]
-      fn checked_add(a: i32, b: i32) -> Option<i32> { a.checked_add(b) }
-    after: |
+    before: '#[cfg(overflow_checks)]
+
       fn checked_add(a: i32, b: i32) -> Option<i32> { a.checked_add(b) }
 
+      '
+    after: 'fn checked_add(a: i32, b: i32) -> Option<i32> { a.checked_add(b) }
+
+      '
 - id: rust.1_68.pin_macro
   language: rust
-  feature_name: "pin! macro"
-  introduced: "1.68"
+  feature_name: pin! macro
+  introduced: '1.68'
   category: std
-  description: "Pin a value to the stack"
+  description: Pin a value to the stack
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [pin, macro, async]
+  tags:
+  - pin
+  - macro
+  - async
   detection:
     primary:
       ast_type: macro_invocation
       match:
         macro_name: pin
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use pin-utils crate or Box::pin():
-        let pinned = pin!(future);
-        → let pinned = Box::pin(future);
+    strategy: rewrite_expression
     backport:
       package: pin-utils
-      install_command: "cargo add pin-utils"
+      install_command: cargo add pin-utils
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: macro_invocation
+        macro_name: pin
+      replace:
+        note: pin! macro — rust 1.68+
   verification:
     re_detect: true
   test:
-    before: |
-      let mut pinned = pin!(async { work().await });
-    after: |
-      let mut pinned = Box::pin(async { work().await });
+    before: 'let mut pinned = pin!(async { work().await });
+
+      '
+    after: 'let mut pinned = Box::pin(async { work().await });
+
+      '

@@ -18,9 +18,13 @@
         func_attr: relative_to
         has_keyword: walk_up
   fix:
-    strategy: manual
-    manual_instructions: "Remove walk_up parameter:\n  path.relative_to(base, walk_up=True)\n\
-      \  → os.path.relpath(str(path), str(base))\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: relative_to
+      replace:
+        note: Path.relative_to(walk_up=True) — requires Python 3.12+
   verification:
     re_detect: false
   test:
@@ -52,9 +56,13 @@
         func_attr: NamedTemporaryFile
         has_keyword: delete_on_close
   fix:
-    strategy: manual
-    manual_instructions: "Remove delete_on_close parameter:\n  NamedTemporaryFile(delete_on_close=False)\n\
-      \  → NamedTemporaryFile(delete=False)\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: NamedTemporaryFile
+      replace:
+        note: NamedTemporaryFile(delete_on_close=False) — requires Python 3.12+
   verification:
     re_detect: false
   test:
@@ -89,10 +97,13 @@
         has_keyword: autocommit
         func_value_id: sqlite3
   fix:
-    strategy: manual
-    manual_instructions: "Remove autocommit parameter:\n  sqlite3.connect(db, autocommit=True)\n\
-      \  → conn = sqlite3.connect(db)\n    conn.execute(\"PRAGMA journal_mode=WAL\"\
-      )\n"
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: connect
+      replace:
+        note: sqlite3 autocommit mode — requires Python 3.12+
   verification:
     re_detect: false
   test:

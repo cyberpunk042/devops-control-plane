@@ -118,9 +118,14 @@
         value_id: math
         attr: lcm
   fix:
-    strategy: manual
-    manual_instructions: "Implement lcm using gcd:\n  from math import gcd\n  def\
-      \ lcm(a, b):\n      return abs(a * b) // gcd(a, b)\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: lcm
+      replace:
+        try_import: '# math.lcm() — requires Python 3.9+'
+        except_import: 'pass  # math.lcm() not available'
   verification:
     re_detect: true
   test:

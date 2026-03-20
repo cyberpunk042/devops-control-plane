@@ -1,76 +1,170 @@
-# Java batch — 700
-
 - id: java.14.records_canonical
   language: java
-  feature_name: "record canonical constructor"
-  introduced: "16"
+  feature_name: record canonical constructor
+  introduced: '16'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [record, constructor, canonical]
+  tags:
+  - record
+  - constructor
+  - canonical
   detection:
-    primary: { ast_type: record_declaration }
-  fix: { strategy: manual, manual_instructions: "Convert to class with constructor." }
-  verification: { re_detect: true }
-  test: { before: "record User(String name, int age) {}\n", after: "class User { final String name; final int age; User(String n, int a) { name=n; age=a; } }\n" }
+    primary:
+      ast_type: record_declaration
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: record_declaration
+      replace:
+        note: record canonical constructor — java 16+
+  verification:
+    re_detect: true
+  test:
+    before: 'record User(String name, int age) {}
 
+      '
+    after: 'class User { final String name; final int age; User(String n, int a) {
+      name=n; age=a; } }
+
+      '
 - id: java.11.local_var_lambda
   language: java
-  feature_name: "var in lambda"
-  introduced: "11"
+  feature_name: var in lambda
+  introduced: '11'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [var, lambda, local]
+  tags:
+  - var
+  - lambda
+  - local
   detection:
-    primary: { ast_type: lambda_expression, match: { has_var_params: true } }
-  fix: { strategy: manual, manual_instructions: "Remove var or add explicit types." }
-  verification: { re_detect: true }
-  test: { before: "(var x, var y) -> x + y\n", after: "(x, y) -> x + y\n" }
+    primary:
+      ast_type: lambda_expression
+      match:
+        has_var_params: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: lambda_expression
+        has_var_params: true
+      replace:
+        note: var in lambda — java 11+
+  verification:
+    re_detect: true
+  test:
+    before: '(var x, var y) -> x + y
 
+      '
+    after: '(x, y) -> x + y
+
+      '
 - id: java.17.random_nextfloat
   language: java
-  feature_name: "Random.nextFloat(bound)"
-  introduced: "17"
+  feature_name: Random.nextFloat(bound)
+  introduced: '17'
   category: api
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [random, float, bound]
+  tags:
+  - random
+  - float
+  - bound
   detection:
-    primary: { ast_type: method_invocation, match: { method: nextFloat } }
-  fix: { strategy: manual, manual_instructions: "Use nextFloat() * bound." }
-  verification: { re_detect: false }
-  test: { before: "float f = rng.nextFloat(10.0f);\n", after: "float f = rng.nextFloat() * 10.0f;\n" }
+    primary:
+      ast_type: method_invocation
+      match:
+        method: nextFloat
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: method_invocation
+        method: nextFloat
+      replace:
+        note: Random.nextFloat(bound) — java 17+
+  verification:
+    re_detect: false
+  test:
+    before: 'float f = rng.nextFloat(10.0f);
 
+      '
+    after: 'float f = rng.nextFloat() * 10.0f;
+
+      '
 - id: java.21.unnamed_patterns
   language: java
-  feature_name: "unnamed patterns (_) in switch"
-  introduced: "21"
+  feature_name: unnamed patterns (_) in switch
+  introduced: '21'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [unnamed, pattern, switch]
+  tags:
+  - unnamed
+  - pattern
+  - switch
   detection:
-    primary: { ast_type: switch_expression, match: { has_unnamed_pattern: true } }
-  fix: { strategy: manual, manual_instructions: "Replace _ with named variable." }
-  verification: { re_detect: true }
-  test: { before: "case Point(var x, _) -> x;\n", after: "case Point p -> p.x();\n" }
+    primary:
+      ast_type: switch_expression
+      match:
+        has_unnamed_pattern: true
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: switch_expression
+        has_unnamed_pattern: true
+      replace:
+        note: unnamed patterns (_) in switch — java 21+
+  verification:
+    re_detect: true
+  test:
+    before: 'case Point(var x, _) -> x;
 
+      '
+    after: 'case Point p -> p.x();
+
+      '
 - id: java.21.string_template_proc
   language: java
-  feature_name: "string template processor"
-  introduced: "21"
+  feature_name: string template processor
+  introduced: '21'
   category: syntax
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [string, template, processor]
+  tags:
+  - string
+  - template
+  - processor
   detection:
-    primary: { ast_type: string_template_expression }
-  fix: { strategy: manual, manual_instructions: "Use String.format or concatenation." }
-  verification: { re_detect: true }
-  test: { before: "String s = STR.\"Hello \\{name}\";\n", after: "String s = String.format(\"Hello %s\", name);\n" }
+    primary:
+      ast_type: string_template_expression
+  fix:
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: string_template_expression
+      replace:
+        note: string template processor — java 21+
+  verification:
+    re_detect: true
+  test:
+    before: 'String s = STR."Hello \{name}";
+
+      '
+    after: 'String s = String.format("Hello %s", name);
+
+      '

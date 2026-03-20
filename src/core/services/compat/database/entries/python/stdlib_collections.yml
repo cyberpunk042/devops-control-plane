@@ -52,9 +52,14 @@
         module: itertools
         names_contains: pairwise
   fix:
-    strategy: manual
-    manual_instructions: "def pairwise(it):\n    a, b = itertools.tee(it)\n    next(b,\
-      \ None)\n    return zip(a, b)\n"
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: pairwise
+      replace:
+        try_import: from itertools import pairwise
+        except_import: 'from more_itertools import pairwise  # pip install more-itertools'
   verification:
     re_detect: true
   test:
@@ -84,8 +89,14 @@
         module: functools
         names_contains: singledispatchmethod
   fix:
-    strategy: manual
-    manual_instructions: Use if/elif with isinstance checks instead.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: singledispatchmethod
+      replace:
+        try_import: '# functools.singledispatchmethod — requires Python 3.8+'
+        except_import: 'pass  # functools.singledispatchmethod not available'
   verification:
     re_detect: true
   test:
@@ -115,8 +126,14 @@
         module: operator
         names_contains: call
   fix:
-    strategy: manual
-    manual_instructions: 'Use lambda x, *a, **kw: x(*a, **kw) instead.'
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: call
+      replace:
+        try_import: '# operator.call() — requires Python 3.11+'
+        except_import: 'pass  # operator.call() not available'
   verification:
     re_detect: true
   test:
@@ -152,8 +169,14 @@
       match:
         module: contextvars
   fix:
-    strategy: manual
-    manual_instructions: Use threading.local() as a simpler alternative.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: contextvars
+      replace:
+        try_import: '# contextvars (module) — requires Python 3.7+'
+        except_import: 'pass  # contextvars (module) not available'
   verification:
     re_detect: true
   test:
@@ -235,9 +258,14 @@
         module: enum
         names_contains: verify
   fix:
-    strategy: manual
-    manual_instructions: Remove @verify decorator — add manual checks in __init_subclass__
-      if needed.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: verify
+      replace:
+        try_import: '# enum.verify() — requires Python 3.11+'
+        except_import: 'pass  # enum.verify() not available'
   verification:
     re_detect: true
   test:
@@ -264,8 +292,14 @@
         module: enum
         names_contains: nonmember
   fix:
-    strategy: manual
-    manual_instructions: Use a class variable outside the enum or a descriptor.
+    strategy: conditional_import
+    transforms:
+    - type: conditional_import
+      find:
+        import_name: nonmember
+      replace:
+        try_import: '# enum.nonmember() — requires Python 3.11+'
+        except_import: 'pass  # enum.nonmember() not available'
   verification:
     re_detect: true
   test:

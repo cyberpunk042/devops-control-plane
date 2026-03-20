@@ -1,158 +1,203 @@
-# Node.js runtime-specific APIs
-
 - id: node.18.fetch
   language: javascript
-  feature_name: "global fetch()"
-  introduced: "ES2022"
+  feature_name: global fetch()
+  introduced: ES2022
   category: node_api
-  description: "Built-in fetch API in Node.js 18+"
+  description: Built-in fetch API in Node.js 18+
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [fetch, http, node]
+  tags:
+  - fetch
+  - http
+  - node
   detection:
     primary:
       ast_type: call_expression
       match:
         function: fetch
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use node-fetch package:
-        npm install node-fetch
-        const fetch = require('node-fetch');
-      Or use the built-in http/https modules.
+    strategy: rewrite_expression
     backport:
       package: node-fetch
-      install_command: "npm install node-fetch@2"
+      install_command: npm install node-fetch@2
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        function: fetch
+      replace:
+        note: global fetch() — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      const resp = await fetch('https://api.example.com/data');
-    after: |
-      const fetch = require('node-fetch');
-      const resp = await fetch('https://api.example.com/data');
+    before: 'const resp = await fetch(''https://api.example.com/data'');
 
+      '
+    after: 'const fetch = require(''node-fetch'');
+
+      const resp = await fetch(''https://api.example.com/data'');
+
+      '
 - id: node.16.abort_controller
   language: javascript
-  feature_name: "AbortController (global)"
-  introduced: "ES2021"
+  feature_name: AbortController (global)
+  introduced: ES2021
   category: node_api
-  description: "Built-in AbortController in Node.js 16+"
+  description: Built-in AbortController in Node.js 16+
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [abort, controller, node]
+  tags:
+  - abort
+  - controller
+  - node
   detection:
     primary:
       ast_type: new_expression
       match:
         constructor: AbortController
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use abort-controller package:
-        npm install abort-controller
-        const { AbortController } = require('abort-controller');
+    strategy: rewrite_expression
     backport:
       package: abort-controller
-      install_command: "npm install abort-controller"
+      install_command: npm install abort-controller
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor: AbortController
+      replace:
+        note: AbortController (global) — javascript ES2021+
   verification:
     re_detect: true
   test:
-    before: |
-      const controller = new AbortController();
-    after: |
-      const { AbortController } = require('abort-controller');
+    before: 'const controller = new AbortController();
+
+      '
+    after: 'const { AbortController } = require(''abort-controller'');
+
       const controller = new AbortController();
 
+      '
 - id: node.16.blob
   language: javascript
-  feature_name: "Blob (global)"
-  introduced: "ES2022"
+  feature_name: Blob (global)
+  introduced: ES2022
   category: node_api
-  description: "Built-in Blob in Node.js 18+"
+  description: Built-in Blob in Node.js 18+
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [blob, binary, node]
+  tags:
+  - blob
+  - binary
+  - node
   detection:
     primary:
       ast_type: new_expression
       match:
         constructor: Blob
   fix:
-    strategy: manual
-    manual_instructions: "Use buffer-based alternatives or the 'blob-polyfill' package."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_syntax
+      find:
+        ast_type: new_expression
+        constructor: Blob
+      replace:
+        note: Blob (global) — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      const blob = new Blob(['hello'], { type: 'text/plain' });
-    after: |
-      const { Blob } = require('buffer');
-      const blob = new Blob(['hello'], { type: 'text/plain' });
+    before: 'const blob = new Blob([''hello''], { type: ''text/plain'' });
 
+      '
+    after: 'const { Blob } = require(''buffer'');
+
+      const blob = new Blob([''hello''], { type: ''text/plain'' });
+
+      '
 - id: node.18.structuredclone
   language: javascript
-  feature_name: "structuredClone()"
-  introduced: "ES2022"
+  feature_name: structuredClone()
+  introduced: ES2022
   category: node_api
-  description: "Built-in deep clone function"
+  description: Built-in deep clone function
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [clone, deep, structured]
+  tags:
+  - clone
+  - deep
+  - structured
   detection:
     primary:
       ast_type: call_expression
       match:
         function: structuredClone
   fix:
-    strategy: manual
-    manual_instructions: |
-      Use JSON parse/stringify for simple objects:
-        structuredClone(obj) → JSON.parse(JSON.stringify(obj))
-      Or use lodash _.cloneDeep for complex objects.
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        function: structuredClone
+      replace:
+        note: structuredClone() — javascript ES2022+
   verification:
     re_detect: true
   test:
-    before: |
-      const copy = structuredClone(original);
-    after: |
-      const copy = JSON.parse(JSON.stringify(original));
+    before: 'const copy = structuredClone(original);
 
+      '
+    after: 'const copy = JSON.parse(JSON.stringify(original));
+
+      '
 - id: node.20.import_meta_resolve
   language: javascript
-  feature_name: "import.meta.resolve()"
-  introduced: "ES2024"
+  feature_name: import.meta.resolve()
+  introduced: ES2024
   category: node_api
-  description: "Resolve module specifiers from import.meta"
+  description: Resolve module specifiers from import.meta
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [import, resolve, module]
+  tags:
+  - import
+  - resolve
+  - module
   detection:
     primary:
       ast_type: call_expression
       match:
-        object_chain: "import.meta"
+        object_chain: import.meta
         method: resolve
   fix:
-    strategy: manual
-    manual_instructions: "Use require.resolve() or createRequire()."
+    strategy: rewrite_expression
+    transforms:
+    - type: rewrite_method_call
+      find:
+        ast_type: call_expression
+        object_chain: import.meta
+        method: resolve
+      replace:
+        note: import.meta.resolve() — javascript ES2024+
   verification:
     re_detect: true
   test:
-    before: |
-      const path = import.meta.resolve('./config.json');
-    after: |
-      import { createRequire } from 'module';
+    before: 'const path = import.meta.resolve(''./config.json'');
+
+      '
+    after: 'import { createRequire } from ''module'';
+
       const require = createRequire(import.meta.url);
-      const path = require.resolve('./config.json');
+
+      const path = require.resolve(''./config.json'');
+
+      '
