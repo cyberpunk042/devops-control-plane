@@ -290,8 +290,8 @@ def _enrich_with_compat_analysis(
             else:
                 other_steps.append(step)
 
-        # Add dependency discovery step for Python (after dep compat check)
-        if ctx.language == "python":
+        # Add dependency discovery step (compat enrichment only runs for Python)
+        if compat_steps:
             deps_steps.append({
                 "label": "Discover missing dependencies",
                 "description": "Scan code imports and add any missing packages to requirements.txt",
