@@ -516,6 +516,9 @@ class FixEngine:
         if t_type == "rewrite_annotation":
             return self._transform_rewrite_annotation(source, transform)
 
+        if t_type == "remove_keyword_arg":
+            return self._transform_remove_keyword_arg(source, transform, finding)
+
         logger.warning("Unknown transform type: %s", t_type)
         return None
 
@@ -1157,3 +1160,98 @@ class FixEngine:
             lines[line_idx] = line[:col] + replacement + line[end_col:]
 
         return "\n".join(lines)
+
+    def _transform_remove_keyword_arg(
+        self, source: str, transform: Transform, finding: Finding,
+    ) -> str | None:
+        """Remove a keyword argument from a function/decorator call.
+
+        Handles:
+          @dataclass(slots=True, kw_only=True) → @dataclass(kw_only=True)
+          @dataclass(slots=True) → @dataclass
+          field(default=0, kw_only=True) → field(default=0)
+          zip(a, b, strict=True) → zip(a, b)
+
+        The keyword to remove is specified in transform.find['keyword'].
+        """
+        keyword = transform.find.get("keyword", "")
+        if not keyword:
+            return None
+
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return None
+
+        lines = source.split("\n")
+        modifications = []
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+
+            # Find the keyword argument to remove
+            kw_to_remove = None
+            for kw in node.keywords:
+                if kw.arg == keyword:
+                    kw_to_remove = kw
+                    break
+
+            if kw_to_remove is None:
+                continue
+
+            # Check if this is the right call (match finding line)
+            line_no = getattr(node, "lineno", 0)
+            if finding and finding.line and line_no != finding.line:
+                continue
+
+            remaining_kwargs = [kw for kw in node.keywords if kw.arg != keyword]
+            remaining_args = node.args
+
+            if not remaining_kwargs and not remaining_args:
+                # Call had only this kwarg: func(slots=True) → func
+                # Need to remove the parentheses or leave empty ()
+                func_node = node.func
+                func_end_col = getattr(func_node, "end_col_offset", 0)
+                node_end_col = getattr(node, "end_col_offset", 0)
+                node_line = getattr(node, "lineno", 0) - 1
+
+                if node_line < len(lines):
+                    line = lines[node_line]
+                    # Find the opening paren after the function name
+                    paren_start = line.find("(", func_end_col)
+                    if paren_start >= 0:
+                        # Remove everything from ( to ) inclusive, or leave ()
+                        close_paren = line.rfind(")", paren_start)
+                        if close_paren >= 0:
+                            modifications.append((node_line, paren_start, close_paren + 1, ""))
+            else:
+                # Remove just the keyword argument from the call
+                # Use regex on the source line to handle formatting
+                kw_line = getattr(kw_to_remove, "lineno", 0) - 1
+                if kw_line < len(lines):
+                    line = lines[kw_line]
+                    # Match: keyword=value with optional trailing/leading comma + spaces
+                    patterns = [
+                        # keyword=value, (with trailing comma)
+                        re.compile(rf",\s*{re.escape(keyword)}\s*=\s*[^,\)]+"),
+                        # , keyword=value (with leading comma — last arg)
+                        re.compile(rf"{re.escape(keyword)}\s*=\s*[^,\)]+\s*,?\s*"),
+                    ]
+                    for pat in patterns:
+                        m = pat.search(line)
+                        if m:
+                            new_line = line[:m.start()] + line[m.end():]
+                            # Clean up double commas or trailing commas before )
+                            new_line = re.sub(r",\s*\)", ")", new_line)
+                            new_line = re.sub(r"\(\s*,", "(", new_line)
+                            lines[kw_line] = new_line
+                            return "\n".join(lines)
+
+        if modifications:
+            for line_idx, col, end_col, replacement in sorted(modifications, reverse=True):
+                line = lines[line_idx]
+                lines[line_idx] = line[:col] + replacement + line[end_col:]
+            return "\n".join(lines)
+
+        return None

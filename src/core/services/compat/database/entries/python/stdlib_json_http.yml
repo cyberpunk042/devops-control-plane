@@ -118,13 +118,19 @@
       match:
         attr: files
   fix:
-    strategy: manual
-    manual_instructions: "Use the backport:\n  pip install importlib-resources\n \
-      \ from importlib_resources import files\nOr use pkg_resources:\n  import pkg_resources\n\
-      \  data = pkg_resources.resource_string(package, name)\n"
+    strategy: conditional_import
     backport:
       package: importlib-resources
-      install_command: pip install importlib-resources
+      min_version: '5.0'
+      import_name: importlib_resources
+    transforms:
+    - type: conditional_import
+      find:
+        import_module: importlib.resources
+        import_name: files
+      replace:
+        try_import: from importlib.resources import files
+        except_import: from importlib_resources import files
   verification:
     re_detect: true
   test:

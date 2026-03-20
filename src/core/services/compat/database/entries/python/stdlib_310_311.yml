@@ -109,8 +109,12 @@
         func_id: dataclass
         has_keyword: slots
   fix:
-    strategy: manual
-    manual_instructions: Remove the keyword argument for Python 3.8 compatibility.
+    strategy: rewrite_expression
+    transforms:
+    - type: remove_keyword_arg
+      find:
+        keyword: slots
+      replace: {}
   verification:
     re_detect: true
   test:
@@ -136,8 +140,12 @@
         func_id: dataclass
         has_keyword: kw_only
   fix:
-    strategy: manual
-    manual_instructions: Remove the keyword argument for Python 3.8 compatibility.
+    strategy: rewrite_expression
+    transforms:
+    - type: remove_keyword_arg
+      find:
+        keyword: kw_only
+      replace: {}
   verification:
     re_detect: true
   test:
@@ -165,8 +173,12 @@
     exclude:
     - reason: zip() without strict=True is fine — only strict param is 3.10+
   fix:
-    strategy: manual
-    manual_instructions: Remove the keyword argument for Python 3.8 compatibility.
+    strategy: rewrite_expression
+    transforms:
+    - type: remove_keyword_arg
+      find:
+        keyword: strict
+      replace: {}
   verification:
     re_detect: true
   test:

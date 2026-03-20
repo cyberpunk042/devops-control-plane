@@ -1,58 +1,54 @@
-# Python pathlib features across versions
-
 - id: python.stdlib.pathlib_is_relative_to
   language: python
-  feature_name: "Path.is_relative_to()"
-  introduced: "3.9"
+  feature_name: Path.is_relative_to()
+  introduced: '3.9'
   category: stdlib
-  description: "Check if path is relative to another"
+  description: Check if path is relative to another
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [pathlib, relative, method]
+  tags:
+  - pathlib
+  - relative
+  - method
   detection:
     primary:
       ast_type: Call
       match:
         func_attr: is_relative_to
   fix:
-    strategy: manual
-    manual_instructions: |
-      Replace with try/except:
-        path.is_relative_to(base)
-        →
-        try:
-            path.relative_to(base)
-            is_relative = True
-        except ValueError:
-            is_relative = False
+    strategy: conditional_import
+    transforms:
+    - type: rewrite_method_call
+      find:
+        method: is_relative_to
+      replace:
+        extract:
+          arg: call_args_0
+          receiver: call_receiver
+        template: '(lambda p, b: p.parts[:len(b.parts)] == b.parts)(Path({receiver}),
+          Path({arg}))'
   verification:
     re_detect: true
   test:
-    before: |
-      if path.is_relative_to("/home"):
-          process(path)
-    after: |
-      try:
-          path.relative_to("/home")
-          is_rel = True
-      except ValueError:
-          is_rel = False
-      if is_rel:
-          process(path)
-
+    before: "if path.is_relative_to(\"/home\"):\n    process(path)\n"
+    after: "try:\n    path.relative_to(\"/home\")\n    is_rel = True\nexcept ValueError:\n\
+      \    is_rel = False\nif is_rel:\n    process(path)\n"
 - id: python.stdlib.pathlib_readlink
   language: python
-  feature_name: "Path.readlink()"
-  introduced: "3.9"
+  feature_name: Path.readlink()
+  introduced: '3.9'
   category: stdlib
-  description: "Read the target of a symbolic link"
+  description: Read the target of a symbolic link
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [pathlib, symlink, readlink]
+  tags:
+  - pathlib
+  - symlink
+  - readlink
   detection:
     primary:
       ast_type: Call
@@ -60,29 +56,31 @@
         func_attr: readlink
   fix:
     strategy: manual
-    manual_instructions: |
-      Replace with os.readlink():
-        path.readlink() → Path(os.readlink(str(path)))
+    manual_instructions: "Replace with os.readlink():\n  path.readlink() → Path(os.readlink(str(path)))\n"
   verification:
     re_detect: true
   test:
-    before: |
-      target = link.readlink()
-    after: |
-      import os
+    before: 'target = link.readlink()
+
+      '
+    after: 'import os
+
       target = Path(os.readlink(str(link)))
 
+      '
 - id: python.stdlib.pathlib_hardlink_to
   language: python
-  feature_name: "Path.hardlink_to()"
-  introduced: "3.10"
+  feature_name: Path.hardlink_to()
+  introduced: '3.10'
   category: stdlib
-  description: "Create a hard link to this path"
+  description: Create a hard link to this path
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [pathlib, hardlink]
+  tags:
+  - pathlib
+  - hardlink
   detection:
     primary:
       ast_type: Call
@@ -90,29 +88,33 @@
         func_attr: hardlink_to
   fix:
     strategy: manual
-    manual_instructions: |
-      Replace with os.link():
-        target.hardlink_to(source) → os.link(str(source), str(target))
+    manual_instructions: "Replace with os.link():\n  target.hardlink_to(source) →\
+      \ os.link(str(source), str(target))\n"
   verification:
     re_detect: true
   test:
-    before: |
-      new_path.hardlink_to(original)
-    after: |
-      import os
+    before: 'new_path.hardlink_to(original)
+
+      '
+    after: 'import os
+
       os.link(str(original), str(new_path))
 
+      '
 - id: python.stdlib.pathlib_with_stem
   language: python
-  feature_name: "Path.with_stem()"
-  introduced: "3.9"
+  feature_name: Path.with_stem()
+  introduced: '3.9'
   category: stdlib
-  description: "Return path with a different stem (filename without suffix)"
+  description: Return path with a different stem (filename without suffix)
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [pathlib, stem, rename]
+  tags:
+  - pathlib
+  - stem
+  - rename
   detection:
     primary:
       ast_type: Call
@@ -120,14 +122,14 @@
         func_attr: with_stem
   fix:
     strategy: manual
-    manual_instructions: |
-      Replace with with_name():
-        path.with_stem("new_name")
-        → path.with_name("new_name" + path.suffix)
+    manual_instructions: "Replace with with_name():\n  path.with_stem(\"new_name\"\
+      )\n  → path.with_name(\"new_name\" + path.suffix)\n"
   verification:
     re_detect: true
   test:
-    before: |
-      new_path = path.with_stem("output")
-    after: |
-      new_path = path.with_name("output" + path.suffix)
+    before: 'new_path = path.with_stem("output")
+
+      '
+    after: 'new_path = path.with_name("output" + path.suffix)
+
+      '

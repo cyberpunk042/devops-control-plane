@@ -267,7 +267,11 @@ def _enrich_with_compat_analysis(
 
 
 def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
-    """Generate plan steps from compat analysis results."""
+    """Generate plan steps from compat analysis results.
+
+    Every step with an automation_id gets automatable=True so the
+    UI shows the 🔧 Automate button.
+    """
     steps = []
 
     # Filter to actionable findings (error/warning, not info/no_fix_needed)
@@ -291,6 +295,8 @@ def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
             + (f", {len(transitive)} transitive" if transitive else "")
         ),
         "_automation_id": "scan_incompatible_features",
+        "automatable": True,
+        "category": "code",
     })
 
     # Step: Blocked by transitive (if any)
@@ -304,12 +310,14 @@ def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
                 "description": "Fix these modules first to resolve transitive incompatibilities",
                 "_automation_id": "blocked",
                 "_compat_state": "blocked",
+                "category": "dependency",
             })
 
     # Group auto-fixable by fix strategy
     future_fixable = [f for f in auto_fixable if f.fix_strategy == "add_future_import"]
     import_fixable = [f for f in auto_fixable if f.fix_strategy in (
         "replace_import", "replace_import_and_usages", "add_backport_import",
+        "conditional_import",
     )]
     other_fixable = [f for f in auto_fixable if f not in future_fixable + import_fixable]
 
@@ -320,6 +328,8 @@ def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
             "label": f"Add __future__ annotations ({len(files)} file(s))",
             "description": "Enable PEP 604/585 syntax on older Python via deferred evaluation",
             "_automation_id": "add_future_annotations",
+            "automatable": True,
+            "category": "code",
         })
 
     # Steps: Fix by feature (grouped)
@@ -333,27 +343,36 @@ def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
             "label": f"Fix {feature_name} ({len(files)} file(s))",
             "description": f"Auto-fix: {findings[0].fix_strategy}",
             "_automation_id": "fix_compat_auto",
+            "automatable": True,
+            "category": "code",
         })
 
-    # Step: Manual fixes
+    # Step: Manual fixes — grouped into ONE step, not one per feature
     if manual:
         by_feat_manual: dict[str, list] = {}
         for f in manual:
             by_feat_manual.setdefault(f.feature_name, []).append(f)
 
-        for feature_name, findings in sorted(by_feat_manual.items()):
-            steps.append({
-                "label": f"Manual fix: {feature_name} ({len(findings)} occurrence(s))",
-                "description": "Requires manual rewrite — cannot be auto-fixed",
-                "_automation_id": "manual",
-            })
+        manual_desc_parts = [
+            f"{name} ({len(findings)})"
+            for name, findings in sorted(by_feat_manual.items())
+        ]
+        steps.append({
+            "label": f"Review {len(manual)} manual finding(s)",
+            "description": ", ".join(manual_desc_parts),
+            "_automation_id": "guide_incompatible_syntax",
+            "automatable": True,
+            "category": "code",
+        })
 
-    # Step: Guide (only if there are findings)
-    if actionable:
+    # Step: Guide (only if there are auto-fixable findings to review)
+    if auto_fixable:
         steps.append({
             "label": "Review incompatible syntax guide",
             "description": "Shows rewrite patterns and before/after examples",
             "_automation_id": "guide_incompatible_syntax",
+            "automatable": True,
+            "category": "code",
         })
 
     # Step: Re-scan and verify
@@ -361,6 +380,8 @@ def _generate_compat_steps(analysis, target: str, direction: str) -> list[dict]:
         "label": "Re-scan and verify",
         "description": "Confirm all incompatibilities are resolved",
         "_automation_id": "rescan_module",
+        "automatable": True,
+        "category": "verify",
     })
 
     return steps
@@ -413,11 +434,18 @@ def _materialize_step(template: dict, ctx: UpgradeContext) -> dict:
     label = _interpolate(template.get("label", ""), ctx)
     description = _interpolate(template.get("description", ""), ctx)
 
-    return {
+    step = {
         "label": label,
         "description": description,
         "_automation_id": template.get("automation_id", ""),
     }
+    # Preserve automatable flag from recipe
+    if template.get("automatable"):
+        step["automatable"] = True
+    if template.get("category"):
+        step["category"] = template["category"]
+
+    return step
 
 
 def _interpolate(text: str, ctx: UpgradeContext) -> str:

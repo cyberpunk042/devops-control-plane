@@ -50,6 +50,8 @@ class FixStrategy(Enum):
     WRAP_IN_TRY_EXCEPT = "wrap_in_try_except"
     ADD_VERSION_GATE = "add_version_gate"
     ADD_FUTURE_IMPORT = "add_future_import"
+    CONDITIONAL_IMPORT = "conditional_import"
+    REMOVE_KEYWORD_ARG = "remove_keyword_arg"
     MANUAL = "manual"
     NO_FIX_NEEDED = "no_fix_needed"
 

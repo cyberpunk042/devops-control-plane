@@ -18,8 +18,12 @@
         func_id: dataclass
         has_keyword: match_args
   fix:
-    strategy: manual
-    manual_instructions: Remove the keyword argument for Python 3.8 compatibility.
+    strategy: rewrite_expression
+    transforms:
+    - type: remove_keyword_arg
+      find:
+        keyword: match_args
+      replace: {}
   verification:
     re_detect: false
   test:
@@ -45,8 +49,12 @@
         func_id: dataclass
         has_keyword: slots
   fix:
-    strategy: manual
-    manual_instructions: Remove the keyword argument for Python 3.8 compatibility.
+    strategy: rewrite_expression
+    transforms:
+    - type: remove_keyword_arg
+      find:
+        keyword: slots
+      replace: {}
   verification:
     re_detect: false
   test:
@@ -73,8 +81,12 @@
         func_id: field
         has_keyword: kw_only
   fix:
-    strategy: manual
-    manual_instructions: Remove the keyword argument for Python 3.8 compatibility.
+    strategy: rewrite_expression
+    transforms:
+    - type: remove_keyword_arg
+      find:
+        keyword: kw_only
+      replace: {}
   verification:
     re_detect: false
   test:

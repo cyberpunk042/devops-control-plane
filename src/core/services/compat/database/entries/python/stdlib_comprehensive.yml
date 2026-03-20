@@ -440,12 +440,19 @@
         module: ast
         names_contains: unparse
   fix:
-    strategy: manual
-    manual_instructions: "Use the astunparse backport:\n  pip install astunparse\n\
-      \  import astunparse\n  code = astunparse.unparse(tree)\n"
+    strategy: conditional_import
     backport:
       package: astunparse
-      install_command: pip install astunparse
+      min_version: 1.6.0
+      import_name: astunparse
+    transforms:
+    - type: conditional_import
+      find:
+        import_module: ast
+        import_name: unparse
+      replace:
+        try_import: from ast import unparse
+        except_import: from astunparse import unparse
   verification:
     re_detect: true
   test:

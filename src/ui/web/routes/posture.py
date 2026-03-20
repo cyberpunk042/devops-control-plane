@@ -1112,17 +1112,30 @@ def posture_module_plan_detail():  # type: ignore[no-untyped-def]
         # Build automation metadata lookup from recipe
         auto_meta = _build_automation_meta(ref)
 
+        # Build the set of known automation handler IDs
+        try:
+            from src.core.services.module_upgrade.automation import get_handler_registry
+            known_handlers = set(get_handler_registry().keys())
+        except Exception:
+            known_handlers = set()
+
         checklist = []
         for s in plan.checklist:
             # Extract automation_id from step id prefix
             aid = s.id.split(":")[0] if s.id and ":" in s.id else ""
             meta = auto_meta.get(aid, {})
+
+            # Determine automatable: recipe metadata OR known handler
+            is_automatable = meta.get("automatable", False)
+            if not is_automatable and aid and aid in known_handlers:
+                is_automatable = True
+
             checklist.append({
                 "id": s.id,
                 "label": s.label,
                 "description": s.description,
                 "done": s.done,
-                "automatable": meta.get("automatable", False),
+                "automatable": is_automatable,
                 "automation_id": aid if aid not in ("manual", "custom", "") else "",
                 "risk": meta.get("risk", "low"),
                 "category": meta.get("category", ""),
