@@ -2296,16 +2296,41 @@
             if (data.compat_hints && data.compat_hints.length) {
                 html += '<div style="margin-top:0.75rem">';
                 html += `<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.4rem">🔍 Detected compatibility issues:</div>`;
-                for (const hint of data.compat_hints) {
+
+                // Separate code compat issues from missing packages
+                const codeHints = data.compat_hints.filter(h => h.since !== 'package');
+                const pkgHints = data.compat_hints.filter(h => h.since === 'package');
+
+                for (const hint of codeHints) {
                     html += `<div class="plan-guide-feature" style="margin-bottom:0.5rem">`;
                     html += `<div class="plan-guide-header">⚠️ <strong>${esc(hint.feature)}</strong> <span class="plan-preview-tag">Python ${esc(hint.since)}+</span></div>`;
                     html += `<div class="plan-guide-hint">${esc(hint.fix)}</div>`;
                     html += `</div>`;
                 }
-                // Single "Fix All" button that routes through the compat fix handler
-                html += `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem"
-                    onclick="_modalApplyStep('${esc(moduleName)}','fix_compat_auto:from_test',${stepIndex})">
-                    🔧 Fix all detected issues</button>`;
+
+                if (pkgHints.length) {
+                    html += `<div style="font-weight:600;font-size:0.85rem;margin:0.6rem 0 0.4rem">📦 Missing packages:</div>`;
+                    for (const hint of pkgHints) {
+                        html += `<div class="plan-guide-feature" style="margin-bottom:0.5rem">`;
+                        html += `<div class="plan-guide-header">📦 <strong>${esc(hint.feature)}</strong></div>`;
+                        html += `<div class="plan-guide-hint">${esc(hint.fix)}</div>`;
+                        html += `</div>`;
+                    }
+                }
+
+                // Action buttons for each type
+                html += '<div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.4rem">';
+                if (codeHints.length) {
+                    html += `<button class="btn btn-sm btn-primary"
+                        onclick="_modalApplyStep('${esc(moduleName)}','fix_compat_auto:from_test',${stepIndex})">
+                        🔧 Fix ${codeHints.length} code issue(s)</button>`;
+                }
+                if (pkgHints.length) {
+                    html += `<button class="btn btn-sm btn-primary"
+                        onclick="_modalApplyStep('${esc(moduleName)}','discover_missing_deps:from_test',${stepIndex})">
+                        📦 Add ${pkgHints.length} missing package(s) to requirements.txt</button>`;
+                }
+                html += '</div>';
                 html += '</div>';
             }
 
@@ -2736,17 +2761,37 @@
             html += _adm('warning', 'Compatibility issues detected',
                 'Test failures indicate code patterns incompatible with your target Python version:');
 
+            const codeHints = rem.compat_hints.filter(h => h.since !== 'package');
+            const pkgHints = rem.compat_hints.filter(h => h.since === 'package');
+
             html += '<div style="margin:0.5rem 0">';
-            for (const hint of rem.compat_hints) {
+            for (const hint of codeHints) {
                 html += `<div class="plan-guide-feature" style="margin-bottom:0.5rem">`;
                 html += `<div class="plan-guide-header">⚠️ <strong>${esc(hint.feature)}</strong> <span class="plan-preview-tag">Python ${esc(hint.since)}+</span></div>`;
                 html += `<div class="plan-guide-hint">${esc(hint.fix)}</div>`;
                 html += `</div>`;
             }
-            // Single button to fix all through the step automation flow
-            html += `<button class="btn btn-sm btn-primary" style="margin-top:0.5rem"
-                onclick="modulePlanAutomate('${esc(moduleName)}','fix_compat_auto:from_wizard',-1)">
-                🔧 Fix all detected issues</button>`;
+            if (pkgHints.length) {
+                html += `<div style="font-weight:600;font-size:0.85rem;margin:0.6rem 0 0.4rem">📦 Missing packages:</div>`;
+                for (const hint of pkgHints) {
+                    html += `<div class="plan-guide-feature" style="margin-bottom:0.5rem">`;
+                    html += `<div class="plan-guide-header">📦 <strong>${esc(hint.feature)}</strong></div>`;
+                    html += `<div class="plan-guide-hint">${esc(hint.fix)}</div>`;
+                    html += `</div>`;
+                }
+            }
+            html += '<div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.4rem">';
+            if (codeHints.length) {
+                html += `<button class="btn btn-sm btn-primary"
+                    onclick="modulePlanAutomate('${esc(moduleName)}','fix_compat_auto:from_wizard',-1)">
+                    🔧 Fix ${codeHints.length} code issue(s)</button>`;
+            }
+            if (pkgHints.length) {
+                html += `<button class="btn btn-sm btn-primary"
+                    onclick="modulePlanAutomate('${esc(moduleName)}','discover_missing_deps:from_wizard',-1)">
+                    📦 Add ${pkgHints.length} missing package(s)</button>`;
+            }
+            html += '</div>';
             html += '</div>';
         } else if (hasDeps) {
             html += _adm('warning', 'Incompatible dependencies found',
