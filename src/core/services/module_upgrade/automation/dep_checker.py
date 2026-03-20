@@ -87,12 +87,37 @@ def handle_check_dep_compat_pypi(ctx: UpgradeContext, mode: str) -> dict:
     if not target_parts:
         return {"ok": False, "error": f"Cannot parse target version: {ctx.target_floor}"}
 
+    # Read pinned versions from requirements.txt (if exists)
+    pinned_versions: dict[str, str] = {}
+    req_file = ctx.project_root / ctx.module_path / "requirements.txt"
+    if req_file.is_file():
+        try:
+            import re as _re
+            for line in req_file.read_text(encoding="utf-8").split("\n"):
+                line = line.strip()
+                if not line or line.startswith("#") or line.startswith("-"):
+                    continue
+                # Match: package==version or package>=version
+                m = _re.match(r"^([a-zA-Z0-9_-]+)\s*[=<>~!]+\s*([\d.]+)", line)
+                if m:
+                    pinned_versions[m.group(1).lower().replace("_", "-")] = m.group(2)
+        except Exception:
+            pass
+
     findings = []
     errors = []
 
     for pkg_name in sorted(packages):
         pkg_normalized = pkg_name.lower().replace("_", "-")
-        result = _check_package_compat(pkg_normalized, target_parts, ctx.target_floor)
+
+        # If already pinned to a compatible version, skip PyPI query
+        pinned = pinned_versions.get(pkg_normalized)
+        if pinned:
+            result = _check_package_compat(
+                pkg_normalized, target_parts, ctx.target_floor, pinned_version=pinned,
+            )
+        else:
+            result = _check_package_compat(pkg_normalized, target_parts, ctx.target_floor)
         if result:
             findings.append(result)
         # Errors are logged but don't stop the process
@@ -124,13 +149,18 @@ def _check_package_compat(
     package: str,
     target_parts: list[int],
     target_str: str,
+    pinned_version: str | None = None,
 ) -> dict | None:
     """Check a single package's Python version compatibility via PyPI.
 
+    If pinned_version is provided, checks THAT version instead of latest.
     Returns a finding dict, or None if the package can't be checked.
     """
     try:
-        url = f"https://pypi.org/pypi/{package}/json"
+        if pinned_version:
+            url = f"https://pypi.org/pypi/{package}/{pinned_version}/json"
+        else:
+            url = f"https://pypi.org/pypi/{package}/json"
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=_PYPI_TIMEOUT) as resp:
             data = json.loads(resp.read().decode())

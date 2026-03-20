@@ -182,12 +182,16 @@ def handle_rescan_module(ctx, mode: str) -> dict:
         # Invalidate posture modules — forces recompute of code floor, deps, etc.
         m.put("posture.modules", cascade=True)
 
-        # Read the fresh analysis to report remaining findings
+        # Read the fresh analysis to report remaining ACTIONABLE findings
         remaining = 0
         try:
             analysis_data = m.get(f"compat.analysis.{ctx.module_name}")
             if analysis_data and analysis_data.get("data"):
-                remaining = analysis_data["data"].total_findings
+                result = analysis_data["data"]
+                remaining = sum(
+                    1 for f in result.findings
+                    if f.severity in ("error", "warning") and f.fix_strategy != "no_fix_needed"
+                )
         except Exception:
             pass
 

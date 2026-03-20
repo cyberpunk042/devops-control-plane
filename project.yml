@@ -30,7 +30,7 @@ modules:
       description: 118 auto-fixable, 0 manual
       automatable: true
       category: code
-      id: scan_incompatible_features:bf4471f3
+      id: scan_incompatible_features:02d1f8b8
       done: true
     - label: Fix Path.is_relative_to() (1 file(s))
       description: "if path.is_relative_to(\"/home\"):\n    pro → try:\n    path.relative_to(\"\
@@ -38,7 +38,7 @@ modules:
       _feature_name: Path.is_relative_to()
       automatable: true
       category: code
-      id: fix_compat_auto__7a52c36e:67f33698
+      id: fix_compat_auto__7a52c36e:b5d39cf4
     - label: Fix aliased imports (16 file(s))
       description: 'from datetime import UTC
 
@@ -48,7 +48,7 @@ modules:
       _feature_name: aliased imports
       automatable: true
       category: code
-      id: fix_compat_auto__4c9a07cc:528d2dae
+      id: fix_compat_auto__4c9a07cc:b539a8ce
     - label: Fix ast.unparse() (1 file(s))
       description: 'import ast
 
@@ -58,20 +58,20 @@ modules:
       _feature_name: ast.unparse()
       automatable: true
       category: code
-      id: fix_compat_auto__bd334850:93476c1c
+      id: fix_compat_auto__bd334850:6b5c05c9
     - label: Fix dataclass slots=True (1 file(s))
       description: "@dataclass(slots=True)\nclass Point:\n     → @dataclass\nclass\
         \ Point:\n    __slots__ = "
       _feature_name: dataclass slots=True
       automatable: true
       category: code
-      id: fix_compat_auto__856344e2:8f0bc120
+      id: fix_compat_auto__856344e2:ea563c9a
     - label: Fix dict merge operator (|) (30 file(s))
       description: merged = defaults | overrides → merged = {**defaults, **overrides}
       _feature_name: dict merge operator (|)
       automatable: true
       category: code
-      id: fix_compat_auto__f6b46fc4:47f51209
+      id: fix_compat_auto__f6b46fc4:01a67626
     - label: Fix enum.StrEnum (3 file(s))
       description: 'from enum import StrEnum
 
@@ -81,7 +81,7 @@ modules:
       _feature_name: enum.StrEnum
       automatable: true
       category: code
-      id: fix_compat_auto__02206f2b:921496d4
+      id: fix_compat_auto__02206f2b:7a469e68
     - label: Fix importlib.resources.files() (7 file(s))
       description: 'from importlib.resources import files
 
@@ -91,70 +91,69 @@ modules:
       _feature_name: importlib.resources.files()
       automatable: true
       category: code
-      id: fix_compat_auto__4a5941bd:51cf3fee
+      id: fix_compat_auto__4a5941bd:96a97c76
     - label: Fix str.removeprefix() (4 file(s))
       description: result = path.removeprefix("/home/") → result = path[len("/home/"):]  if
         path.s
       _feature_name: str.removeprefix()
       automatable: true
       category: code
-      id: fix_compat_auto__307a9acf:ef442c0c
+      id: fix_compat_auto__307a9acf:970e3d13
     - label: Fix str.removesuffix() (1 file(s))
       description: result = filename.removesuffix(".txt") → result = filename[:-len(".txt")]  if
         fil
       _feature_name: str.removesuffix()
       automatable: true
       category: code
-      id: fix_compat_auto__4447c167:a24da970
+      id: fix_compat_auto__4447c167:01037fd2
     - label: Re-scan and verify
       description: Confirm all incompatibilities are resolved
       automatable: true
       category: verify
-      id: rescan_module:8e6ce349
-      done: true
+      id: rescan_module:d3622746
     - label: Check all dependencies support Python 3.8
       description: Verify Requires-Python of all dependencies includes 3.8
       automatable: true
       category: deps
-      id: check_dep_compat_pypi:4f4e81f3
+      id: check_dep_compat_pypi:eee0facf
     - label: Install pinned dependency versions
       description: Run pip install to apply the version constraints from requirements.txt
       automatable: true
       category: deps
-      id: run_pip_install:40e7e928
+      id: run_pip_install:2ceec687
     - label: Set up test environment for Python 3.8
       description: Create a venv with the target Python version and install dependencies
       automatable: true
       category: test
-      id: setup_test_env:8c732fa2
+      id: setup_test_env:947634c2
     - label: Scaffold module test structure
       description: Generate test files (smoke tests, import checks, conftest) if none
         exist
       automatable: true
       category: test
-      id: scaffold_module_tests:84b323a4
+      id: scaffold_module_tests:17ec4f42
     - label: Generate compatibility tests
       description: Auto-generate import verification, API, version floor, and dependency
         tests
       automatable: true
       category: test
-      id: generate_smart_tests:a7a3996c
+      id: generate_smart_tests:25cd1368
     - label: Add integration tests to parent tests/ directory
       description: Generate a test file in the root tests/ that verifies this module
         works at project level
       automatable: true
       category: test
-      id: scaffold_parent_tests:63e9b0d7
+      id: scaffold_parent_tests:c1ad5697
     - label: Run isolated tests on Python 3.8
       description: Execute the module test suite using the target Python venv
       automatable: true
       category: test
-      id: run_isolated_tests:59b406d9
+      id: run_isolated_tests:059ac563
     - label: Update CI pipeline to include Python 3.8
       description: Add Python 3.8 to CI test matrix to ensure ongoing compatibility
       automatable: true
       category: ci
-      id: update_ci_matrix:72e5994d
+      id: update_ci_matrix:10317e68
 - description: Tool bindings for git, docker, etc.
   domain: library
   name: adapters
