@@ -38,17 +38,26 @@ class FeatureRegistry:
     _singleton_dir: Path | None = None
 
     @classmethod
-    def load(cls, entries_dir: Path | None = None) -> FeatureRegistry:
-        """Load all entries and build the registry.
+    def load(
+        cls,
+        entries_dir: Path | None = None,
+        language: str | None = None,
+    ) -> FeatureRegistry:
+        """Load entries and build the registry.
 
         Uses a singleton cache — the registry is only built once per process.
         Call invalidate() to force a reload.
+
+        Args:
+            entries_dir: Override entries directory (default: database/entries/)
+            language: Only load entries for this language (e.g., "python").
+                      Default: all languages.
         """
         if cls._singleton is not None and cls._singleton_dir == entries_dir:
             return cls._singleton
 
         registry = cls()
-        entries = load_all_entries(entries_dir)
+        entries = load_all_entries(entries_dir, language=language)
         for entry in entries:
             registry._add(entry)
         registry._metas = load_all_language_metas(entries_dir)

@@ -405,6 +405,33 @@ class FixEngine:
                 result.failed_fixes += file_result.fixes_failed
 
         result.duration_ms = int((time.time() - t0) * 1000)
+
+        # Invalidate cached analysis for this module via mediator cascade
+        # This ensures next read recomputes from the fixed files
+        if result.files_fixed > 0:
+            try:
+                from src.core.services.mediator import get_mediator
+
+                m = get_mediator()
+                m.bust_path(f"compat.analysis.{module_name}", cascade=True)
+            except (ImportError, RuntimeError):
+                pass  # CLI mode — no mediator
+
+            # Publish fix event via EventBus for SSE → frontend
+            try:
+                from src.core.services.event_bus import bus
+
+                bus.publish("compat:fix:applied", key=module_name, data={
+                    "module": module_name,
+                    "files_fixed": result.files_fixed,
+                    "total_fixes": result.total_fixes,
+                    "verified_fixes": result.verified_fixes,
+                    "failed_fixes": result.failed_fixes,
+                    "duration_ms": result.duration_ms,
+                })
+            except Exception:
+                pass  # events are supplementary
+
         return result
 
     # ── Transform application ────────────────────────────────────

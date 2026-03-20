@@ -242,14 +242,17 @@ def save_index_shard(
 # ── Load ────────────────────────────────────────────────────────────
 
 
+_CONSOLIDATED_CACHE = "_consolidated.pkl"
+
+
 def load_all_nodes(project_root: Path) -> dict[str, Any]:
     """Load ALL persisted node data from disk.
 
-    Scans the shard directory for all .json files and returns
-    a dict of mediator_path -> data.
+    Fast path: loads a consolidated pickle if it's newer than all
+    individual JSON shards (single file read, ~50ms for 14MB).
 
-    Handles both legacy shard names (scan.json → index.scan) and
-    new-style node paths (index.scan.json → index.scan).
+    Slow path: falls back to reading individual JSON shards and
+    rebuilds the consolidated pickle for next restart.
 
     Parameters
     ----------
@@ -261,6 +264,8 @@ def load_all_nodes(project_root: Path) -> dict[str, Any]:
     dict[str, Any]
         Map of mediator path -> loaded data.
     """
+    import pickle
+
     sdir = _state_dir(project_root)
     if not sdir.is_dir():
         logger.info("[persistence] no shard directory — cold start")
@@ -277,14 +282,43 @@ def load_all_nodes(project_root: Path) -> dict[str, Any]:
             meta.peek_page_count,
         )
 
+    # ── Fast path: consolidated pickle ──────────────────────
+    pkl_path = sdir / _CONSOLIDATED_CACHE
+    if pkl_path.is_file():
+        try:
+            pkl_mtime = pkl_path.stat().st_mtime
+            # Check if any JSON shard is newer than the pickle
+            any_newer = False
+            for json_file in sdir.glob("*.json"):
+                if json_file.name in _SKIP_FILES:
+                    continue
+                if json_file.stat().st_mtime > pkl_mtime:
+                    any_newer = True
+                    break
+
+            if not any_newer:
+                t0 = time.time()
+                with pkl_path.open("rb") as f:
+                    loaded = pickle.load(f)
+                elapsed_ms = int((time.time() - t0) * 1000)
+                logger.info(
+                    "[persistence] loaded %d nodes from consolidated cache (%dms)",
+                    len(loaded), elapsed_ms,
+                )
+                return loaded
+            else:
+                logger.debug("[persistence] consolidated cache stale — rebuilding from JSON shards")
+        except Exception as exc:
+            logger.warning("[persistence] consolidated cache load failed: %s", exc)
+
+    # ── Slow path: individual JSON shards ───────────────────
     loaded: dict[str, Any] = {}
 
-    # Scan ALL .json files in the shard directory
     for json_file in sorted(sdir.glob("*.json")):
         if json_file.name in _SKIP_FILES:
             continue
 
-        stem = json_file.stem  # e.g. "scan", "detect.docker", "index.scan"
+        stem = json_file.stem
 
         # Map legacy shard names to mediator paths
         mediator_path = LEGACY_SHARD_NAMES.get(stem, stem)
@@ -306,13 +340,34 @@ def load_all_nodes(project_root: Path) -> dict[str, Any]:
 
     if loaded:
         logger.info(
-            "[persistence] loaded %d nodes from disk",
+            "[persistence] loaded %d nodes from JSON shards (slow path)",
             len(loaded),
         )
+        # Save consolidated cache for fast reload next time
+        _save_consolidated(sdir, loaded)
     else:
         logger.info("[persistence] no persisted data found — cold start")
 
     return loaded
+
+
+def _save_consolidated(sdir: Path, data: dict[str, Any]) -> None:
+    """Save consolidated pickle cache for fast hydration on next restart."""
+    import pickle
+
+    pkl_path = sdir / _CONSOLIDATED_CACHE
+    try:
+        tmp = pkl_path.with_suffix(".tmp")
+        with tmp.open("wb") as f:
+            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+        tmp.rename(pkl_path)
+        size_kb = pkl_path.stat().st_size / 1024
+        logger.info(
+            "[persistence] saved consolidated cache (%.1fKB)",
+            size_kb,
+        )
+    except Exception as exc:
+        logger.warning("[persistence] failed to save consolidated cache: %s", exc)
 
 
 def _load_meta(project_root: Path) -> ShardMeta | None:

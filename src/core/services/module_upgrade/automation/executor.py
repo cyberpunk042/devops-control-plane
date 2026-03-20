@@ -14,6 +14,32 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def should_mark_done(result: dict) -> bool:
+    """Determine if a step result should be marked done.
+
+    Shared by executor.py and wizard.py — ONE logic, no divergence.
+
+    Rules:
+    - ok=False → never done
+    - findings with incompatible deps → not done
+    - Everything else → done
+    """
+    if not result.get("ok"):
+        return False
+
+    findings = result.get("findings", [])
+    if not findings:
+        return True
+
+    # Check for incompatible findings (dep check results have "compatible" field)
+    has_incompatible = any(
+        not f.get("compatible") and not f.get("unknown")
+        for f in findings
+        if isinstance(f, dict)
+    )
+    return not has_incompatible
+
+
 def execute_step(
     module_name: str,
     step_id: str,
@@ -94,35 +120,11 @@ def execute_step(
         return {"ok": False, "error": f"Automation failed: {exc}"}
 
     # ── Mark done on successful execute ──────────────────────────
-    # Rules:
-    # 1. ok=False → NEVER mark done
-    # 2. step_not_done=True (set by handler) → NOT done
-    # 3. can_apply=False + findings → NOT done (read-only step showed issues)
-    # 4. findings with incompatible deps → NOT done
-    # 5. Everything else → mark done
     if mode == "execute" and result.get("ok"):
-        # Handler explicitly said not done
-        if result.get("step_not_done"):
-            pass  # Don't mark done
+        if should_mark_done(result):
+            _mark_step_done(module_name, step_id)
         else:
-            findings = result.get("findings", [])
-
-            # Read-only step with findings → needs attention
-            if result.get("can_apply") is False and findings:
-                result["step_not_done"] = True
-            elif findings:
-                # Check for incompatible findings (dep check results have "compatible" field)
-                has_incompatible = any(
-                    not f.get("compatible") and not f.get("unknown")
-                    for f in findings
-                    if isinstance(f, dict)
-                )
-                if has_incompatible:
-                    result["step_not_done"] = True
-                else:
-                    _mark_step_done(module_name, step_id)
-            else:
-                _mark_step_done(module_name, step_id)
+            result["step_not_done"] = True
 
     # ── Enrich result ────────────────────────────────────────────
     result.setdefault("mode", mode)
@@ -134,60 +136,42 @@ def execute_step(
 def handle_rescan_module(ctx, mode: str) -> dict:
     """Re-scan module and refresh posture data.
 
-    Uses compat v2 engine for the scan, then refreshes the mediator cache.
-
-    Preview: shows current finding count.
-    Execute: runs full re-scan and reports remaining findings.
+    Preview: describes what will happen.
+    Execute: invalidates caches (compat analysis + posture) and forces recompute.
     """
     if mode == "preview":
         return {
             "ok": True,
             "can_apply": True,
             "preview_type": "action",
-            "summary": "Re-scan module and verify compatibility",
+            "summary": "Re-scan module and refresh posture evaluation",
             "detail": (
-                "Runs a fresh AST-based scan to verify all incompatibilities "
-                "have been resolved, then refreshes the posture evaluation."
+                "This will invalidate the posture cache and force a fresh "
+                "scan of the module's runtime constraint, dependency floor, "
+                "and code floor."
             ),
         }
 
-    # Execute — run compat scan + refresh mediator
+    # Execute — invalidate caches, force recompute
     try:
-        # Run compat v2 scan
-        remaining_findings = 0
-        try:
-            from src.core.services.compat.orchestrator import CompatOrchestrator
-
-            compat = CompatOrchestrator.create(ctx.project_root)
-            module_dir = ctx.project_root / ctx.module_path
-
-            result = compat.detection.analyze_module(
-                module_dir=module_dir,
-                target_version=ctx.target_floor,
-                direction="downgrade",
-                project_root=ctx.project_root,
-            )
-            remaining_findings = result.total_findings
-        except Exception:
-            pass
-
-        # Refresh mediator cache
         from src.core.services.mediator import get_mediator
+
         m = get_mediator()
+
+        # Invalidate compat analysis cache for this module (if it exists)
+        # This cascades so next read recomputes from current files
+        try:
+            m.bust_path(f"compat.analysis.{ctx.module_name}", cascade=True)
+        except Exception:
+            pass  # Node may not exist yet
+
+        # Invalidate posture modules — forces recompute of code floor, deps, etc.
         m.put("posture.modules", cascade=True)
 
-        if remaining_findings == 0:
-            return {
-                "ok": True,
-                "summary": f"Clean — 0 incompatibilities found for Python {ctx.target_floor}",
-            }
-        else:
-            return {
-                "ok": True,
-                "summary": f"Re-scan complete — {remaining_findings} finding(s) remain",
-                "findings_count": remaining_findings,
-                "step_not_done": True,
-            }
+        return {
+            "ok": True,
+            "summary": "Module re-scanned successfully",
+        }
 
     except Exception as exc:
         return {"ok": False, "error": str(exc)}

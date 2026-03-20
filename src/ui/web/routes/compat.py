@@ -16,17 +16,15 @@ compat_bp = Blueprint("compat", __name__, url_prefix="/api")
 
 
 def _get_orchestrator():
-    """Get or create the compat orchestrator."""
-    from pathlib import Path
+    """Get the compat orchestrator from the mediator.
 
-    from src.core.services.compat.orchestrator import CompatOrchestrator
+    Uses mediator.get() — blocks until loaded (acceptable for explicit
+    compat API calls where the user requested this operation).
+    """
+    from src.core.services.mediator import get_mediator
 
-    project_root = Path(current_app.config.get("PROJECT_ROOT", "."))
-
-    # Cache on app
-    if not hasattr(current_app, "_compat_orchestrator"):
-        current_app._compat_orchestrator = CompatOrchestrator.create(project_root)
-    return current_app._compat_orchestrator
+    m = get_mediator()
+    return m.get("compat.orchestrator")["data"]
 
 
 # ── Analysis ─────────────────────────────────────────────────────

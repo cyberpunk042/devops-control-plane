@@ -561,30 +561,16 @@ def wizard_batch(
                         yield {"type": "log", "step": idx, "line": f"  {detail_line}"}
 
         # Determine if step should be marked done
-        # Same rules as executor.py — ONE logic, no divergence
-        step_not_done = False
-        if ok:
-            # Handler explicitly said not done
-            if result.get("step_not_done"):
-                step_not_done = True
-            # Read-only step with findings → needs attention
-            elif result.get("can_apply") is False and findings:
-                step_not_done = True
-            elif findings:
-                has_non_dep = any(
-                    not f.get("compatible") and not f.get("unknown")
-                    for f in findings
-                    if isinstance(f, dict)
-                )
-                if has_non_dep:
-                    step_not_done = True
+        # Uses shared function from executor.py — ONE logic, no divergence
+        from .executor import should_mark_done
 
-        if ok and not step_not_done:
+        if ok and should_mark_done(result):
             _mark_step_done(ctx.module_name, step_id)
             yield {"type": "step_done", "step": idx, "elapsed_ms": elapsed,
                    "step_id": step_id}
             completed += 1
-        elif step_not_done:
+        elif ok:
+            # Step succeeded but has findings that need attention
             yield {"type": "log", "step": idx,
                    "line": "⚠️ Step needs attention — not marked done"}
             yield {"type": "step_done", "step": idx, "elapsed_ms": elapsed,

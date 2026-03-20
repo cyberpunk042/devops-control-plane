@@ -526,10 +526,20 @@
         toast('🔍 Analyzing ' + moduleName + '...', 'info');
 
         try {
+            // Read target from the module's plan (not hardcoded)
+            let targetVersion = '';
+            try {
+                const planResp = await fetch('/api/posture/module-plan-detail?module=' + encodeURIComponent(moduleName));
+                if (planResp.ok) {
+                    const planData = await planResp.json();
+                    if (planData.target_floor) targetVersion = planData.target_floor;
+                }
+            } catch (_) { /* use default */ }
+
             const resp = await fetch('/api/compat/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ module: moduleName, target_version: '3.8', include_transitive: true }),
+                body: JSON.stringify({ module: moduleName, target_version: targetVersion, include_transitive: false }),
             });
             const data = await resp.json();
 
@@ -607,7 +617,7 @@
             const directCount = summary.direct || 0;
             if (autoFixable > 0 && directCount > 0) {
                 html += `<div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">`;
-                html += `<button class="btn btn-sm btn-primary" onclick="moduleCompatFixAll('${esc(moduleName)}','3.8')">🔧 Fix All Auto (${autoFixable} direct)</button>`;
+                html += `<button class="btn btn-sm btn-primary" onclick="moduleCompatFixAll('${esc(moduleName)}','${esc(targetVersion)}')">🔧 Fix All Auto (${autoFixable} direct)</button>`;
                 html += `<button class="btn btn-sm btn-ghost" onclick="moduleCompatAnalyze('${esc(moduleName)}')">🔄 Re-analyze</button>`;
                 html += `</div>`;
             }
@@ -682,8 +692,8 @@
                     footerButtons: [{ label: 'Close', onclick: 'modalClose()' }],
                 });
 
-                // Refresh posture
-                if (typeof postureRescan === 'function') postureRescan();
+                // Refresh badge — fix engine already invalidated mediator cache via cascade
+                if (typeof fetchSummary === 'function') fetchSummary();
             } else {
                 toast('⚠️ ' + (data.error || 'Fix failed'), 'error');
             }
@@ -1787,44 +1797,7 @@
         const date = typeof mfVal === 'function' ? mfVal('rem_plan_date') : (document.getElementById('mf-rem_plan_date') || {}).value || '';
         if (!target) { toast('⚠️ Please enter a target floor', 'warning'); return; }
 
-        // ── Run compat assessment first ─────────────────────────
-        try {
-            const assessResp = await fetch('/api/compat/assess', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ module: moduleName, target_version: target }),
-            });
-            if (assessResp.ok) {
-                const assess = await assessResp.json();
-                if (assess.ok && assess.gap) {
-                    // Show assessment before creating
-                    let assessHtml = `<div style="margin-bottom:1rem">`;
-                    assessHtml += `<div style="font-weight:600;margin-bottom:0.5rem">Assessment: ${esc(moduleName)} → Python ${esc(target)}</div>`;
-                    assessHtml += `<div>Current floor: <strong>${esc(assess.current_floor)}</strong></div>`;
-                    assessHtml += `<div>Code fixes: <strong>${assess.code_fixes_auto}</strong> auto + <strong>${assess.code_fixes_manual}</strong> manual</div>`;
-                    if (assess.dep_changes_needed > 0) {
-                        assessHtml += `<div>Dependency changes: <strong>${assess.dep_changes_needed}</strong></div>`;
-                    }
-                    if (assess.blocking_modules && assess.blocking_modules.length > 0) {
-                        assessHtml += `<div style="color:var(--warning-color);margin-top:0.3rem">⚠️ Blocked by: <strong>${esc(assess.blocking_modules.join(', '))}</strong></div>`;
-                        assessHtml += `<div style="font-size:0.8rem;opacity:0.7">Fix ${esc(assess.blocking_modules.join(', '))} first</div>`;
-                    }
-                    if (assess.transitive_fixes_needed > 0) {
-                        assessHtml += `<div>Transitive fixes: <strong>${assess.transitive_fixes_needed}</strong> (in dependencies)</div>`;
-                    }
-                    assessHtml += `<div style="margin-top:0.3rem">${esc(assess.recommendation)}</div>`;
-                    assessHtml += `</div>`;
-
-                    // Show assessment then create plan
-                    toast('📊 ' + assess.recommendation, 'info', 5000);
-                }
-            }
-        } catch (e) {
-            // Assessment failed — continue without it
-            console.warn('Compat assessment failed:', e);
-        }
-
-        // ── Create the plan ─────────────────────────────────────
+        // ── Create the plan (no pre-assess — plan endpoint handles it) ──
         try {
             const resp = await fetch('/api/posture/module-plan', {
                 method: 'POST',
@@ -1900,42 +1873,6 @@
         body += `<div class="plan-progress-bar" style="flex:1"><div class="plan-progress-fill" style="width:${pct}%"></div></div>`;
         body += `<span style="font-size:0.82rem;color:var(--text-muted)">${doneCount}/${totalCount} (${pct}%)</span>`;
         body += `</div>`;
-
-        // Compat assessment info (loaded async)
-        body += `<div id="plan-compat-assessment" data-module="${esc(moduleName)}" data-target="${esc(target)}" style="margin-bottom:0.75rem"></div>`;
-
-        // Load assessment in background
-        setTimeout(async () => {
-            const el = document.getElementById('plan-compat-assessment');
-            if (!el) return;
-            try {
-                const resp = await fetch('/api/compat/assess', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ module: moduleName, target_version: target }),
-                });
-                if (!resp.ok) return;
-                const assess = await resp.json();
-                if (!assess.ok) return;
-
-                let html = '';
-                if (assess.blocking_modules && assess.blocking_modules.length > 0) {
-                    html += `<div class="adm adm-warning" style="padding:0.5rem 0.75rem;margin-bottom:0.5rem">`;
-                    html += `<strong>⚠️ Blocked by:</strong> ${esc(assess.blocking_modules.join(', '))}`;
-                    html += `<div style="font-size:0.78rem;opacity:0.8">${assess.transitive_fixes_needed} transitive incompatibilities — fix ${esc(assess.blocking_modules.join(', '))} first</div>`;
-                    html += `</div>`;
-                }
-                if (assess.code_fixes_auto > 0 || assess.code_fixes_manual > 0) {
-                    html += `<div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.3rem">`;
-                    html += `Floor: ${esc(assess.current_floor)} → ${esc(assess.target)} | `;
-                    html += `${assess.code_fixes_auto} auto-fixable`;
-                    if (assess.code_fixes_manual > 0) html += ` + ${assess.code_fixes_manual} manual`;
-                    if (assess.dep_changes_needed > 0) html += ` | ${assess.dep_changes_needed} dep change(s)`;
-                    html += `</div>`;
-                }
-                el.innerHTML = html;
-            } catch (e) { /* silent — assessment is informational */ }
-        }, 100);
 
         if (met) {
             body += _adm('success', 'Plan complete!', 'The effective floor meets or exceeds the target. This plan has been achieved.');

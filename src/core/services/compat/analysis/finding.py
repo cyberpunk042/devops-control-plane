@@ -45,6 +45,55 @@ class Finding:
     ast_node_type: str = ""             # "ImportFrom", "Attribute", etc.
     detection_rule_index: int = 0       # Which detection rule matched (0=primary, 1+=alternative)
 
+    def to_dict(self) -> dict:
+        """Serialize for mediator persistence."""
+        return {
+            "feature_id": self.feature_id,
+            "feature_name": self.feature_name,
+            "file": self.file,
+            "line": self.line,
+            "col": self.col,
+            "source_line": self.source_line,
+            "severity": self.severity,
+            "error_type": self.error_type,
+            "error_subtype": self.error_subtype,
+            "version": self.version,
+            "fix_available": self.fix_available,
+            "fix_strategy": self.fix_strategy,
+            "is_transitive": self.is_transitive,
+            "imported_by": self.imported_by,
+            "import_chain": self.import_chain,
+            "source_module": self.source_module,
+            "status": self.status,
+            "ast_node_type": self.ast_node_type,
+            "detection_rule_index": self.detection_rule_index,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Finding:
+        """Deserialize from mediator shard."""
+        return cls(
+            feature_id=d.get("feature_id", ""),
+            feature_name=d.get("feature_name", ""),
+            file=d.get("file", ""),
+            line=d.get("line", 0),
+            col=d.get("col", 0),
+            source_line=d.get("source_line", ""),
+            severity=d.get("severity", "error"),
+            error_type=d.get("error_type", ""),
+            error_subtype=d.get("error_subtype", ""),
+            version=d.get("version", ""),
+            fix_available=d.get("fix_available", True),
+            fix_strategy=d.get("fix_strategy", ""),
+            is_transitive=d.get("is_transitive", False),
+            imported_by=d.get("imported_by"),
+            import_chain=d.get("import_chain", []),
+            source_module=d.get("source_module"),
+            status=d.get("status", "detected"),
+            ast_node_type=d.get("ast_node_type", ""),
+            detection_rule_index=d.get("detection_rule_index", 0),
+        )
+
 
 @dataclass
 class AnalysisResult:
@@ -124,6 +173,47 @@ class AnalysisResult:
             "parse_errors": len(self.parse_errors),
             "scan_duration_ms": self.scan_duration_ms,
         }
+
+    def to_dict(self) -> dict:
+        """Serialize for mediator persistence."""
+        return {
+            "module_dir": self.module_dir,
+            "language": self.language,
+            "target_version": self.target_version,
+            "direction": self.direction,
+            "findings": [f.to_dict() for f in self.findings],
+            "files_scanned": self.files_scanned,
+            "files_with_findings": self.files_with_findings,
+            "parse_errors": [
+                {"file": e.file, "error_type": e.error_type,
+                 "message": e.message, "line": e.line}
+                for e in self.parse_errors
+            ],
+            "scan_duration_ms": self.scan_duration_ms,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> AnalysisResult:
+        """Deserialize from mediator shard."""
+        return cls(
+            module_dir=d.get("module_dir", ""),
+            language=d.get("language", ""),
+            target_version=d.get("target_version", ""),
+            direction=d.get("direction", ""),
+            findings=[Finding.from_dict(f) for f in d.get("findings", [])],
+            files_scanned=d.get("files_scanned", 0),
+            files_with_findings=d.get("files_with_findings", 0),
+            parse_errors=[
+                ParseError(
+                    file=e.get("file", ""),
+                    error_type=e.get("error_type", ""),
+                    message=e.get("message", ""),
+                    line=e.get("line"),
+                )
+                for e in d.get("parse_errors", [])
+            ],
+            scan_duration_ms=d.get("scan_duration_ms", 0),
+        )
 
 
 @dataclass

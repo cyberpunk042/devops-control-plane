@@ -23,6 +23,7 @@ def create_app(
     project_root: Path | None = None,
     config_path: Path | None = None,
     mock_mode: bool = False,
+    debug_startup: bool = False,
 ) -> Flask:
     """Create and configure the Flask application.
 
@@ -30,10 +31,32 @@ def create_app(
         project_root: Root directory of the project.
         config_path: Path to project.yml.
         mock_mode: Whether to use mock adapters.
+        debug_startup: Print timing for each startup step.
 
     Returns:
         Configured Flask application.
     """
+    import time as _time
+    _t_start = _time.perf_counter()
+    _t_prev = _t_start
+
+    def _checkpoint(label: str) -> None:
+        nonlocal _t_prev
+        if not debug_startup:
+            return
+        now = _time.perf_counter()
+        step_ms = (now - _t_prev) * 1000
+        total_ms = (now - _t_start) * 1000
+        print(f"  ⏱  {step_ms:6.0f}ms  {total_ms:7.0f}ms  {label}")
+        _t_prev = now
+
+    if debug_startup:
+        print()
+        print("  ⏱  STARTUP PROFILER")
+        print("  ⏱  ──────  ───────  ──────────────────────────────────")
+        print("  ⏱    Step   Total   Label")
+        print("  ⏱  ──────  ───────  ──────────────────────────────────")
+
     app = Flask(
         __name__,
         template_folder=str(_PACKAGE_DIR / "templates"),
@@ -68,6 +91,8 @@ def create_app(
             logging.getLogger(__name__).error(
                 "Factory reset: failed to clear .state/: %s", _exc
             )
+
+    _checkpoint("Flask app created")
 
     # Register project root in core context (used by all core services)
     from src.core.context import set_project_root as _set_ctx_root
@@ -123,6 +148,8 @@ def create_app(
     from src.ui.web.routes.mediator import mediator_bp
     from src.ui.web.routes.timeline import timeline_bp
 
+    _checkpoint("Blueprint imports")
+
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(config_bp, url_prefix="/api")
@@ -168,6 +195,8 @@ def create_app(
     app.register_blueprint(mediator_bp, url_prefix="/api")
     app.register_blueprint(timeline_bp)
 
+    _checkpoint("Blueprint registration")
+
     # Initialize vault with project root (for auto-lock)
     from src.core.services import vault as vault_module
 
@@ -182,11 +211,13 @@ def create_app(
     from src.core.services.mediator import init as mediator_init
 
     mediator_inst = mediator_init(app.config["PROJECT_ROOT"])
+    _checkpoint("Mediator init")
 
     # Register domain nodes in the mediator tree
     from src.core.services.mediator.registrations import register_all
 
-    register_all(mediator_inst)
+    register_all(mediator_inst, _debug_checkpoint=_checkpoint if debug_startup else None)
+    _checkpoint("Mediator register_all")
 
     # Hydrate mediator cache from disk shards (warm start)
     # Architecture §9 — on startup, load persisted index data so
@@ -201,6 +232,7 @@ def create_app(
         )
     else:
         logger.info("mediator cold start: no disk shards found")
+    _checkpoint("Mediator hydration")
 
     # Vault activity tracking — resets auto-lock timer on user actions
     @app.before_request
@@ -214,7 +246,7 @@ def create_app(
 
     _registry = get_registry()
     app.config["DATA_REGISTRY"] = _registry
-
+    _checkpoint("Data registry loaded")
 
     # ── Pre-compute stacks catalog (static — never changes at runtime) ──
     from src.core.config.stack_loader import discover_stacks
@@ -318,11 +350,14 @@ def create_app(
 
 
 
+    _checkpoint("Stacks catalog + context processor")
+
     # Start index watcher (FS polling → mediator cascade)
     # The index watcher always runs — it drives scan, delta, stats, view, classify.
     # Peek + symbols are gated by the peek_index_enabled setting inside the watcher.
     from src.core.services.mediator.index_watcher import start_index_watcher
     start_index_watcher(app.config["PROJECT_ROOT"], mediator_inst)
+    _checkpoint("Index watcher started")
 
     # ── CDP transport warm-up (background, silent) ──────────────
     # Probe all channels and warm the PS bridge BEFORE any CDP
@@ -448,6 +483,14 @@ def create_app(
             )
     except Exception as exc:
         logger.debug("Python runtime check: %s", exc)
+
+    _checkpoint("Final setup (CDP, settings, notifications)")
+
+    if debug_startup:
+        _total = (_time.perf_counter() - _t_start) * 1000
+        print(f"  ⏱  ──────  ───────  ──────────────────────────────────")
+        print(f"  ⏱          {_total:7.0f}ms  TOTAL STARTUP")
+        print()
 
     logger.info("Web admin app created (root=%s)", project_root)
     return app

@@ -93,6 +93,43 @@ class CompatOrchestrator:
             module_configs=module_configs,
         )
 
+    @classmethod
+    def create_from_registry(
+        cls,
+        registry: FeatureRegistry,
+        project_root: Path | None = None,
+        module_configs: list[dict] | None = None,
+    ) -> CompatOrchestrator:
+        """Create orchestrator using an existing registry (no loading).
+
+        Used by the mediator — the registry is already cached as a
+        mediator node, so we don't load it again. This creates the
+        engine objects once and they share the same registry reference.
+        """
+        project_root = project_root or Path(".")
+
+        if module_configs is None:
+            module_configs = _load_module_configs(project_root)
+
+        backend = PythonBackend()
+        detection = DetectionEngine(registry, backend)
+        fix_engine = FixEngine(registry, detection, backend)
+        resolver = VersionResolver(detection, registry, backend)
+        executor = StepExecutor(registry, detection, fix_engine, backend)
+        batch = BatchRunner(executor)
+
+        return cls(
+            project_root=project_root,
+            registry=registry,
+            detection=detection,
+            fix=fix_engine,
+            resolver=resolver,
+            executor=executor,
+            batch_runner=batch,
+            backend=backend,
+            module_configs=module_configs,
+        )
+
     # ── Analysis ─────────────────────────────────────────────────
 
     def analyze(

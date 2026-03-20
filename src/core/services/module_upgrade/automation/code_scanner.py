@@ -136,19 +136,19 @@ def handle_add_future_annotations(ctx: UpgradeContext, mode: str) -> dict:
     if not module_dir.is_dir():
         return {"ok": False, "error": f"Module directory not found: {ctx.module_path}"}
 
-    # ── Use compat v2 to find files needing __future__ ───────────
+    # ── Use compat v2 cached analysis ───────────────────────────
     try:
-        from src.core.services.compat.orchestrator import CompatOrchestrator
+        from src.core.services.mediator import get_mediator
 
-        compat = CompatOrchestrator.create(ctx.project_root)
+        _m = get_mediator()
 
-        # Find annotation-only findings (union_pipe, builtin_generics)
-        result = compat.detection.analyze_module(
-            module_dir=module_dir,
-            target_version=ctx.target_floor,
-            direction="downgrade",
-            project_root=ctx.project_root,
-        )
+        # Read cached analysis — never run fresh analysis in a handler
+        _analysis_data = _m.peek(f"compat.analysis.{ctx.module_name}")
+        if _analysis_data is None:
+            raise RuntimeError("compat analysis not cached yet")
+        result = _analysis_data["data"]
+        if result is None:
+            raise RuntimeError("compat analysis returned None")
 
         # Filter to findings fixable with __future__
         future_findings = [
@@ -182,22 +182,22 @@ def handle_add_future_annotations(ctx: UpgradeContext, mode: str) -> dict:
                 "findings": files_needing_future,
             }
 
-        # Execute — use compat fix engine
-        fixed = 0
+        # Execute — use compat fix engine (single loop, no double-apply)
+        _compat_data = _m.peek("compat.orchestrator")
+        if _compat_data is None:
+            raise RuntimeError("compat orchestrator not loaded")
+        compat = _compat_data["data"]
+
+        fixed_files = set()
         for finding in future_findings:
             fix_result = compat.fix.fix_finding(finding, ctx.project_root, verify=False)
             if fix_result.success:
-                fixed += 1
-
-        # Deduplicate — one file might have multiple findings but only needs one __future__ add
-        unique_fixed = len(set(f.file for f in future_findings if any(
-            fr.success for fr in [compat.fix.fix_finding(f, ctx.project_root, verify=False)]
-        )))
+                fixed_files.add(finding.file)
 
         return {
             "ok": True,
-            "summary": f"Added __future__ annotations to {len(files_needing)} file(s)",
-            "modified_count": len(files_needing),
+            "summary": f"Added __future__ annotations to {len(fixed_files)} file(s)",
+            "modified_count": len(fixed_files),
         }
 
     except Exception as exc:
@@ -301,17 +301,17 @@ def _scan_features(ctx: UpgradeContext, direction: str) -> dict:
 
     # ── Use compat v2 AST engine ─────────────────────────────────
     try:
-        from src.core.services.compat.orchestrator import CompatOrchestrator
+        from src.core.services.mediator import get_mediator
 
-        compat = CompatOrchestrator.create(ctx.project_root)
-        module_dir = ctx.project_root / ctx.module_path
+        _m = get_mediator()
 
-        result = compat.detection.analyze_module(
-            module_dir=module_dir,
-            target_version=ctx.target_floor,
-            direction=direction,
-            project_root=ctx.project_root,
-        )
+        # Read cached analysis — never run fresh analysis in a handler
+        _analysis_data = _m.peek(f"compat.analysis.{ctx.module_name}")
+        if _analysis_data is None:
+            raise RuntimeError("compat analysis not cached yet")
+        result = _analysis_data["data"]
+        if result is None:
+            raise RuntimeError("compat analysis returned None")
 
         if not result.findings:
             return {
@@ -756,16 +756,23 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
 
     # ── Use compat v2 AST engine ─────────────────────────────────
     try:
-        from src.core.services.compat.orchestrator import CompatOrchestrator
+        from src.core.services.mediator import get_mediator
 
-        compat = CompatOrchestrator.create(ctx.project_root)
+        _m = get_mediator()
 
-        result = compat.detection.analyze_module(
-            module_dir=module_dir,
-            target_version=ctx.target_floor,
-            direction="downgrade",
-            project_root=ctx.project_root,
-        )
+        # Read cached analysis — never run fresh analysis in a handler
+        _analysis_data = _m.peek(f"compat.analysis.{ctx.module_name}")
+        if _analysis_data is None:
+            raise RuntimeError("compat analysis not cached yet")
+        result = _analysis_data["data"]
+        if result is None:
+            raise RuntimeError("compat analysis returned None")
+
+        # Need orchestrator for registry lookup (guide hints)
+        _compat_data = _m.peek("compat.orchestrator")
+        if _compat_data is None:
+            raise RuntimeError("compat not loaded yet")
+        compat = _compat_data["data"]
 
         if not result.findings:
             return {

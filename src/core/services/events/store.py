@@ -199,25 +199,86 @@ class EventStore:
     def load_cold(self, days: int = 30) -> None:
         """Pre-load recent cold events into hot cache (startup warm-up).
 
-        Deduplicates by ID — cold events already in hot cache are skipped.
-        Sets the sequence counter to the max ID seen to prevent collisions.
+        Uses a snapshot cache (.state/events/_snapshot.pkl) for fast reload.
+        On first run or when new JSONL data exists after the snapshot,
+        re-parses only the delta and updates the snapshot.
         """
+        import pickle
+
+        snapshot_path = self._events_dir / "_snapshot.pkl"
         cutoff = time.time() - (days * 86400)
-        cold = self._read_cold(cutoff)
-        with self._lock:
-            existing_ids = {e.id for e in self._hot}
-            loaded = 0
-            max_seq = self._seq
-            for e in cold:
-                if e.id not in existing_ids:
-                    self._hot.append(e)
-                    existing_ids.add(e.id)
-                    loaded += 1
-                try:
-                    seq = int(e.id.split("-")[1])
-                    max_seq = max(max_seq, seq)
-                except (IndexError, ValueError):
-                    pass
-            self._seq = max_seq
-        logger.info("EventStore: loaded %d cold events (skipped %d dupes)",
-                     loaded, len(cold) - loaded)
+        snapshot_loaded = False
+        snapshot_ts = 0.0
+
+        # ── Try loading the snapshot first (fast path) ──────────
+        if snapshot_path.is_file():
+            try:
+                with snapshot_path.open("rb") as f:
+                    snapshot = pickle.load(f)
+                events = snapshot.get("events", [])
+                snapshot_ts = snapshot.get("saved_at", 0.0)
+                snapshot_seq = snapshot.get("seq", 0)
+
+                # Filter to cutoff window
+                events = [e for e in events if e.ts >= cutoff]
+
+                with self._lock:
+                    self._hot.extend(events)
+                    self._seq = max(self._seq, snapshot_seq)
+                snapshot_loaded = True
+                logger.info(
+                    "EventStore: loaded %d events from snapshot (%.1fs old)",
+                    len(events), time.time() - snapshot_ts,
+                )
+            except Exception as exc:
+                logger.warning("EventStore: snapshot load failed: %s", exc)
+                snapshot_loaded = False
+
+        # ── Load only JSONL lines newer than the snapshot ──────
+        # If no snapshot, load everything (full cold start)
+        since_ts = snapshot_ts if snapshot_loaded else cutoff
+        cold = self._read_cold(since_ts)
+
+        if cold:
+            with self._lock:
+                existing_ids = {e.id for e in self._hot}
+                loaded = 0
+                max_seq = self._seq
+                for e in cold:
+                    if e.id not in existing_ids:
+                        self._hot.append(e)
+                        existing_ids.add(e.id)
+                        loaded += 1
+                    try:
+                        seq = int(e.id.split("-")[1])
+                        max_seq = max(max_seq, seq)
+                    except (IndexError, ValueError):
+                        pass
+                self._seq = max_seq
+            if loaded > 0:
+                logger.info("EventStore: loaded %d new events from JSONL (delta)",
+                            loaded)
+
+        # ── Save updated snapshot for next restart ────────────
+        self._save_snapshot(snapshot_path)
+
+    def _save_snapshot(self, snapshot_path: Path) -> None:
+        """Persist the hot cache as a pickle snapshot for fast reload."""
+        import pickle
+
+        try:
+            with self._lock:
+                events = list(self._hot)
+                seq = self._seq
+
+            tmp = snapshot_path.with_suffix(".tmp")
+            with tmp.open("wb") as f:
+                pickle.dump({
+                    "events": events,
+                    "saved_at": time.time(),
+                    "seq": seq,
+                }, f, protocol=pickle.HIGHEST_PROTOCOL)
+            tmp.rename(snapshot_path)
+            logger.debug("EventStore: snapshot saved (%d events)", len(events))
+        except Exception as exc:
+            logger.warning("EventStore: snapshot save failed: %s", exc)

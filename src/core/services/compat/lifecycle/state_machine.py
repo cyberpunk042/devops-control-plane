@@ -294,6 +294,22 @@ class StepStateMachine:
             step_id, old_state.value, new_state.value, trigger,
         )
 
+        # Publish state transition via EventBus for SSE → frontend
+        try:
+            from src.core.services.event_bus import bus
+            import time as _time
+
+            bus.publish("compat:step:transition", key=step_id, data={
+                "module": self._module_name,
+                "step_id": step_id,
+                "old_state": old_state.value,
+                "new_state": new_state.value,
+                "trigger": trigger,
+                "timestamp": _time.time(),
+            })
+        except Exception:
+            pass  # events are supplementary, never break state machine
+
         return status
 
     def can_transition(self, step_id: str, new_state: StepState) -> bool:

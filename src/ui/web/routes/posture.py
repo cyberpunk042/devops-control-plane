@@ -1714,9 +1714,13 @@ def posture_module_compat_fix():  # type: ignore[no-untyped-def]
 
         # ── Try compat v2 engine first ───────────────────────────
         try:
-            from src.core.services.compat.orchestrator import CompatOrchestrator
+            from src.core.services.mediator import get_mediator
 
-            compat = CompatOrchestrator.create(project_root)
+            _m = get_mediator()
+            _compat_data = _m.peek("compat.orchestrator")
+            if _compat_data is None:
+                raise RuntimeError("compat not loaded yet")
+            compat = _compat_data["data"]
             module_dir = compat._resolve_module_dir(module_name)
             if not module_dir:
                 return jsonify({"error": f"Module '{module_name}' not found"}), 404
@@ -1735,12 +1739,13 @@ def posture_module_compat_fix():  # type: ignore[no-untyped-def]
                 except Exception:
                     pass
 
-                result = compat.detection.analyze_module(
-                    module_dir=module_dir,
-                    target_version=target,
-                    direction="downgrade",
-                    project_root=project_root,
-                )
+                # Read cached analysis — never run fresh analysis in request handler
+                _analysis_data = _m.peek(f"compat.analysis.{module_name}")
+                if _analysis_data is not None and _analysis_data["data"] is not None:
+                    result = _analysis_data["data"]
+                else:
+                    # No cached analysis — skip compat path, use fallback below
+                    raise RuntimeError("compat analysis not cached")
 
                 # Filter to findings matching the search
                 matching_ids = {e.id for e in matching_entries}

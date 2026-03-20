@@ -77,7 +77,7 @@ class DetectionEngine:
             )
 
         # Discover source files
-        files = self._discover_files(module_dir)
+        files = self._discover_files(module_dir, project_root)
         if not files:
             return AnalysisResult(
                 module_dir=str(module_dir),
@@ -87,12 +87,23 @@ class DetectionEngine:
                 scan_duration_ms=int((time.time() - t0) * 1000),
             )
 
-        # Scan each file
+        # Scan each file (with yield checkpoints for web server responsiveness)
         all_findings: list[Finding] = []
         parse_errors: list[ParseError] = []
         files_with_findings: set[str] = set()
 
-        for file_path in files:
+        for idx, file_path in enumerate(files):
+            # Yield checkpoint every 10 files — releases GIL for web requests
+            if idx % 10 == 0 and idx > 0:
+                try:
+                    from src.core.services.mediator.work_queue import (
+                        current_yield_check, YIELD_SLEEP,
+                    )
+                    if current_yield_check():
+                        time.sleep(YIELD_SLEEP)
+                except ImportError:
+                    pass
+
             file_findings, file_errors = self._scan_file(
                 file_path, entries, project_root,
             )
@@ -202,7 +213,18 @@ class DetectionEngine:
         parse_errors: list[ParseError] = []
         files_with_findings: set[str] = set()
 
-        for file_rel in sorted(all_files):
+        for idx, file_rel in enumerate(sorted(all_files)):
+            # Yield checkpoint every 10 files
+            if idx % 10 == 0 and idx > 0:
+                try:
+                    from src.core.services.mediator.work_queue import (
+                        current_yield_check, YIELD_SLEEP,
+                    )
+                    if current_yield_check():
+                        time.sleep(YIELD_SLEEP)
+                except ImportError:
+                    pass
+
             file_path = project_root / file_rel
             if not file_path.is_file():
                 continue
@@ -274,17 +296,40 @@ class DetectionEngine:
 
     # ── Internal ─────────────────────────────────────────────────
 
-    def _discover_files(self, module_dir: Path) -> list[Path]:
-        """Find all source files in a module directory."""
-        extensions = set(self._backend.file_extensions)
-        files = []
+    def _discover_files(self, module_dir: Path, project_root: Path | None = None) -> list[Path]:
+        """Find all source files in a module directory.
 
-        for f in sorted(module_dir.rglob("*")):
-            if not f.is_file():
-                continue
-            if f.suffix not in extensions:
-                continue
-            # Skip excluded directories
+        Uses ScanView (O(1) lookup) when available (web server mode).
+        Falls back to rglob for CLI mode where the mediator isn't running.
+        """
+        project_root = project_root or module_dir.parent
+
+        # Try ScanView first — O(1) lookup from the mediator's index
+        try:
+            from src.core.services.mediator.registrations.index import get_scan_view
+
+            view = get_scan_view()
+            if view is not None:
+                try:
+                    rel_dir = str(module_dir.relative_to(project_root))
+                except ValueError:
+                    rel_dir = str(module_dir)
+
+                files = []
+                for p in view.files_in_dir(rel_dir, recursive=True):
+                    if p.endswith(".py") and not any(
+                        exc in p for exc in _DEFAULT_EXCLUSIONS
+                    ):
+                        files.append(project_root / p)
+                        if len(files) >= _MAX_FILES:
+                            break
+                return sorted(files)
+        except (ImportError, RuntimeError):
+            pass
+
+        # Fallback: rglob (CLI mode, no mediator)
+        files = []
+        for f in sorted(module_dir.rglob("*.py")):
             parts = f.parts
             if any(p in _DEFAULT_EXCLUSIONS for p in parts):
                 continue
@@ -301,7 +346,14 @@ class DetectionEngine:
         entries: list[FeatureEntry],
         project_root: Path,
     ) -> tuple[list[Finding], list[ParseError]]:
-        """Scan a single file against feature entries."""
+        """Scan a single file against feature entries.
+
+        Uses a single-walk node-type index: the AST is walked ONCE
+        to build {type_name: [nodes]} + parent_map. All entries then
+        match against this index — no re-walking.
+        """
+        import ast as _ast
+
         findings: list[Finding] = []
         parse_errors: list[ParseError] = []
 
@@ -309,16 +361,34 @@ class DetectionEngine:
         tree, source = self._parse_cached(file_path)
         if tree is None:
             if source:  # source contains error message
+                try:
+                    rel = str(file_path.relative_to(project_root))
+                except ValueError:
+                    rel = str(file_path)
                 parse_errors.append(ParseError(
-                    file=str(file_path.relative_to(project_root))
-                    if file_path.is_relative_to(project_root) else str(file_path),
+                    file=rel,
                     error_type="syntax",
                     message=source,
                 ))
             return findings, parse_errors
 
-        # Check for __future__ annotations (Python-specific optimization)
-        has_future = self._backend.has_future_annotations(tree)
+        # ── Single walk: build node-type index + parent map + detect __future__ ──
+        nodes_by_type: dict[str, list] = {}
+        has_future = False
+
+        for node in _ast.walk(tree):
+            type_name = type(node).__name__
+            nodes_by_type.setdefault(type_name, []).append(node)
+
+            # Detect __future__ annotations in the same walk
+            if isinstance(node, _ast.ImportFrom):
+                if node.module == "__future__":
+                    if any(alias.name == "annotations" for alias in node.names):
+                        has_future = True
+
+        # Build parent map (cached on tree by the backend — reuses if exists)
+        # This is used by get_node_context for context checks
+        self._backend._get_parent_map(tree)
 
         # Relative path for findings
         try:
@@ -326,10 +396,13 @@ class DetectionEngine:
         except ValueError:
             rel_path = str(file_path)
 
-        # Match each entry
+        # ── Pre-filter entries: only check entries whose node types exist in this file ──
+        present_types = set(nodes_by_type.keys())
+
+        # ── Match entries against the pre-built index (no walking) ──
         for entry in entries:
-            entry_findings = self._match_entry(
-                tree, source, entry, rel_path, has_future,
+            entry_findings = self._match_entry_indexed(
+                nodes_by_type, present_types, source, entry, rel_path, has_future, tree,
             )
             findings.extend(entry_findings)
 
@@ -353,15 +426,20 @@ class DetectionEngine:
         except Exception as e:
             return None, f"Parse error: {e}"
 
-    def _match_entry(
+    def _match_entry_indexed(
         self,
-        tree: Any,
+        nodes_by_type: dict[str, list],
+        present_types: set[str],
         source: str,
         entry: FeatureEntry,
         rel_path: str,
         has_future: bool,
+        tree: Any,
     ) -> list[Finding]:
-        """Match a single feature entry against a file's AST."""
+        """Match a feature entry using the pre-built node-type index.
+
+        No AST walking — nodes are looked up by type from the index.
+        """
         findings: list[Finding] = []
 
         # Collect all detection rules (primary + alternatives)
@@ -373,22 +451,28 @@ class DetectionEngine:
             if not rule.ast_type:
                 continue
 
-            for node in self._backend.walk_ast(tree):
+            # Skip if this node type doesn't exist in the file — O(1) check
+            if rule.ast_type not in present_types:
+                continue
+
+            # Only check nodes of the matching type — no full tree walk
+            candidates = nodes_by_type.get(rule.ast_type, [])
+
+            for node in candidates:
                 if not self._backend.node_matches(node, rule.ast_type, rule.match):
                     continue
 
-                # Context check
+                # Context check (uses pre-built parent map on tree)
                 if rule.context:
                     node_context = self._backend.get_node_context(node, tree)
                     if not self._context_matches(rule.context, node_context):
                         continue
 
                 # __future__ annotations check — skip annotation-only features
-                # if __future__ is present
                 if has_future and entry.category == "typing":
                     node_context = self._backend.get_node_context(node, tree)
                     if node_context == "annotation":
-                        continue  # Safe with __future__
+                        continue
 
                 # Exclusion rules
                 if self._is_excluded(node, tree, entry.detection.exclude):
@@ -396,35 +480,39 @@ class DetectionEngine:
 
                 # Edge case exclusions
                 severity = entry.severity.value
+                excluded = False
                 for ec in entry.edge_cases:
                     if ec.handling == "exclude":
                         if ec.detection_modifier and self._edge_case_matches(node, tree, ec):
-                            break  # Excluded by edge case
+                            excluded = True
+                            break
                     elif ec.handling == "downgrade_severity" and ec.severity_override:
                         if ec.detection_modifier and self._edge_case_matches(node, tree, ec):
                             severity = ec.severity_override
-                else:
-                    # Not excluded by any edge case — create finding
-                    line, col = self._backend.node_location(node)
-                    source_line = self._backend.get_source_line(source, line)
 
-                    findings.append(Finding(
-                        feature_id=entry.id,
-                        feature_name=entry.feature_name,
-                        file=rel_path,
-                        line=line,
-                        col=col,
-                        source_line=source_line,
-                        severity=severity,
-                        error_type=entry.error_type.value,
-                        error_subtype=entry.error_subtype,
-                        version=entry.introduced,
-                        fix_available=entry.fix.strategy.value != "manual",
-                        fix_strategy=entry.fix.strategy.value,
-                        ast_node_type=self._backend.node_type_name(node),
-                        detection_rule_index=rule_index,
-                    ))
-                    continue  # for/else: this runs if inner loop didn't break
+                if excluded:
+                    continue
+
+                # Create finding
+                line, col = self._backend.node_location(node)
+                source_line = self._backend.get_source_line(source, line)
+
+                findings.append(Finding(
+                    feature_id=entry.id,
+                    feature_name=entry.feature_name,
+                    file=rel_path,
+                    line=line,
+                    col=col,
+                    source_line=source_line,
+                    severity=severity,
+                    error_type=entry.error_type.value,
+                    error_subtype=entry.error_subtype,
+                    version=entry.introduced,
+                    fix_available=entry.fix.strategy.value != "manual",
+                    fix_strategy=entry.fix.strategy.value,
+                    ast_node_type=self._backend.node_type_name(node),
+                    detection_rule_index=rule_index,
+                ))
 
         # Deduplicate (same feature + same file + same line)
         seen: set[tuple[str, int]] = set()
