@@ -152,26 +152,42 @@ def handle_rescan_module(ctx, mode: str) -> dict:
             ),
         }
 
-    # Execute — invalidate caches, force recompute
+    # Execute — invalidate caches, dispatch fresh analysis, refresh posture
     try:
         from src.core.services.mediator import get_mediator
 
         m = get_mediator()
 
-        # Invalidate compat analysis cache for this module (if it exists)
-        # This cascades so next read recomputes from current files
+        # Bust compat analysis cache and dispatch fresh computation
         try:
             m.bust_path(f"compat.analysis.{ctx.module_name}", cascade=True)
+            m.dispatch(f"compat.analysis.{ctx.module_name}")
         except Exception:
-            pass  # Node may not exist yet
+            pass  # Compat may not be loaded
 
         # Invalidate posture modules — forces recompute of code floor, deps, etc.
         m.put("posture.modules", cascade=True)
 
-        return {
-            "ok": True,
-            "summary": "Module re-scanned successfully",
-        }
+        # Read the fresh analysis to report remaining findings
+        remaining = 0
+        try:
+            analysis_data = m.get(f"compat.analysis.{ctx.module_name}")
+            if analysis_data and analysis_data.get("data"):
+                remaining = analysis_data["data"].total_findings
+        except Exception:
+            pass
+
+        if remaining == 0:
+            return {
+                "ok": True,
+                "summary": f"Clean — no incompatibilities found for Python {ctx.target_floor}",
+            }
+        else:
+            return {
+                "ok": True,
+                "summary": f"Re-scan complete — {remaining} finding(s) remain",
+                "findings_count": remaining,
+            }
 
     except Exception as exc:
         return {"ok": False, "error": str(exc)}

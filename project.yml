@@ -22,6 +22,63 @@ modules:
   name: core
   path: src/core
   stack: python-lib
+  version_plan:
+    target: '3.8'
+    date: Now
+    checklist:
+    - label: Scan for features not available in Python 3.8
+      description: Find code patterns that require a newer Python than 3.8
+      id: scan_incompatible_features:9b7eb542
+      done: false
+    - label: Add __future__ annotations import where needed
+      description: Enable PEP 604 (X | Y) and PEP 585 (builtin generics) syntax on
+        older Python via deferred evaluation
+      id: add_future_annotations:949ef64c
+      done: true
+    - label: Review and fix incompatible syntax patterns
+      description: Shows each incompatible code pattern with its location, explanation,
+        and rewrite guide. Fixable patterns marked with 🔧, manual rewrites with ⚠️.
+      id: guide_incompatible_syntax:7df85828
+    - label: Check all dependencies support Python 3.8
+      description: Verify Requires-Python of all dependencies includes 3.8
+      id: check_dep_compat_pypi:132935c5
+      done: true
+    - label: Install pinned dependency versions
+      description: Run pip install to apply the version constraints from requirements.txt
+      id: run_pip_install:e8302d3e
+      done: true
+    - label: Generate module pyproject.toml
+      description: Create a pyproject.toml with requires-python and dependency declarations
+      id: generate_module_toml:58c2bca3
+      done: true
+    - label: Update CI pipeline to include Python 3.8
+      description: Add Python 3.8 to CI test matrix to ensure ongoing compatibility
+      id: update_ci_matrix:dd53fc3d
+    - label: Scaffold module test structure
+      description: Generate test files (smoke tests, import checks, conftest) if none
+        exist
+      id: scaffold_module_tests:fc47653b
+      done: true
+    - label: Generate compatibility tests
+      description: Auto-generate import verification, API, version floor, and dependency
+        tests
+      id: generate_smart_tests:e4932ae3
+      done: true
+    - label: Add integration tests to parent tests/ directory
+      description: Generate a test file in the root tests/ that verifies this module
+        works at project level
+      id: scaffold_parent_tests:733c9148
+      done: true
+    - label: Set up test environment for Python 3.8
+      description: Create a venv with the target Python version and install dependencies
+      id: setup_test_env:24e1f280
+      done: true
+    - label: Run isolated tests on Python 3.8
+      description: Execute the module test suite using the target Python venv
+      id: run_isolated_tests:aafd2a56
+    - label: Re-scan module and verify new floor
+      description: Confirm the platform detects the updated floor after all changes
+      id: rescan_module:f06f6cfb
 - description: Tool bindings for git, docker, etc.
   domain: library
   name: adapters

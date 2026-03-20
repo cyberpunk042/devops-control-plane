@@ -1070,7 +1070,17 @@ def posture_module_plan():  # type: ignore[no-untyped-def]
         )
 
         from src.core.services.mediator import get_mediator
-        get_mediator().put("posture.modules", cascade=True)
+        m = get_mediator()
+        m.put("posture.modules", cascade=True)
+
+        # Dispatch compat analysis so it's cached before user clicks steps.
+        # Ensure registry is loaded first (may still be in BACKGROUND queue).
+        if target_floor:
+            try:
+                m.get("compat.registry")  # blocks until loaded (~1s first time)
+                m.dispatch(f"compat.analysis.{module_name}")
+            except Exception:
+                pass  # Compat not available — steps will use legacy
 
         return jsonify({"ok": True, "module": module_name, "target_floor": target_floor})
 
@@ -1779,49 +1789,15 @@ def posture_module_compat_fix():  # type: ignore[no-untyped-def]
                             "files": [],
                         })
 
-                # No matching findings — try the search string directly
-                # (might be a different pattern than what the database tracks)
+                # No matching findings for this search
+                return jsonify({
+                    "ok": True,
+                    "summary": f"No fixable occurrences of '{search}' found",
+                    "files": [],
+                })
 
         except Exception as exc:
-            logger.warning("Compat v2 fix failed, falling back: %s", exc)
-
-        # ── Fallback: string search-and-replace ──────────────────
-        from src.core.config.loader import load_project
-
-        proj = load_project()
-        mod = next((m for m in (proj.modules or []) if m.name == module_name), None)
-        if not mod:
-            return jsonify({"error": f"Module '{module_name}' not found"}), 404
-
-        module_dir = project_root / mod.path
-        if not module_dir.is_dir():
-            return jsonify({"error": f"Module directory not found: {mod.path}"}), 404
-
-        fixed_files = []
-        for py_file in module_dir.rglob("*.py"):
-            if "__pycache__" in str(py_file):
-                continue
-            try:
-                content = py_file.read_text(encoding="utf-8")
-                if search in content:
-                    new_content = content.replace(search, replace_with)
-                    py_file.write_text(new_content, encoding="utf-8")
-                    fixed_files.append(str(py_file.relative_to(project_root)))
-            except (OSError, UnicodeDecodeError):
-                continue
-
-        if fixed_files:
-            return jsonify({
-                "ok": True,
-                "summary": f"Replaced '{search}' → '{replace_with}' in {len(fixed_files)} file(s)",
-                "files": fixed_files,
-            })
-        else:
-            return jsonify({
-                "ok": True,
-                "summary": f"No occurrences of '{search}' found in module files",
-                "files": [],
-            })
+            return jsonify({"error": f"Fix failed: {exc}"}), 500
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

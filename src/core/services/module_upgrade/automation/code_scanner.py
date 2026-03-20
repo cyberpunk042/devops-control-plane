@@ -136,16 +136,12 @@ def handle_add_future_annotations(ctx: UpgradeContext, mode: str) -> dict:
     if not module_dir.is_dir():
         return {"ok": False, "error": f"Module directory not found: {ctx.module_path}"}
 
-    # ── Use compat v2 cached analysis ───────────────────────────
+    # ── Use compat v2 analysis (cached or computed on demand) ───
     try:
         from src.core.services.mediator import get_mediator
 
         _m = get_mediator()
-
-        # Read cached analysis — never run fresh analysis in a handler
-        _analysis_data = _m.peek(f"compat.analysis.{ctx.module_name}")
-        if _analysis_data is None:
-            raise RuntimeError("compat analysis not cached yet")
+        _analysis_data = _m.get(f"compat.analysis.{ctx.module_name}")
         result = _analysis_data["data"]
         if result is None:
             raise RuntimeError("compat analysis returned None")
@@ -201,82 +197,7 @@ def handle_add_future_annotations(ctx: UpgradeContext, mode: str) -> dict:
         }
 
     except Exception as exc:
-        logger.warning("Compat v2 future annotations failed, falling back: %s", exc)
-
-    # ── Fallback: legacy regex approach ──────────────────────────
-    annotation_patterns = [
-        re.compile(r":\s*\w+\s*\|\s*\w+", re.MULTILINE),
-        re.compile(r"\b(?:list|dict|set|tuple|frozenset)\[", re.MULTILINE),
-    ]
-
-    try:
-        from src.core.services.system_posture.bridges.module_intel import (
-            _strip_strings_and_comments,
-        )
-    except ImportError:
-        _strip_strings_and_comments = None
-
-    files_needing_future = []
-
-    for py_file in sorted(module_dir.rglob("*.py")):
-        if "__pycache__" in str(py_file):
-            continue
-        try:
-            content = py_file.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-
-        if _FUTURE_IMPORT_RE.search(content):
-            continue
-
-        check_content = _strip_strings_and_comments(content) if _strip_strings_and_comments else content
-
-        for pattern in annotation_patterns:
-            if pattern.search(check_content):
-                rel_path = str(py_file.relative_to(ctx.project_root))
-                files_needing_future.append({"file": rel_path})
-                break
-
-    if not files_needing_future:
-        return {
-            "ok": True,
-            "can_apply": False,
-            "preview_type": "info",
-            "summary": "No files need __future__ annotations import",
-        }
-
-    if mode == "preview":
-        return {
-            "ok": True,
-            "can_apply": True,
-            "preview_type": "findings",
-            "summary": f"Found {len(files_needing_future)} file(s) using annotation syntax without __future__",
-            "detail": (
-                f"These files use PEP 604/585 type hints but lack "
-                "`from __future__ import annotations`. Adding it will make "
-                f"them compatible with Python {ctx.target_floor}."
-            ),
-            "findings": files_needing_future,
-        }
-
-    # Execute — add the import to each file
-    modified_count = 0
-    for entry in files_needing_future:
-        file_path = ctx.project_root / entry["file"]
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            new_content = _add_future_import(content)
-            if new_content != content:
-                file_path.write_text(new_content, encoding="utf-8")
-                modified_count += 1
-        except OSError as exc:
-            logger.warning("Failed to modify %s: %s", entry["file"], exc)
-
-    return {
-        "ok": True,
-        "summary": f"Added __future__ annotations to {modified_count} file(s)",
-        "modified_count": modified_count,
-    }
+        return {"ok": False, "error": f"Future annotations analysis failed: {exc}"}
 
 
 # ── Internal helpers ─────────────────────────────────────────────
@@ -286,7 +207,7 @@ def _scan_features(ctx: UpgradeContext, direction: str) -> dict:
     """Scan module source files for version-specific features.
 
     Uses the compat v2 AST-based detection engine for accurate results.
-    Falls back to the legacy regex scanner if the compat engine isn't available.
+    Uses the compat v2 AST-based detection engine.
 
     For upgrade: shows all features found (what the code uses).
     For downgrade: shows only features above the target version.
@@ -305,10 +226,8 @@ def _scan_features(ctx: UpgradeContext, direction: str) -> dict:
 
         _m = get_mediator()
 
-        # Read cached analysis — never run fresh analysis in a handler
-        _analysis_data = _m.peek(f"compat.analysis.{ctx.module_name}")
-        if _analysis_data is None:
-            raise RuntimeError("compat analysis not cached yet")
+        # Get compat analysis (cached or computed on demand)
+        _analysis_data = _m.get(f"compat.analysis.{ctx.module_name}")
         result = _analysis_data["data"]
         if result is None:
             raise RuntimeError("compat analysis returned None")
@@ -356,68 +275,7 @@ def _scan_features(ctx: UpgradeContext, direction: str) -> dict:
         }
 
     except Exception as exc:
-        logger.warning("Compat v2 scan failed, falling back to legacy: %s", exc)
-
-    # ── Fallback: legacy regex scanner ───────────────────────────
-    try:
-        from src.core.services.system_posture.bridges.module_intel import (
-            compute_code_floor,
-        )
-
-        code_floor, features = compute_code_floor(
-            ctx.project_root, ctx.module_path, ctx.language,
-        )
-    except Exception as exc:
-        return {"ok": False, "error": f"Code scan failed: {exc}"}
-
-    if not features:
-        return {
-            "ok": True,
-            "can_apply": False,
-            "preview_type": "info",
-            "summary": "No version-specific features detected in code",
-        }
-
-    if direction == "downgrade":
-        target_parts = _parse_ver(ctx.target_floor)
-        if target_parts:
-            features = [
-                f for f in features
-                if _parse_ver(f.get("version", "")) and
-                _parse_ver(f["version"]) > target_parts
-            ]
-
-    if not features:
-        return {
-            "ok": True,
-            "can_apply": False,
-            "preview_type": "info",
-            "summary": f"No features incompatible with Python {ctx.target_floor}",
-        }
-
-    findings = []
-    for f in features:
-        findings.append({
-            "file": f.get("file", ""),
-            "line": f.get("line", 0),
-            "feature": f.get("feature", ""),
-            "version": f.get("version", ""),
-        })
-
-    summary = (
-        f"Found {len(findings)} version-specific feature(s) in code"
-        if direction == "upgrade"
-        else f"Found {len(findings)} feature(s) requiring Python > {ctx.target_floor}"
-    )
-
-    return {
-        "ok": True,
-        "can_apply": False,
-        "preview_type": "findings",
-        "summary": summary,
-        "code_floor": code_floor,
-        "findings": findings,
-    }
+        return {"ok": False, "error": f"Feature scan failed: {exc}"}
 
 
 def _add_future_import(content: str) -> str:
@@ -741,7 +599,7 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
     """Rich guide for incompatible syntax patterns.
 
     Uses the compat v2 AST engine for accurate detection.
-    Falls back to legacy regex scanner if v2 is unavailable.
+    Uses the compat v2 AST engine for accurate detection.
 
     Shows each finding with source line, fix availability, and rewrite guide.
     Both preview and execute return the same guide (read-only).
@@ -761,18 +619,14 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
         _m = get_mediator()
 
         # Read cached analysis — never run fresh analysis in a handler
-        _analysis_data = _m.peek(f"compat.analysis.{ctx.module_name}")
-        if _analysis_data is None:
-            raise RuntimeError("compat analysis not cached yet")
+        # Get compat analysis (cached or computed on demand)
+        _analysis_data = _m.get(f"compat.analysis.{ctx.module_name}")
         result = _analysis_data["data"]
         if result is None:
             raise RuntimeError("compat analysis returned None")
 
         # Need orchestrator for registry lookup (guide hints)
-        _compat_data = _m.peek("compat.orchestrator")
-        if _compat_data is None:
-            raise RuntimeError("compat not loaded yet")
-        compat = _compat_data["data"]
+        compat = _m.get("compat.orchestrator")["data"]
 
         if not result.findings:
             return {
@@ -833,100 +687,7 @@ def handle_guide_incompatible_syntax(ctx: UpgradeContext, mode: str) -> dict:
         }
 
     except Exception as exc:
-        logger.warning("Compat v2 guide failed, falling back to legacy: %s", exc)
-
-    # ── Fallback: legacy regex scanner ───────────────────────────
-    target_parts = _parse_ver(ctx.target_floor)
-    if not target_parts:
-        return {"ok": False, "error": f"Cannot parse target version: {ctx.target_floor}"}
-
-    try:
-        from src.core.services.system_posture.bridges.module_intel import (
-            _ANNOTATION_FEATURES,
-            _RUNTIME_FEATURES,
-            _strip_strings_and_comments,
-        )
-    except ImportError:
-        return {"ok": False, "error": "Cannot import feature patterns"}
-
-    findings = []
-    _future_check_re = re.compile(r"^from\s+__future__\s+import\s+annotations", re.MULTILINE)
-    _annotation_feature_names = {name for _, name, _ in _ANNOTATION_FEATURES}
-
-    for py_file in sorted(module_dir.rglob("*.py"))[:500]:
-        if "__pycache__" in str(py_file):
-            continue
-        try:
-            content = py_file.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-
-        code_content = _strip_strings_and_comments(content)
-        rel_path = str(py_file.relative_to(ctx.project_root))
-        lines = content.split("\n")
-        has_future = bool(_future_check_re.search(content))
-
-        all_features = list(_RUNTIME_FEATURES) + list(_ANNOTATION_FEATURES)
-
-        for ver_str, feature_name, pattern_str in all_features:
-            ver_parts = _parse_ver(ver_str)
-            if not ver_parts or ver_parts <= target_parts:
-                continue
-
-            is_annotation = feature_name in _annotation_feature_names
-            if is_annotation and has_future:
-                continue
-
-            compiled = re.compile(pattern_str, re.MULTILINE)
-            for match in compiled.finditer(code_content):
-                line_no = code_content[:match.start()].count("\n") + 1
-                source_line = lines[line_no - 1].rstrip() if line_no <= len(lines) else ""
-
-                guide = _REWRITE_GUIDES.get(feature_name, {})
-
-                findings.append({
-                    "file": rel_path,
-                    "line": line_no,
-                    "source": source_line,
-                    "feature": feature_name,
-                    "version": ver_str,
-                    "fixable": guide.get("fixable", False),
-                    "rewrite_hint": guide.get("hint", "Manual rewrite required"),
-                    "example_before": guide.get("before", ""),
-                    "example_after": guide.get("after", ""),
-                    "explanation": guide.get("explanation", ""),
-                })
-
-    if not findings:
-        return {
-            "ok": True,
-            "can_apply": False,
-            "preview_type": "info",
-            "summary": f"No incompatible syntax found for Python {ctx.target_floor}",
-        }
-
-    by_feature: dict[str, list] = {}
-    for f in findings:
-        by_feature.setdefault(f["feature"], []).append(f)
-
-    return {
-        "ok": True,
-        "can_apply": False,
-        "preview_type": "guide",
-        "summary": f"{len(findings)} incompatible pattern(s) in {len(set(f['file'] for f in findings))} file(s)",
-        "findings": findings,
-        "by_feature": {
-            feat: {
-                "count": len(items),
-                "fixable": items[0]["fixable"],
-                "rewrite_hint": items[0]["rewrite_hint"],
-                "example_before": items[0]["example_before"],
-                "example_after": items[0]["example_after"],
-                "explanation": items[0]["explanation"],
-            }
-            for feat, items in by_feature.items()
-        },
-    }
+        return {"ok": False, "error": f"Incompatible syntax guide failed: {exc}"}
 
 
 # Rewrite guides per feature — what each pattern is, whether it can be
