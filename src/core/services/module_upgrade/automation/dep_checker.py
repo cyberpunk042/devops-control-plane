@@ -569,12 +569,46 @@ def handle_discover_missing_deps(ctx: UpgradeContext, mode: str) -> dict:
             return {"ok": True, "can_apply": False, "preview_type": "info",
                     "summary": "No third-party imports found", "findings": []}
 
-        # Map imports to package names
+        # Map imports to package names, filtering out local project modules
         host_mapping = _get_import_to_pkg()
         packages: dict[str, str] = {}  # import_name → package_name
+
         for imp in module_imports:
-            pkg = host_mapping.get(imp, imp)
-            packages[imp] = pkg
+            # Skip imports that resolve to local files in the project
+            # (e.g., api_route_scanner, heavy_module, layer_analyzer)
+            is_local = False
+            for local_dir in [ctx.project_root, module_dir]:
+                if (local_dir / imp).is_dir() or (local_dir / f"{imp}.py").is_file():
+                    is_local = True
+                    break
+                # Check nested: src/core/data/script_templates/generators/api_route_scanner.py
+                for candidate in local_dir.rglob(f"{imp}.py"):
+                    is_local = True
+                    break
+                if is_local:
+                    break
+            if is_local:
+                continue
+
+            # Skip stdlib modules that aren't in the _STDLIB set of _scan_module_imports
+            # (tomllib is stdlib in 3.11+, not a pip package)
+            _EXTRA_STDLIB = {"tomllib", "graphlib", "zoneinfo", "importlib_metadata"}
+            if imp in _EXTRA_STDLIB:
+                continue
+
+            # Only include if it's a known pip package (in host mapping)
+            # or if it's installed and has a version
+            if imp in host_mapping:
+                packages[imp] = host_mapping[imp]
+            else:
+                # Unknown import — check if pip knows about it
+                try:
+                    from importlib.metadata import version as _gv
+                    _gv(imp)  # raises if not installed
+                    packages[imp] = imp
+                except Exception:
+                    # Not installed, not in host mapping → likely local module, skip
+                    continue
 
         # Read current requirements.txt
         req_file = module_dir / "requirements.txt"
