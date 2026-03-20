@@ -110,13 +110,28 @@ def handle_run_npm_install(ctx: UpgradeContext, mode: str) -> dict:
 
 
 def handle_run_pip_install(ctx: UpgradeContext, mode: str) -> dict:
-    """Run `pip install -r requirements.txt` in the module directory."""
+    """Run `pip install -r requirements.txt` in the module directory.
+
+    Uses the target version venv pip if available (.venvs/{module}-{target}/bin/pip).
+    Falls back to system pip if no venv exists.
+    """
+    from pathlib import Path as _P
+
+    # Check for target version venv
+    venv_pip = ctx.project_root / ".venvs" / f"{ctx.module_name}-{ctx.target_floor}" / "bin" / "pip"
+    if venv_pip.is_file():
+        pip_cmd = str(venv_pip)
+        label = f"{venv_pip.parent.parent.name}/bin/pip install -r requirements.txt"
+    else:
+        pip_cmd = "pip"
+        label = "pip install -r requirements.txt"
+
     return _run_pkg_cmd(
         ctx, mode,
-        binary="pip",
-        cmd=["pip", "install", "-r", "requirements.txt"],
-        label="pip install -r requirements.txt",
-        description="Install pinned dependency versions",
+        binary=pip_cmd if pip_cmd != "pip" else "pip",
+        cmd=[pip_cmd, "install", "-r", "requirements.txt"],
+        label=label,
+        description="Install pinned dependency versions into the target version environment",
     )
 
 
