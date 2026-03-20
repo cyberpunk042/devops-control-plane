@@ -1,17 +1,16 @@
-# Python builtins — extended set
-
-# ── Python 3.12 ──────────────────────────────────────────────────
-
 - id: python.builtins.type_alias_type
   language: python
-  feature_name: "type (builtin keyword)"
-  introduced: "3.12"
+  feature_name: type (builtin keyword)
+  introduced: '3.12'
   category: builtins
-  description: "type keyword for creating TypeAlias"
+  description: type keyword for creating TypeAlias
   direction: downgrade
   severity: error
   error_type: syntax_error
-  tags: [type, alias, keyword]
+  tags:
+  - type
+  - alias
+  - keyword
   detection:
     primary:
       ast_type: TypeAlias
@@ -19,67 +18,69 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_type_alias
-        find:
-          ast_type: TypeAlias
-        replace:
-          template: "{name}: TypeAlias = {value}"
+    - type: rewrite_type_alias
+      find:
+        ast_type: TypeAlias
+      replace:
+        template: '{name}: TypeAlias = {value}'
   verification:
     re_detect: true
   test:
-    before: |
-      type UserId = int
-    after: |
-      from typing import TypeAlias
+    before: 'type UserId = int
+
+      '
+    after: 'from typing import TypeAlias
+
       UserId: TypeAlias = int
 
-# ── Python 3.10 ──────────────────────────────────────────────────
-
+      '
 - id: python.builtins.isinstance_union
   language: python
-  feature_name: "isinstance with union type"
-  introduced: "3.10"
+  feature_name: isinstance with union type
+  introduced: '3.10'
   category: builtins
-  description: "isinstance(x, int | str) using | syntax"
+  description: isinstance(x, int | str) using | syntax
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [isinstance, union, runtime]
+  tags:
+  - isinstance
+  - union
+  - runtime
   detection:
     primary:
-      ast_type: BinOp
+      ast_type: Call
       match:
-        op_type: BitOr
+        func_id: isinstance
+        arg_is_binop_bitor: true
       context: runtime
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_isinstance_union
-        find:
-          context: isinstance_arg
-        replace:
-          template: "({types_as_tuple})"
+    - type: rewrite_isinstance_union
+      find:
+        context: isinstance_arg
+      replace:
+        template: ({types_as_tuple})
   verification:
     re_detect: true
   test:
-    before: |
-      if isinstance(x, int | str):
-          pass
-    after: |
-      if isinstance(x, (int, str)):
-          pass
-
+    before: "if isinstance(x, int | str):\n    pass\n"
+    after: "if isinstance(x, (int, str)):\n    pass\n"
 - id: python.builtins.aiter_builtin
   language: python
-  feature_name: "aiter() builtin"
-  introduced: "3.10"
+  feature_name: aiter() builtin
+  introduced: '3.10'
   category: builtins
-  description: "Async version of iter() builtin"
+  description: Async version of iter() builtin
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [async, builtin, iterator]
+  tags:
+  - async
+  - builtin
+  - iterator
   detection:
     primary:
       ast_type: Call
@@ -87,31 +88,31 @@
         func_id: aiter
   fix:
     strategy: manual
-    manual_instructions: |
-      Replace with explicit __aiter__ call:
-        async_it = aiter(async_iterable)
-        → async_it = async_iterable.__aiter__()
+    manual_instructions: "Replace with explicit __aiter__ call:\n  async_it = aiter(async_iterable)\n\
+      \  → async_it = async_iterable.__aiter__()\n"
   verification:
     re_detect: true
   test:
-    before: |
-      async_it = aiter(stream)
-    after: |
-      async_it = stream.__aiter__()
+    before: 'async_it = aiter(stream)
 
-# ── Python 3.9 ──────────────────────────────────────────────────
+      '
+    after: 'async_it = stream.__aiter__()
 
+      '
 - id: python.builtins.dict_union_or
   language: python
-  feature_name: "dict | dict merge"
-  introduced: "3.9"
+  feature_name: dict | dict merge
+  introduced: '3.9'
   category: builtins
-  description: "Merge two dicts with | operator — runtime usage"
+  description: Merge two dicts with | operator — runtime usage
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: unsupported_operator
-  tags: [dict, merge, runtime]
+  tags:
+  - dict
+  - merge
+  - runtime
   detection:
     primary:
       ast_type: BinOp
@@ -119,35 +120,39 @@
         op_type: BitOr
       context: runtime
     exclude:
-      - context: annotation
-        reason: "X | Y in annotations is union type, not dict merge"
+    - context: annotation
+      reason: X | Y in annotations is union type, not dict merge
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_binary_op
-        find:
-          operator: "|"
-        replace:
-          template: "{**{left}, **{right}}"
+    - type: rewrite_binary_op
+      find:
+        operator: '|'
+      replace:
+        template: '{**{left}, **{right}}'
   verification:
     re_detect: true
   test:
-    before: |
-      merged = defaults | overrides
-    after: |
-      merged = {**defaults, **overrides}
+    before: 'merged = defaults | overrides
 
+      '
+    after: 'merged = {**defaults, **overrides}
+
+      '
 - id: python.builtins.str_isascii
   language: python
-  feature_name: "str.isascii()"
-  introduced: "3.7"
+  feature_name: str.isascii()
+  introduced: '3.7'
   category: builtins
-  description: "Check if all characters in string are ASCII"
+  description: Check if all characters in string are ASCII
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [string, ascii, method]
+  tags:
+  - string
+  - ascii
+  - method
   detection:
     primary:
       ast_type: Call
@@ -156,34 +161,30 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_method_call
-        find:
-          method: isascii
-        replace:
-          template: "all(ord(c) < 128 for c in {receiver})"
+    - type: rewrite_method_call
+      find:
+        method: isascii
+      replace:
+        template: all(ord(c) < 128 for c in {receiver})
   verification:
     re_detect: true
   test:
-    before: |
-      if text.isascii():
-          process(text)
-    after: |
-      if all(ord(c) < 128 for c in text):
-          process(text)
-
-# ── Python 3.8 ──────────────────────────────────────────────────
-
+    before: "if text.isascii():\n    process(text)\n"
+    after: "if all(ord(c) < 128 for c in text):\n    process(text)\n"
 - id: python.builtins.math_isqrt
   language: python
-  feature_name: "math.isqrt()"
-  introduced: "3.8"
+  feature_name: math.isqrt()
+  introduced: '3.8'
   category: builtins
-  description: "Integer square root"
+  description: Integer square root
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [math, isqrt, integer]
+  tags:
+  - math
+  - isqrt
+  - integer
   detection:
     primary:
       ast_type: ImportFrom
@@ -191,37 +192,41 @@
         module: math
         names_contains: isqrt
     alternatives:
-      - ast_type: Attribute
-        match:
-          value_id: math
-          attr: isqrt
+    - ast_type: Attribute
+      match:
+        value_id: math
+        attr: isqrt
   fix:
     strategy: manual
-    manual_instructions: |
-      Replace with int(math.sqrt(n)):
-        math.isqrt(n)  → int(math.sqrt(n))
-      Note: int(sqrt) may have floating-point precision issues for very large numbers.
+    manual_instructions: "Replace with int(math.sqrt(n)):\n  math.isqrt(n)  → int(math.sqrt(n))\n\
+      Note: int(sqrt) may have floating-point precision issues for very large numbers.\n"
   verification:
     re_detect: true
   test:
-    before: |
-      from math import isqrt
+    before: 'from math import isqrt
+
       result = isqrt(144)
-    after: |
-      import math
+
+      '
+    after: 'import math
+
       result = int(math.sqrt(144))
 
+      '
 - id: python.builtins.statistics_fmean
   language: python
-  feature_name: "statistics.fmean()"
-  introduced: "3.8"
+  feature_name: statistics.fmean()
+  introduced: '3.8'
   category: builtins
-  description: "Fast floating-point arithmetic mean"
+  description: Fast floating-point arithmetic mean
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [statistics, mean, math]
+  tags:
+  - statistics
+  - mean
+  - math
   detection:
     primary:
       ast_type: ImportFrom
@@ -230,15 +235,18 @@
         names_contains: fmean
   fix:
     strategy: manual
-    manual_instructions: |
-      Replace with sum/len:
-        statistics.fmean(data)  → sum(data) / len(data)
+    manual_instructions: "Replace with sum/len:\n  statistics.fmean(data)  → sum(data)\
+      \ / len(data)\n"
   verification:
     re_detect: true
   test:
-    before: |
-      from statistics import fmean
+    before: 'from statistics import fmean
+
       avg = fmean([1.0, 2.0, 3.0])
-    after: |
-      data = [1.0, 2.0, 3.0]
+
+      '
+    after: 'data = [1.0, 2.0, 3.0]
+
       avg = sum(data) / len(data)
+
+      '

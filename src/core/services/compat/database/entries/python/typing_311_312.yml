@@ -1,16 +1,17 @@
-# Python typing features — 3.11/3.12 additions
-
 - id: python.typing.assert_type
   language: python
-  feature_name: "typing.assert_type()"
-  introduced: "3.11"
+  feature_name: typing.assert_type()
+  introduced: '3.11'
   category: typing
-  description: "Assert that a value has a specific type (for type checkers)"
+  description: Assert that a value has a specific type (for type checkers)
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, assert, type_checker]
+  tags:
+  - typing
+  - assert
+  - type_checker
   detection:
     primary:
       ast_type: ImportFrom
@@ -18,44 +19,50 @@
         module: typing
         names_contains: assert_type
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: assert_type
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import assert_type"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: assert_type
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import assert_type
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "4.2.0"
+      min_version: 4.2.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import assert_type
-      assert_type(value, int)
-    after: |
-      from typing_extensions import assert_type
+    before: 'from typing import assert_type
+
       assert_type(value, int)
 
+      '
+    after: 'from typing_extensions import assert_type
+
+      assert_type(value, int)
+
+      '
 - id: python.typing.reveal_type_builtin
   language: python
-  feature_name: "reveal_type() builtin"
-  introduced: "3.11"
+  feature_name: reveal_type() builtin
+  introduced: '3.11'
   category: typing
-  description: "Built-in reveal_type function (previously only in type checkers)"
+  description: Built-in reveal_type function (previously only in type checkers)
   direction: downgrade
   severity: warning
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [typing, reveal, debug]
+  tags:
+  - typing
+  - reveal
+  - debug
   detection:
     primary:
       ast_type: Call
@@ -63,30 +70,33 @@
         func_id: reveal_type
   fix:
     strategy: manual
-    manual_instructions: |
-      Remove reveal_type calls (they're for debugging):
-        reveal_type(value)  → # type: reveal_type(value)
-      Or define a no-op:
-        def reveal_type(x): return x
+    manual_instructions: "Remove reveal_type calls (they're for debugging):\n  reveal_type(value)\
+      \  → # type: reveal_type(value)\nOr define a no-op:\n  def reveal_type(x): return\
+      \ x\n"
   verification:
     re_detect: true
   test:
-    before: |
-      x = reveal_type(compute())
-    after: |
-      x = compute()  # type was revealed during development
+    before: 'x = reveal_type(compute())
 
+      '
+    after: 'x = compute()  # type was revealed during development
+
+      '
 - id: python.typing.dataclass_transform
   language: python
-  feature_name: "typing.dataclass_transform()"
-  introduced: "3.11"
+  feature_name: typing.dataclass_transform()
+  introduced: '3.11'
   category: typing
-  description: "Decorator for custom dataclass-like decorators"
+  description: Decorator for custom dataclass-like decorators
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, dataclass, transform, decorator]
+  tags:
+  - typing
+  - dataclass
+  - transform
+  - decorator
   detection:
     primary:
       ast_type: ImportFrom
@@ -94,85 +104,97 @@
         module: typing
         names_contains: dataclass_transform
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: dataclass_transform
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import dataclass_transform"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: dataclass_transform
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import dataclass_transform
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "4.1.0"
+      min_version: 4.1.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import dataclass_transform
+    before: 'from typing import dataclass_transform
+
       @dataclass_transform()
-      def my_dataclass(cls): return cls
-    after: |
-      from typing_extensions import dataclass_transform
-      @dataclass_transform()
+
       def my_dataclass(cls): return cls
 
+      '
+    after: 'from typing_extensions import dataclass_transform
+
+      @dataclass_transform()
+
+      def my_dataclass(cls): return cls
+
+      '
 - id: python.typing.type_var_defaults_312
   language: python
-  feature_name: "TypeVar with default (PEP 696)"
-  introduced: "3.13"
+  feature_name: TypeVar with default (PEP 696)
+  introduced: '3.13'
   category: typing
-  description: "Default values for TypeVar, ParamSpec, TypeVarTuple"
+  description: Default values for TypeVar, ParamSpec, TypeVarTuple
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [typing, typevar, default]
+  tags:
+  - typing
+  - typevar
+  - default
   detection:
     primary:
       ast_type: Call
       match:
         func_id: TypeVar
+        has_keyword: default
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: manual
-    manual_instructions: |
-      Remove default parameter:
-        T = TypeVar('T', default=int)
-        → T = TypeVar('T')
-      Or use typing_extensions:
-        from typing_extensions import TypeVar
+    manual_instructions: "Remove default parameter:\n  T = TypeVar('T', default=int)\n\
+      \  → T = TypeVar('T')\nOr use typing_extensions:\n  from typing_extensions import\
+      \ TypeVar\n"
     backport:
       package: typing-extensions
-      min_version: "4.12.0"
+      min_version: 4.12.0
   verification:
     re_detect: false
   test:
-    before: |
-      from typing import TypeVar
-      T = TypeVar('T', default=int)
-    after: |
-      from typing import TypeVar
-      T = TypeVar('T')
+    before: 'from typing import TypeVar
 
+      T = TypeVar(''T'', default=int)
+
+      '
+    after: 'from typing import TypeVar
+
+      T = TypeVar(''T'')
+
+      '
 - id: python.typing.override_312
   language: python
-  feature_name: "typing.override (3.12)"
-  introduced: "3.12"
+  feature_name: typing.override (3.12)
+  introduced: '3.12'
   category: typing
-  description: "@override decorator marking method as overriding parent"
+  description: '@override decorator marking method as overriding parent'
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, override, decorator]
+  tags:
+  - typing
+  - override
+  - decorator
   detection:
     primary:
       ast_type: ImportFrom
@@ -180,33 +202,27 @@
         module: typing
         names_contains: override
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: override
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import override"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: override
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import override
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "4.4.0"
+      min_version: 4.4.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import override
-      class Child(Parent):
-          @override
-          def method(self): pass
-    after: |
-      from typing_extensions import override
-      class Child(Parent):
-          @override
-          def method(self): pass
+    before: "from typing import override\nclass Child(Parent):\n    @override\n  \
+      \  def method(self): pass\n"
+    after: "from typing_extensions import override\nclass Child(Parent):\n    @override\n\
+      \    def method(self): pass\n"

@@ -1,16 +1,17 @@
-# Python 3.11 stdlib extras
-
 - id: python.stdlib.inspect_getmembers_static
   language: python
-  feature_name: "inspect.getmembers_static()"
-  introduced: "3.11"
+  feature_name: inspect.getmembers_static()
+  introduced: '3.11'
   category: stdlib
-  description: "Get members without triggering descriptors"
+  description: Get members without triggering descriptors
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [inspect, getmembers, static]
+  tags:
+  - inspect
+  - getmembers
+  - static
   detection:
     primary:
       ast_type: Attribute
@@ -18,34 +19,40 @@
         value_id: inspect
         attr: getmembers_static
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: inspect
-          names_contains: getmembers_static
+    - ast_type: ImportFrom
+      match:
+        module: inspect
+        names_contains: getmembers_static
   fix:
     strategy: manual
-    manual_instructions: "Use inspect.getmembers() or vars() as alternatives."
+    manual_instructions: Use inspect.getmembers() or vars() as alternatives.
   verification:
     re_detect: true
   test:
-    before: |
-      import inspect
+    before: 'import inspect
+
       members = inspect.getmembers_static(obj)
-    after: |
-      import inspect
+
+      '
+    after: 'import inspect
+
       members = inspect.getmembers(obj)
 
+      '
 - id: python.stdlib.hashlib_file_digest
   language: python
-  feature_name: "hashlib.file_digest()"
-  introduced: "3.11"
+  feature_name: hashlib.file_digest()
+  introduced: '3.11'
   category: stdlib
-  description: "Efficiently hash a file object"
+  description: Efficiently hash a file object
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [hashlib, file, digest]
+  tags:
+  - hashlib
+  - file
+  - digest
   detection:
     primary:
       ast_type: Attribute
@@ -53,107 +60,107 @@
         value_id: hashlib
         attr: file_digest
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: hashlib
-          names_contains: file_digest
+    - ast_type: ImportFrom
+      match:
+        module: hashlib
+        names_contains: file_digest
   fix:
     strategy: manual
-    manual_instructions: |
-      Read and hash manually:
-        hashlib.file_digest(f, "sha256")
-        →
-        h = hashlib.sha256()
-        while chunk := f.read(8192):
-            h.update(chunk)
-        digest = h
+    manual_instructions: "Read and hash manually:\n  hashlib.file_digest(f, \"sha256\"\
+      )\n  →\n  h = hashlib.sha256()\n  while chunk := f.read(8192):\n      h.update(chunk)\n\
+      \  digest = h\n"
   verification:
     re_detect: true
   test:
-    before: |
-      import hashlib
-      with open("file.bin", "rb") as f:
-          digest = hashlib.file_digest(f, "sha256")
-    after: |
-      import hashlib
-      with open("file.bin", "rb") as f:
-          h = hashlib.sha256()
-          for chunk in iter(lambda: f.read(8192), b""):
-              h.update(chunk)
-          digest = h
-
+    before: "import hashlib\nwith open(\"file.bin\", \"rb\") as f:\n    digest = hashlib.file_digest(f,\
+      \ \"sha256\")\n"
+    after: "import hashlib\nwith open(\"file.bin\", \"rb\") as f:\n    h = hashlib.sha256()\n\
+      \    for chunk in iter(lambda: f.read(8192), b\"\"):\n        h.update(chunk)\n\
+      \    digest = h\n"
 - id: python.stdlib.re_possessive
   language: python
-  feature_name: "re possessive quantifiers"
-  introduced: "3.11"
+  feature_name: re possessive quantifiers
+  introduced: '3.11'
   category: stdlib
-  description: "Possessive quantifiers in regex: *+, ++, ?+"
-  direction: downgrade
-  severity: error
-  error_type: runtime_error
-  tags: [regex, possessive, quantifier]
-  detection:
-    primary:
-      ast_type: Call
-      match:
-        func_attr: compile
-  fix:
-    strategy: manual
-    manual_instructions: |
-      Remove possessive quantifiers — they prevent backtracking:
-        r"a*+b" → r"a*b"
-      May change matching behavior for some patterns.
-  verification:
-    re_detect: false
-  test:
-    before: |
-      import re
-      pattern = re.compile(r"a*+b")
-    after: |
-      import re
-      pattern = re.compile(r"a*b")
-
-- id: python.stdlib.re_atomic_groups
-  language: python
-  feature_name: "re atomic groups"
-  introduced: "3.11"
-  category: stdlib
-  description: "Atomic groups in regex: (?>...)"
-  direction: downgrade
-  severity: error
-  error_type: runtime_error
-  tags: [regex, atomic, group]
-  detection:
-    primary:
-      ast_type: Call
-      match:
-        func_attr: compile
-  fix:
-    strategy: manual
-    manual_instructions: |
-      Remove atomic groups — rewrite the pattern:
-        r"(?>a+)" → r"a+"
-      May need to restructure the regex.
-  verification:
-    re_detect: false
-  test:
-    before: |
-      import re
-      pattern = re.compile(r"(?>abc)+")
-    after: |
-      import re
-      pattern = re.compile(r"(?:abc)+")
-
-- id: python.stdlib.fractions_limit
-  language: python
-  feature_name: "Fraction.limit_denominator improvements"
-  introduced: "3.11"
-  category: stdlib
-  description: "Improved Fraction.as_integer_ratio and limit_denominator"
+  description: 'Possessive quantifiers in regex: *+, ++, ?+'
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [fractions, math]
+  tags:
+  - regex
+  - possessive
+  - quantifier
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: compile
+        func_value_id: re
+  fix:
+    strategy: manual
+    manual_instructions: "Remove possessive quantifiers — they prevent backtracking:\n\
+      \  r\"a*+b\" → r\"a*b\"\nMay change matching behavior for some patterns.\n"
+  verification:
+    re_detect: false
+  test:
+    before: 'import re
+
+      pattern = re.compile(r"a*+b")
+
+      '
+    after: 'import re
+
+      pattern = re.compile(r"a*b")
+
+      '
+- id: python.stdlib.re_atomic_groups
+  language: python
+  feature_name: re atomic groups
+  introduced: '3.11'
+  category: stdlib
+  description: 'Atomic groups in regex: (?>...)'
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags:
+  - regex
+  - atomic
+  - group
+  detection:
+    primary:
+      ast_type: Call
+      match:
+        func_attr: compile
+        func_value_id: re
+  fix:
+    strategy: manual
+    manual_instructions: "Remove atomic groups — rewrite the pattern:\n  r\"(?>a+)\"\
+      \ → r\"a+\"\nMay need to restructure the regex.\n"
+  verification:
+    re_detect: false
+  test:
+    before: 'import re
+
+      pattern = re.compile(r"(?>abc)+")
+
+      '
+    after: 'import re
+
+      pattern = re.compile(r"(?:abc)+")
+
+      '
+- id: python.stdlib.fractions_limit
+  language: python
+  feature_name: Fraction.limit_denominator improvements
+  introduced: '3.11'
+  category: stdlib
+  description: Improved Fraction.as_integer_ratio and limit_denominator
+  direction: downgrade
+  severity: info
+  error_type: behavioral_change
+  tags:
+  - fractions
+  - math
   detection:
     primary:
       ast_type: ImportFrom
@@ -165,7 +172,9 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from fractions import Fraction
-    after: |
-      from fractions import Fraction
+    before: 'from fractions import Fraction
+
+      '
+    after: 'from fractions import Fraction
+
+      '

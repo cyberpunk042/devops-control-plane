@@ -1,108 +1,123 @@
-# Python 3.12 stdlib extras
-
 - id: python.stdlib.pathlib_relative_to_walk
   language: python
-  feature_name: "Path.relative_to(walk_up=True)"
-  introduced: "3.12"
+  feature_name: Path.relative_to(walk_up=True)
+  introduced: '3.12'
   category: stdlib
-  description: "walk_up parameter for relative_to method"
+  description: walk_up parameter for relative_to method
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [pathlib, relative, walk_up]
+  tags:
+  - pathlib
+  - relative
+  - walk_up
   detection:
     primary:
       ast_type: Call
       match:
         func_attr: relative_to
+        has_keyword: walk_up
   fix:
     strategy: manual
-    manual_instructions: |
-      Remove walk_up parameter:
-        path.relative_to(base, walk_up=True)
-        → os.path.relpath(str(path), str(base))
+    manual_instructions: "Remove walk_up parameter:\n  path.relative_to(base, walk_up=True)\n\
+      \  → os.path.relpath(str(path), str(base))\n"
   verification:
     re_detect: false
   test:
-    before: |
-      rel = path.relative_to(base, walk_up=True)
-    after: |
-      import os
+    before: 'rel = path.relative_to(base, walk_up=True)
+
+      '
+    after: 'import os
+
       rel = Path(os.path.relpath(str(path), str(base)))
 
+      '
 - id: python.stdlib.tempfile_delete_param
   language: python
-  feature_name: "NamedTemporaryFile(delete_on_close=False)"
-  introduced: "3.12"
+  feature_name: NamedTemporaryFile(delete_on_close=False)
+  introduced: '3.12'
   category: stdlib
-  description: "delete_on_close parameter for NamedTemporaryFile"
+  description: delete_on_close parameter for NamedTemporaryFile
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [tempfile, delete, parameter]
+  tags:
+  - tempfile
+  - delete
+  - parameter
   detection:
     primary:
       ast_type: Call
       match:
         func_attr: NamedTemporaryFile
+        has_keyword: delete_on_close
   fix:
     strategy: manual
-    manual_instructions: |
-      Remove delete_on_close parameter:
-        NamedTemporaryFile(delete_on_close=False)
-        → NamedTemporaryFile(delete=False)
+    manual_instructions: "Remove delete_on_close parameter:\n  NamedTemporaryFile(delete_on_close=False)\n\
+      \  → NamedTemporaryFile(delete=False)\n"
   verification:
     re_detect: false
   test:
-    before: |
-      import tempfile
+    before: 'import tempfile
+
       f = tempfile.NamedTemporaryFile(delete_on_close=False)
-    after: |
-      import tempfile
+
+      '
+    after: 'import tempfile
+
       f = tempfile.NamedTemporaryFile(delete=False)
 
+      '
 - id: python.stdlib.sqlite3_autocommit
   language: python
-  feature_name: "sqlite3 autocommit mode"
-  introduced: "3.12"
+  feature_name: sqlite3 autocommit mode
+  introduced: '3.12'
   category: stdlib
-  description: "PEP 249 compliant autocommit mode for sqlite3"
+  description: PEP 249 compliant autocommit mode for sqlite3
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [sqlite3, autocommit, database]
+  tags:
+  - sqlite3
+  - autocommit
+  - database
   detection:
     primary:
       ast_type: Call
       match:
         func_attr: connect
+        has_keyword: autocommit
+        func_value_id: sqlite3
   fix:
     strategy: manual
-    manual_instructions: |
-      Remove autocommit parameter:
-        sqlite3.connect(db, autocommit=True)
-        → conn = sqlite3.connect(db)
-          conn.execute("PRAGMA journal_mode=WAL")
+    manual_instructions: "Remove autocommit parameter:\n  sqlite3.connect(db, autocommit=True)\n\
+      \  → conn = sqlite3.connect(db)\n    conn.execute(\"PRAGMA journal_mode=WAL\"\
+      )\n"
   verification:
     re_detect: false
   test:
-    before: |
-      import sqlite3
+    before: 'import sqlite3
+
       conn = sqlite3.connect("app.db", autocommit=True)
-    after: |
-      import sqlite3
+
+      '
+    after: 'import sqlite3
+
       conn = sqlite3.connect("app.db")
 
+      '
 - id: python.stdlib.tokenize_open
   language: python
-  feature_name: "tokenize module improvements"
-  introduced: "3.12"
+  feature_name: tokenize module improvements
+  introduced: '3.12'
   category: stdlib
-  description: "tokenize module supports PEP 701 f-strings"
+  description: tokenize module supports PEP 701 f-strings
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [tokenize, fstring]
+  tags:
+  - tokenize
+  - fstring
   detection:
     primary:
       ast_type: Import
@@ -113,7 +128,9 @@
   verification:
     re_detect: false
   test:
-    before: |
-      import tokenize
-    after: |
-      import tokenize
+    before: 'import tokenize
+
+      '
+    after: 'import tokenize
+
+      '

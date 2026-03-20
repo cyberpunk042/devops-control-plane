@@ -1,100 +1,83 @@
-# Python dataclass features across versions
-
 - id: python.stdlib.dataclass_match_args
   language: python
-  feature_name: "dataclass match_args=True"
-  introduced: "3.10"
+  feature_name: dataclass match_args=True
+  introduced: '3.10'
   category: stdlib
-  description: "__match_args__ for pattern matching support"
+  description: __match_args__ for pattern matching support
   direction: downgrade
   severity: warning
   error_type: runtime_error
-  tags: [dataclass, match_args, pattern]
+  tags:
+  - dataclass
+  - match_args
+  - pattern
   detection:
     primary:
       ast_type: Call
       match:
         func_id: dataclass
+        has_keyword: match_args
   fix:
     strategy: manual
-    manual_instructions: "Remove match_args=True — only needed for match/case."
+    manual_instructions: Remove the keyword argument for Python 3.8 compatibility.
   verification:
     re_detect: false
   test:
-    before: |
-      @dataclass(match_args=True)
-      class Point:
-          x: int
-          y: int
-    after: |
-      @dataclass
-      class Point:
-          x: int
-          y: int
-
+    before: "@dataclass(match_args=True)\nclass Point:\n    x: int\n    y: int\n"
+    after: "@dataclass\nclass Point:\n    x: int\n    y: int\n"
 - id: python.stdlib.dataclass_frozen_slots
   language: python
-  feature_name: "dataclass frozen + slots combination"
-  introduced: "3.10"
+  feature_name: dataclass frozen + slots combination
+  introduced: '3.10'
   category: stdlib
-  description: "Combining frozen=True and slots=True in dataclass"
+  description: Combining frozen=True and slots=True in dataclass
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [dataclass, frozen, slots]
+  tags:
+  - dataclass
+  - frozen
+  - slots
   detection:
     primary:
       ast_type: Call
       match:
         func_id: dataclass
+        has_keyword: slots
   fix:
     strategy: manual
-    manual_instructions: |
-      Remove slots=True, keep frozen=True:
-        @dataclass(frozen=True, slots=True)
-        → @dataclass(frozen=True)
+    manual_instructions: Remove the keyword argument for Python 3.8 compatibility.
   verification:
     re_detect: false
   test:
-    before: |
-      @dataclass(frozen=True, slots=True)
-      class Config:
-          host: str
-          port: int
-    after: |
-      @dataclass(frozen=True)
-      class Config:
-          host: str
-          port: int
-
+    before: "@dataclass(frozen=True, slots=True)\nclass Config:\n    host: str\n \
+      \   port: int\n"
+    after: "@dataclass(frozen=True)\nclass Config:\n    host: str\n    port: int\n"
 - id: python.stdlib.field_kw_only
   language: python
-  feature_name: "field(kw_only=True)"
-  introduced: "3.10"
+  feature_name: field(kw_only=True)
+  introduced: '3.10'
   category: stdlib
-  description: "Per-field keyword-only setting"
+  description: Per-field keyword-only setting
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [dataclass, field, kw_only]
+  tags:
+  - dataclass
+  - field
+  - kw_only
   detection:
     primary:
       ast_type: Call
       match:
         func_id: field
+        has_keyword: kw_only
   fix:
     strategy: manual
-    manual_instructions: "Remove kw_only parameter from field()."
+    manual_instructions: Remove the keyword argument for Python 3.8 compatibility.
   verification:
     re_detect: false
   test:
-    before: |
-      @dataclass
-      class Config:
-          name: str
-          debug: bool = field(default=False, kw_only=True)
-    after: |
-      @dataclass
-      class Config:
-          name: str
-          debug: bool = field(default=False)
+    before: "@dataclass\nclass Config:\n    name: str\n    debug: bool = field(default=False,\
+      \ kw_only=True)\n"
+    after: "@dataclass\nclass Config:\n    name: str\n    debug: bool = field(default=False)\n"

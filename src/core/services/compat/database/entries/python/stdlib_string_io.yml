@@ -1,16 +1,16 @@
-# Python string, io, os features across versions
-
 - id: python.stdlib.str_isascii_37
   language: python
-  feature_name: "str.isascii()"
-  introduced: "3.7"
+  feature_name: str.isascii()
+  introduced: '3.7'
   category: builtins
-  description: "Check if all characters are ASCII"
+  description: Check if all characters are ASCII
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_method
-  tags: [string, ascii]
+  tags:
+  - string
+  - ascii
   detection:
     primary:
       ast_type: Call
@@ -19,32 +19,30 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: rewrite_method_call
-        find:
-          method: isascii
-        replace:
-          template: "all(ord(c) < 128 for c in {receiver})"
+    - type: rewrite_method_call
+      find:
+        method: isascii
+      replace:
+        template: all(ord(c) < 128 for c in {receiver})
   verification:
     re_detect: true
   test:
-    before: |
-      if text.isascii():
-          pass
-    after: |
-      if all(ord(c) < 128 for c in text):
-          pass
-
+    before: "if text.isascii():\n    pass\n"
+    after: "if all(ord(c) < 128 for c in text):\n    pass\n"
 - id: python.stdlib.os_fspath
   language: python
-  feature_name: "os.fspath()"
-  introduced: "3.6"
+  feature_name: os.fspath()
+  introduced: '3.6'
   category: stdlib
-  description: "Get filesystem path from path-like object"
+  description: Get filesystem path from path-like object
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [os, path, fspath]
+  tags:
+  - os
+  - path
+  - fspath
   detection:
     primary:
       ast_type: Attribute
@@ -53,27 +51,32 @@
         attr: fspath
   fix:
     strategy: manual
-    manual_instructions: "Use str(path) instead of os.fspath(path)."
+    manual_instructions: Use str(path) instead of os.fspath(path).
   verification:
     re_detect: true
   test:
-    before: |
-      import os
-      s = os.fspath(path)
-    after: |
-      s = str(path)
+    before: 'import os
 
+      s = os.fspath(path)
+
+      '
+    after: 's = str(path)
+
+      '
 - id: python.stdlib.os_register_at_fork
   language: python
-  feature_name: "os.register_at_fork()"
-  introduced: "3.7"
+  feature_name: os.register_at_fork()
+  introduced: '3.7'
   category: stdlib
-  description: "Register callbacks for os.fork()"
+  description: Register callbacks for os.fork()
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [os, fork, callback]
+  tags:
+  - os
+  - fork
+  - callback
   detection:
     primary:
       ast_type: Attribute
@@ -82,26 +85,30 @@
         attr: register_at_fork
   fix:
     strategy: manual
-    manual_instructions: "Use atexit or signal handlers as alternatives."
+    manual_instructions: Use atexit or signal handlers as alternatives.
   verification:
     re_detect: true
   test:
-    before: |
-      os.register_at_fork(after_in_child=reset_locks)
-    after: |
-      # Manual fork handling
+    before: 'os.register_at_fork(after_in_child=reset_locks)
 
+      '
+    after: '# Manual fork handling
+
+      '
 - id: python.stdlib.breakpoint_builtin
   language: python
-  feature_name: "breakpoint() builtin"
-  introduced: "3.7"
+  feature_name: breakpoint() builtin
+  introduced: '3.7'
   category: builtins
-  description: "Built-in breakpoint function for debugging"
+  description: Built-in breakpoint function for debugging
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [breakpoint, debug, builtin]
+  tags:
+  - breakpoint
+  - debug
+  - builtin
   detection:
     primary:
       ast_type: Call
@@ -110,29 +117,33 @@
   fix:
     strategy: rewrite_expression
     transforms:
-      - type: replace_function_call
-        find:
-          function: breakpoint
-        replace:
-          template: "import pdb; pdb.set_trace()"
+    - type: replace_function_call
+      find:
+        function: breakpoint
+      replace:
+        template: import pdb; pdb.set_trace()
   verification:
     re_detect: true
   test:
-    before: |
-      breakpoint()
-    after: |
-      import pdb; pdb.set_trace()
+    before: 'breakpoint()
 
+      '
+    after: 'import pdb; pdb.set_trace()
+
+      '
 - id: python.stdlib.subprocess_capture
   language: python
-  feature_name: "subprocess.run capture_output"
-  introduced: "3.7"
+  feature_name: subprocess.run capture_output
+  introduced: '3.7'
   category: stdlib
-  description: "capture_output parameter in subprocess.run()"
+  description: capture_output parameter in subprocess.run()
   direction: downgrade
   severity: error
   error_type: runtime_error
-  tags: [subprocess, capture, output]
+  tags:
+  - subprocess
+  - capture
+  - output
   detection:
     primary:
       ast_type: Call
@@ -140,87 +151,105 @@
         func_attr: run
   fix:
     strategy: manual
-    manual_instructions: |
-      Replace capture_output=True with explicit PIPE:
-        subprocess.run(cmd, capture_output=True)
-        → subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    manual_instructions: "Replace capture_output=True with explicit PIPE:\n  subprocess.run(cmd,\
+      \ capture_output=True)\n  → subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)\n"
   verification:
     re_detect: false
   test:
-    before: |
-      result = subprocess.run(cmd, capture_output=True)
-    after: |
-      import subprocess
+    before: 'result = subprocess.run(cmd, capture_output=True)
+
+      '
+    after: 'import subprocess
+
       result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+      '
 - id: python.stdlib.datetime_fromisoformat
   language: python
-  feature_name: "datetime.fromisoformat() improvements"
-  introduced: "3.11"
+  feature_name: datetime.fromisoformat() improvements
+  introduced: '3.11'
   category: stdlib
-  description: "fromisoformat accepts more formats in 3.11+"
+  description: fromisoformat accepts more formats in 3.11+
   direction: downgrade
-  severity: warning
+  severity: info
   error_type: behavioral_change
-  tags: [datetime, fromisoformat, parsing]
+  tags:
+  - datetime
+  - fromisoformat
+  - parsing
   detection:
     primary:
       ast_type: Call
       match:
         func_attr: fromisoformat
+        func_value_id: datetime
   fix:
     strategy: manual
-    manual_instructions: |
-      3.7-3.10: fromisoformat only accepts YYYY-MM-DDTHH:MM:SS
+    manual_instructions: '3.7-3.10: fromisoformat only accepts YYYY-MM-DDTHH:MM:SS
+
       3.11+: also accepts Z suffix, +00:00, etc.
+
       For broader parsing: use dateutil.parser.isoparse()
+
+      '
   verification:
     re_detect: false
   test:
-    before: |
-      dt = datetime.fromisoformat("2024-01-01T12:00:00Z")
-    after: |
-      from dateutil.parser import isoparse
+    before: 'dt = datetime.fromisoformat("2024-01-01T12:00:00Z")
+
+      '
+    after: 'from dateutil.parser import isoparse
+
       dt = isoparse("2024-01-01T12:00:00Z")
 
+      '
 - id: python.stdlib.ssl_default_context
   language: python
-  feature_name: "ssl.create_default_context() improvements"
-  introduced: "3.10"
+  feature_name: ssl.create_default_context() improvements
+  introduced: '3.10'
   category: stdlib
-  description: "Default SSL context security improvements"
+  description: Default SSL context security improvements
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [ssl, security, tls]
+  tags:
+  - ssl
+  - security
+  - tls
   detection:
     primary:
       ast_type: Call
       match:
         func_attr: create_default_context
+        func_value_id: ssl
   fix:
     strategy: no_fix_needed
   verification:
     re_detect: false
   test:
-    before: |
-      import ssl
-      ctx = ssl.create_default_context()
-    after: |
-      import ssl
+    before: 'import ssl
+
       ctx = ssl.create_default_context()
 
+      '
+    after: 'import ssl
+
+      ctx = ssl.create_default_context()
+
+      '
 - id: python.stdlib.zipfile_path
   language: python
-  feature_name: "zipfile.Path"
-  introduced: "3.8"
+  feature_name: zipfile.Path
+  introduced: '3.8'
   category: stdlib
-  description: "Path-like access to zip file contents"
+  description: Path-like access to zip file contents
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [zipfile, path]
+  tags:
+  - zipfile
+  - path
   detection:
     primary:
       ast_type: ImportFrom
@@ -228,20 +257,20 @@
         module: zipfile
         names_contains: Path
     alternatives:
-      - ast_type: Attribute
-        match:
-          value_id: zipfile
-          attr: Path
+    - ast_type: Attribute
+      match:
+        value_id: zipfile
+        attr: Path
   fix:
     strategy: manual
-    manual_instructions: "Use ZipFile.open() and .read() for individual files."
+    manual_instructions: Use ZipFile.open() and .read() for individual files.
   verification:
     re_detect: true
   test:
-    before: |
-      from zipfile import Path as ZipPath
+    before: 'from zipfile import Path as ZipPath
+
       p = ZipPath(archive, "data/config.json")
-    after: |
-      import zipfile
-      with zipfile.ZipFile(archive) as zf:
-          data = zf.read("data/config.json")
+
+      '
+    after: "import zipfile\nwith zipfile.ZipFile(archive) as zf:\n    data = zf.read(\"\
+      data/config.json\")\n"

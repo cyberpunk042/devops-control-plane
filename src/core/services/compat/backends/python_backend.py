@@ -185,6 +185,153 @@ class PythonBackend(LanguageBackend):
                         return expected
             return not expected
 
+        # ── Call-node refinement matchers ─────────────────────────
+
+        if key == "has_keyword":
+            # Call: check if a specific keyword argument is present.
+            # Detects: dataclass(slots=True), field(kw_only=True), etc.
+            keywords = getattr(node, "keywords", [])
+            if isinstance(expected, str):
+                return any(kw.arg == expected for kw in keywords)
+            if isinstance(expected, list):
+                return any(kw.arg in expected for kw in keywords)
+            return False
+
+        if key == "has_keyword_value":
+            # Call: check if a keyword has a specific constant value.
+            # Detects: dataclass(slots=True) but NOT dataclass(slots=False)
+            # expected is a dict: {"keyword": "slots", "value": True}
+            if not isinstance(expected, dict):
+                return False
+            kw_name = expected.get("keyword", "")
+            kw_value = expected.get("value")
+            keywords = getattr(node, "keywords", [])
+            for kw in keywords:
+                if kw.arg == kw_name:
+                    if isinstance(kw.value, ast.Constant):
+                        return kw.value.value == kw_value
+                    # Non-constant value (variable) — can't determine, match conservatively
+                    return True
+            return False
+
+        if key == "func_value_id":
+            # Call: check what object a method is called on.
+            # Detects: re.compile() but NOT something.compile()
+            # Works for: obj.method() where obj is a direct Name reference.
+            func = getattr(node, "func", None)
+            if isinstance(func, ast.Attribute):
+                val = func.value
+                if isinstance(val, ast.Name):
+                    if isinstance(expected, str):
+                        return val.id == expected
+                    if isinstance(expected, list):
+                        return val.id in expected
+            return False
+
+        if key == "func_value_attr":
+            # Call: check the attribute chain of the method's object.
+            # Detects: datetime.timezone.utc but requires deeper chain matching.
+            # Works for: obj.attr.method() — checks obj.attr.
+            func = getattr(node, "func", None)
+            if isinstance(func, ast.Attribute):
+                val = func.value
+                if isinstance(val, ast.Attribute):
+                    return val.attr == expected
+            return False
+
+        if key == "min_args":
+            # Call: check minimum number of positional arguments.
+            # Useful to distinguish zip(a, b) from zip(a, b, strict=True)
+            args = getattr(node, "args", [])
+            return len(args) >= expected
+
+        if key == "has_stararg":
+            # Call: check if call uses *args unpacking.
+            # Detects: func(*args) patterns
+            args = getattr(node, "args", [])
+            return any(isinstance(a, ast.Starred) for a in args) == expected
+
+        if key == "arg_is_binop_bitor":
+            # Call: check if any positional argument is a BinOp with BitOr.
+            # Detects: isinstance(x, int | str) — runtime union type (3.10)
+            # Does NOT match: isinstance(x, (int, str)) — tuple form (any version)
+            args = getattr(node, "args", [])
+            has_bitor_arg = any(
+                isinstance(a, ast.BinOp) and isinstance(a.op, ast.BitOr)
+                for a in args
+            )
+            return has_bitor_arg == expected
+
+        if key == "arg_count":
+            # Call: exact number of positional arguments
+            args = getattr(node, "args", [])
+            return len(args) == expected
+
+        if key == "decorator_name":
+            # FunctionDef/ClassDef: check if it has a specific decorator.
+            # Matches both @name and @name(...) forms.
+            # Detects: @cache, @cached_property, @override, etc.
+            decorators = getattr(node, "decorator_list", [])
+            for deco in decorators:
+                if isinstance(deco, ast.Name) and deco.id == expected:
+                    return True
+                if isinstance(deco, ast.Call) and isinstance(deco.func, ast.Name) and deco.func.id == expected:
+                    return True
+            return False
+
+        if key == "decorator_name_in":
+            # FunctionDef/ClassDef: check if it has any decorator from a list.
+            decorators = getattr(node, "decorator_list", [])
+            if not isinstance(expected, list):
+                return False
+            for deco in decorators:
+                if isinstance(deco, ast.Name) and deco.id in expected:
+                    return True
+                if isinstance(deco, ast.Call) and isinstance(deco.func, ast.Name) and deco.func.id in expected:
+                    return True
+            return False
+
+        if key == "module_is":
+            # ImportFrom: check the module being imported from.
+            # Detects: from contextlib import aclosing (module_is: contextlib)
+            module = getattr(node, "module", None)
+            if isinstance(expected, str):
+                return module == expected
+            if isinstance(expected, list):
+                return module in expected
+            return False
+
+        if key == "module_startswith":
+            # ImportFrom: check module prefix.
+            # Detects: from asyncio.* import X
+            module = getattr(node, "module", None) or ""
+            return module.startswith(expected) if isinstance(expected, str) else False
+
+        # ── BinOp refinement matchers ─────────────────────────────
+
+        if key == "left_is_dict":
+            # BinOp: check if left operand is a dict literal or dict() call.
+            # Helps distinguish dict | dict (3.9) from int | int (any version).
+            left = getattr(node, "left", None)
+            if left is None:
+                return not expected
+            is_dict = (
+                isinstance(left, ast.Dict)
+                or (isinstance(left, ast.Call) and isinstance(left.func, ast.Name) and left.func.id == "dict")
+            )
+            return is_dict == expected
+
+        if key == "right_is_dict":
+            # BinOp: check if right operand is a dict literal or dict() call.
+            right = getattr(node, "right", None)
+            if right is None:
+                return not expected
+            is_dict = (
+                isinstance(right, ast.Dict)
+                or (isinstance(right, ast.Call) and isinstance(right.func, ast.Name) and right.func.id == "dict")
+            )
+            return is_dict == expected
+
         # Generic attribute check
         actual = getattr(node, key, None)
         return actual == expected

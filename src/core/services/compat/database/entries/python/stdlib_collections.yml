@@ -1,15 +1,16 @@
-# Python collections/itertools/functools features
-
 - id: python.stdlib.collections_chainmap_or
   language: python
-  feature_name: "ChainMap | operator"
-  introduced: "3.9"
+  feature_name: ChainMap | operator
+  introduced: '3.9'
   category: stdlib
-  description: "ChainMap supports | and |= operators"
+  description: ChainMap supports | and |= operators
   direction: downgrade
-  severity: error
+  severity: info
   error_type: runtime_error
-  tags: [collections, chainmap, merge]
+  tags:
+  - collections
+  - chainmap
+  - merge
   detection:
     primary:
       ast_type: BinOp
@@ -18,27 +19,32 @@
       context: runtime
   fix:
     strategy: manual
-    manual_instructions: "Use ChainMap constructor: ChainMap(map1, map2) instead of map1 | map2"
+    manual_instructions: 'Use ChainMap constructor: ChainMap(map1, map2) instead of
+      map1 | map2'
   verification:
     re_detect: false
   test:
-    before: |
-      merged = chain1 | chain2
-    after: |
-      from collections import ChainMap
+    before: 'merged = chain1 | chain2
+
+      '
+    after: 'from collections import ChainMap
+
       merged = ChainMap(chain1, chain2)
 
+      '
 - id: python.stdlib.itertools_pairwise
   language: python
-  feature_name: "itertools.pairwise()"
-  introduced: "3.10"
+  feature_name: itertools.pairwise()
+  introduced: '3.10'
   category: stdlib
-  description: "Return successive overlapping pairs"
+  description: Return successive overlapping pairs
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [itertools, pairwise]
+  tags:
+  - itertools
+  - pairwise
   detection:
     primary:
       ast_type: ImportFrom
@@ -47,34 +53,30 @@
         names_contains: pairwise
   fix:
     strategy: manual
-    manual_instructions: |
-      def pairwise(it):
-          a, b = itertools.tee(it)
-          next(b, None)
-          return zip(a, b)
+    manual_instructions: "def pairwise(it):\n    a, b = itertools.tee(it)\n    next(b,\
+      \ None)\n    return zip(a, b)\n"
   verification:
     re_detect: true
   test:
-    before: |
-      from itertools import pairwise
-    after: |
-      import itertools
-      def pairwise(it):
-          a, b = itertools.tee(it)
-          next(b, None)
-          return zip(a, b)
+    before: 'from itertools import pairwise
 
+      '
+    after: "import itertools\ndef pairwise(it):\n    a, b = itertools.tee(it)\n  \
+      \  next(b, None)\n    return zip(a, b)\n"
 - id: python.stdlib.functools_singledispatchmethod
   language: python
-  feature_name: "functools.singledispatchmethod"
-  introduced: "3.8"
+  feature_name: functools.singledispatchmethod
+  introduced: '3.8'
   category: stdlib
-  description: "Single dispatch for class methods"
+  description: Single dispatch for class methods
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [functools, singledispatch, method]
+  tags:
+  - functools
+  - singledispatch
+  - method
   detection:
     primary:
       ast_type: ImportFrom
@@ -83,26 +85,29 @@
         names_contains: singledispatchmethod
   fix:
     strategy: manual
-    manual_instructions: "Use if/elif with isinstance checks instead."
+    manual_instructions: Use if/elif with isinstance checks instead.
   verification:
     re_detect: true
   test:
-    before: |
-      from functools import singledispatchmethod
-    after: |
-      # Use isinstance checks
+    before: 'from functools import singledispatchmethod
 
+      '
+    after: '# Use isinstance checks
+
+      '
 - id: python.stdlib.operator_call
   language: python
-  feature_name: "operator.call()"
-  introduced: "3.11"
+  feature_name: operator.call()
+  introduced: '3.11'
   category: stdlib
-  description: "operator.call for calling objects"
+  description: operator.call for calling objects
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_name
-  tags: [operator, call]
+  tags:
+  - operator
+  - call
   detection:
     primary:
       ast_type: ImportFrom
@@ -111,60 +116,71 @@
         names_contains: call
   fix:
     strategy: manual
-    manual_instructions: "Use lambda x, *a, **kw: x(*a, **kw) instead."
+    manual_instructions: 'Use lambda x, *a, **kw: x(*a, **kw) instead.'
   verification:
     re_detect: true
   test:
-    before: |
-      from operator import call
-      result = call(func, arg)
-    after: |
-      result = func(arg)
+    before: 'from operator import call
 
+      result = call(func, arg)
+
+      '
+    after: 'result = func(arg)
+
+      '
 - id: python.stdlib.contextvars_copy_context
   language: python
-  feature_name: "contextvars (module)"
-  introduced: "3.7"
+  feature_name: contextvars (module)
+  introduced: '3.7'
   category: stdlib
-  description: "Context variables for async/concurrent code"
+  description: Context variables for async/concurrent code
   direction: downgrade
   severity: error
   error_type: import_error
   error_subtype: missing_module
-  tags: [contextvars, async, context]
+  tags:
+  - contextvars
+  - async
+  - context
   detection:
     primary:
       ast_type: Import
       match:
         names_contains: contextvars
     alternatives:
-      - ast_type: ImportFrom
-        match:
-          module: contextvars
+    - ast_type: ImportFrom
+      match:
+        module: contextvars
   fix:
     strategy: manual
-    manual_instructions: "Use threading.local() as a simpler alternative."
+    manual_instructions: Use threading.local() as a simpler alternative.
   verification:
     re_detect: true
   test:
-    before: |
-      import contextvars
-      request_id = contextvars.ContextVar('request_id')
-    after: |
-      import threading
+    before: 'import contextvars
+
+      request_id = contextvars.ContextVar(''request_id'')
+
+      '
+    after: 'import threading
+
       _local = threading.local()
 
+      '
 - id: python.stdlib.typing_assert_never
   language: python
-  feature_name: "typing.assert_never()"
-  introduced: "3.11"
+  feature_name: typing.assert_never()
+  introduced: '3.11'
   category: typing
-  description: "Assert that code is unreachable (for exhaustiveness checking)"
+  description: Assert that code is unreachable (for exhaustiveness checking)
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [typing, assert, unreachable]
+  tags:
+  - typing
+  - assert
+  - unreachable
   detection:
     primary:
       ast_type: ImportFrom
@@ -172,42 +188,46 @@
         module: typing
         names_contains: assert_never
     exclude:
-      - context: type_checking_block
-        reason: "Not executed at runtime"
+    - context: type_checking_block
+      reason: Not executed at runtime
   fix:
     strategy: replace_import
     transforms:
-      - type: replace_import_name
-        find:
-          import_module: typing
-          import_name: assert_never
-        replace:
-          import_name: ""
-      - type: add_import
-        import_statement: "from typing_extensions import assert_never"
-        condition: not_already_present
+    - type: replace_import_name
+      find:
+        import_module: typing
+        import_name: assert_never
+      replace:
+        import_name: ''
+    - type: add_import
+      import_statement: from typing_extensions import assert_never
+      condition: not_already_present
     backport:
       package: typing-extensions
-      min_version: "4.1.0"
+      min_version: 4.1.0
   verification:
     re_detect: true
   test:
-    before: |
-      from typing import assert_never
-    after: |
-      from typing_extensions import assert_never
+    before: 'from typing import assert_never
 
+      '
+    after: 'from typing_extensions import assert_never
+
+      '
 - id: python.stdlib.enum_verify
   language: python
-  feature_name: "enum.verify()"
-  introduced: "3.11"
+  feature_name: enum.verify()
+  introduced: '3.11'
   category: stdlib
-  description: "Verify enum classes meet certain criteria"
+  description: Verify enum classes meet certain criteria
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [enum, verify, decorator]
+  tags:
+  - enum
+  - verify
+  - decorator
   detection:
     primary:
       ast_type: ImportFrom
@@ -216,31 +236,27 @@
         names_contains: verify
   fix:
     strategy: manual
-    manual_instructions: "Remove @verify decorator — add manual checks in __init_subclass__ if needed."
+    manual_instructions: Remove @verify decorator — add manual checks in __init_subclass__
+      if needed.
   verification:
     re_detect: true
   test:
-    before: |
-      from enum import Enum, verify, UNIQUE
-      @verify(UNIQUE)
-      class Color(Enum):
-          RED = 1
-    after: |
-      from enum import Enum
-      class Color(Enum):
-          RED = 1
-
+    before: "from enum import Enum, verify, UNIQUE\n@verify(UNIQUE)\nclass Color(Enum):\n\
+      \    RED = 1\n"
+    after: "from enum import Enum\nclass Color(Enum):\n    RED = 1\n"
 - id: python.stdlib.enum_nonmember
   language: python
-  feature_name: "enum.nonmember()"
-  introduced: "3.11"
+  feature_name: enum.nonmember()
+  introduced: '3.11'
   category: stdlib
-  description: "Mark a value as not an enum member"
+  description: Mark a value as not an enum member
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [enum, nonmember]
+  tags:
+  - enum
+  - nonmember
   detection:
     primary:
       ast_type: ImportFrom
@@ -249,16 +265,10 @@
         names_contains: nonmember
   fix:
     strategy: manual
-    manual_instructions: "Use a class variable outside the enum or a descriptor."
+    manual_instructions: Use a class variable outside the enum or a descriptor.
   verification:
     re_detect: true
   test:
-    before: |
-      from enum import Enum, nonmember
-      class Planet(Enum):
-          EARTH = (5.97e24, 6.37e6)
-          _ignore_ = ['surface_gravity']
-    after: |
-      from enum import Enum
-      class Planet(Enum):
-          EARTH = (5.97e24, 6.37e6)
+    before: "from enum import Enum, nonmember\nclass Planet(Enum):\n    EARTH = (5.97e24,\
+      \ 6.37e6)\n    _ignore_ = ['surface_gravity']\n"
+    after: "from enum import Enum\nclass Planet(Enum):\n    EARTH = (5.97e24, 6.37e6)\n"

@@ -1,15 +1,15 @@
-# Python batch — pushing to 500
-
 - id: python.stdlib.typing_no_return
   language: python
-  feature_name: "typing.NoReturn"
-  introduced: "3.5"
+  feature_name: typing.NoReturn
+  introduced: '3.5'
   category: typing
-  description: "Type for functions that never return"
+  description: Type for functions that never return
   direction: downgrade
   severity: info
   error_type: import_error
-  tags: [typing, noreturn]
+  tags:
+  - typing
+  - noreturn
   detection:
     primary:
       ast_type: ImportFrom
@@ -21,21 +21,24 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from typing import NoReturn
-    after: |
-      from typing import NoReturn
+    before: 'from typing import NoReturn
 
+      '
+    after: 'from typing import NoReturn
+
+      '
 - id: python.stdlib.typing_any
   language: python
-  feature_name: "typing.Any"
-  introduced: "3.5"
+  feature_name: typing.Any
+  introduced: '3.5'
   category: typing
-  description: "Dynamic type hint"
+  description: Dynamic type hint
   direction: downgrade
   severity: info
   error_type: import_error
-  tags: [typing, any]
+  tags:
+  - typing
+  - any
   detection:
     primary:
       ast_type: ImportFrom
@@ -47,21 +50,25 @@
   verification:
     re_detect: false
   test:
-    before: |
-      from typing import Any
-    after: |
-      from typing import Any
+    before: 'from typing import Any
 
+      '
+    after: 'from typing import Any
+
+      '
 - id: python.stdlib.pathlib_match_pattern
   language: python
-  feature_name: "Path.match() case sensitivity"
-  introduced: "3.12"
+  feature_name: Path.match() case sensitivity
+  introduced: '3.12'
   category: stdlib
-  description: "case_sensitive parameter for Path.match()"
+  description: case_sensitive parameter for Path.match()
   direction: downgrade
-  severity: warning
-  error_type: runtime_error
-  tags: [pathlib, match, case]
+  severity: info
+  error_type: behavioral_change
+  tags:
+  - pathlib
+  - match
+  - case
   detection:
     primary:
       ast_type: Call
@@ -69,26 +76,30 @@
         func_attr: match
   fix:
     strategy: manual
-    manual_instructions: "Remove case_sensitive parameter."
+    manual_instructions: Remove case_sensitive parameter.
   verification:
     re_detect: false
   test:
-    before: |
-      path.match("*.py", case_sensitive=False)
-    after: |
-      path.match("*.py")
+    before: 'path.match("*.py", case_sensitive=False)
 
+      '
+    after: 'path.match("*.py")
+
+      '
 - id: python.stdlib.enum_global_enum
   language: python
-  feature_name: "enum.global_enum()"
-  introduced: "3.11"
+  feature_name: enum.global_enum()
+  introduced: '3.11'
   category: stdlib
-  description: "Make enum members available at module level"
+  description: Make enum members available at module level
   direction: downgrade
   severity: warning
   error_type: import_error
   error_subtype: missing_name
-  tags: [enum, global, module]
+  tags:
+  - enum
+  - global
+  - module
   detection:
     primary:
       ast_type: ImportFrom
@@ -97,26 +108,30 @@
         names_contains: global_enum
   fix:
     strategy: manual
-    manual_instructions: "Manually export enum members at module level."
+    manual_instructions: Manually export enum members at module level.
   verification:
     re_detect: true
   test:
-    before: |
-      from enum import global_enum
-    after: |
-      # Manually export members
+    before: 'from enum import global_enum
 
+      '
+    after: '# Manually export members
+
+      '
 - id: python.stdlib.asyncio_eager_task
   language: python
-  feature_name: "asyncio.eager_task_factory"
-  introduced: "3.12"
+  feature_name: asyncio.eager_task_factory
+  introduced: '3.12'
   category: stdlib
-  description: "Eagerly start coroutine execution"
+  description: Eagerly start coroutine execution
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [asyncio, eager, task]
+  tags:
+  - asyncio
+  - eager
+  - task
   detection:
     primary:
       ast_type: Attribute
@@ -125,25 +140,29 @@
         attr: eager_task_factory
   fix:
     strategy: manual
-    manual_instructions: "Use standard asyncio.create_task()."
+    manual_instructions: Use standard asyncio.create_task().
   verification:
     re_detect: true
   test:
-    before: |
-      asyncio.get_event_loop().set_task_factory(asyncio.eager_task_factory)
-    after: |
-      # Use asyncio.create_task() — no eager mode
+    before: 'asyncio.get_event_loop().set_task_factory(asyncio.eager_task_factory)
 
+      '
+    after: '# Use asyncio.create_task() — no eager mode
+
+      '
 - id: python.stdlib.pdb_commands
   language: python
-  feature_name: "pdb new commands"
-  introduced: "3.12"
+  feature_name: pdb new commands
+  introduced: '3.12'
   category: stdlib
-  description: "New pdb debugger commands"
+  description: New pdb debugger commands
   direction: downgrade
   severity: info
   error_type: behavioral_change
-  tags: [pdb, debugger, commands]
+  tags:
+  - pdb
+  - debugger
+  - commands
   detection:
     primary:
       ast_type: Import
@@ -154,22 +173,26 @@
   verification:
     re_detect: false
   test:
-    before: |
-      import pdb
-    after: |
-      import pdb
+    before: 'import pdb
 
+      '
+    after: 'import pdb
+
+      '
 - id: python.stdlib.copy_replace
   language: python
-  feature_name: "copy.replace()"
-  introduced: "3.13"
+  feature_name: copy.replace()
+  introduced: '3.13'
   category: stdlib
-  description: "Create modified copy of an object"
+  description: Create modified copy of an object
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [copy, replace, immutable]
+  tags:
+  - copy
+  - replace
+  - immutable
   detection:
     primary:
       ast_type: Attribute
@@ -178,28 +201,34 @@
         attr: replace
   fix:
     strategy: manual
-    manual_instructions: "Use dataclasses.replace() for dataclasses, or manual copy+modify."
+    manual_instructions: Use dataclasses.replace() for dataclasses, or manual copy+modify.
   verification:
     re_detect: true
   test:
-    before: |
-      import copy
+    before: 'import copy
+
       new_obj = copy.replace(obj, x=10)
-    after: |
-      from dataclasses import replace
+
+      '
+    after: 'from dataclasses import replace
+
       new_obj = replace(obj, x=10)
 
+      '
 - id: python.stdlib.os_process_cpu_count
   language: python
-  feature_name: "os.process_cpu_count()"
-  introduced: "3.13"
+  feature_name: os.process_cpu_count()
+  introduced: '3.13'
   category: stdlib
-  description: "CPU count for current process (respects cgroups)"
+  description: CPU count for current process (respects cgroups)
   direction: downgrade
   severity: error
   error_type: runtime_error
   error_subtype: missing_name
-  tags: [os, cpu, process]
+  tags:
+  - os
+  - cpu
+  - process
   detection:
     primary:
       ast_type: Attribute
@@ -208,11 +237,13 @@
         attr: process_cpu_count
   fix:
     strategy: manual
-    manual_instructions: "Use os.cpu_count() instead."
+    manual_instructions: Use os.cpu_count() instead.
   verification:
     re_detect: true
   test:
-    before: |
-      cpus = os.process_cpu_count()
-    after: |
-      cpus = os.cpu_count()
+    before: 'cpus = os.process_cpu_count()
+
+      '
+    after: 'cpus = os.cpu_count()
+
+      '
