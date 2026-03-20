@@ -2042,12 +2042,16 @@
         }
 
         // Everything else — preview via fetch, show in modal
+        // Show loading feedback on the Automate button
+        const autoBtn = document.querySelectorAll('#plan-checklist .plan-step')[stepIndex]?.querySelector('.plan-step-auto');
+        if (autoBtn) { autoBtn.disabled = true; autoBtn.textContent = '⏳'; }
         try {
             const resp = await fetch('/api/posture/module-step-execute', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ module: moduleName, step_id: stepId, mode: 'preview' }),
             });
+            if (autoBtn) { autoBtn.disabled = false; autoBtn.textContent = '🔧'; }
             const data = await resp.json();
 
             if (!data.ok) {
@@ -2237,6 +2241,7 @@
             });
 
         } catch (e) {
+            if (autoBtn) { autoBtn.disabled = false; autoBtn.textContent = '🔧'; }
             toast('❌ ' + e.message, 'error');
         }
     };
@@ -2244,6 +2249,15 @@
     // Apply a step from within the modal, then update plan state.
     // On success: toast + close. On failure: show result in modal with remediation.
     window._modalApplyStep = async function(moduleName, stepId, stepIndex) {
+        // Show loading state immediately
+        const applyBtns = document.querySelectorAll('#active-modal-overlay .modal-footer .btn-primary');
+        for (const btn of applyBtns) {
+            btn.disabled = true;
+            btn._origLabel = btn.textContent;
+            btn.textContent = '⏳ Applying...';
+        }
+        toast('⏳ Applying step...', 'info');
+
         try {
             const resp = await fetch('/api/posture/module-step-execute', {
                 method: 'POST',
@@ -2254,8 +2268,18 @@
 
             if (data.ok) {
                 toast('✅ ' + (data.summary || 'Step completed'), 'success');
-                _wizardMarkDone(moduleName, stepId, stepIndex);
+                // Close the preview modal (reveals plan modal underneath)
                 modalClose();
+                // Mark the step done in the plan checklist UI (no server call — already executed above)
+                const planSteps = document.querySelectorAll('#plan-checklist .plan-step');
+                if (planSteps[stepIndex]) {
+                    planSteps[stepIndex].classList.add('done');
+                    const cb = planSteps[stepIndex].querySelector('.plan-step-check');
+                    if (cb) cb.checked = true;
+                    const btn = planSteps[stepIndex].querySelector('.plan-step-auto');
+                    if (btn) btn.style.display = 'none';
+                }
+                _refreshPlanState();
                 return;
             }
 
@@ -2303,6 +2327,11 @@
 
         } catch (e) {
             toast('❌ ' + e.message, 'error');
+            // Restore button state on network error
+            const btns = document.querySelectorAll('#active-modal-overlay .modal-footer .btn-primary');
+            for (const btn of btns) {
+                if (btn._origLabel) { btn.textContent = btn._origLabel; btn.disabled = false; }
+            }
         }
     };
 
