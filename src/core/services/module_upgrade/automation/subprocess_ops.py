@@ -112,11 +112,9 @@ def handle_run_npm_install(ctx: UpgradeContext, mode: str) -> dict:
 def handle_run_pip_install(ctx: UpgradeContext, mode: str) -> dict:
     """Run `pip install -r requirements.txt` in the module directory.
 
-    Uses the target version venv pip if available (.venvs/{module}-{target}/bin/pip).
-    Falls back to system pip if no venv exists.
+    Uses the target version venv pip (.venvs/{module}-{target}/bin/pip).
+    Errors if no venv exists — never installs into the host environment.
     """
-    from pathlib import Path as _P
-
     # Require target version venv — never fall back to system pip
     venv_pip = ctx.project_root / ".venvs" / f"{ctx.module_name}-{ctx.target_floor}" / "bin" / "pip"
     if not venv_pip.is_file():

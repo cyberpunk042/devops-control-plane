@@ -481,10 +481,19 @@ def _materialize_step(template: dict, ctx: UpgradeContext) -> dict:
     label = _interpolate(template.get("label", ""), ctx)
     description = _interpolate(template.get("description", ""), ctx)
 
+    aid = template.get("automation_id", "")
+
+    # Context-aware label adjustments
+    if aid == "generate_module_toml":
+        toml_exists = (ctx.project_root / ctx.module_path / "pyproject.toml").is_file()
+        if toml_exists:
+            label = label.replace("Generate", "Update").replace("Create", "Update")
+            description = description.replace("Create", "Update")
+
     step = {
         "label": label,
         "description": description,
-        "_automation_id": template.get("automation_id", ""),
+        "_automation_id": aid,
     }
     # Preserve automatable flag from recipe
     if template.get("automatable"):
