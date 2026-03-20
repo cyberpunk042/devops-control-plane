@@ -137,7 +137,21 @@ def handle_fix_compat_auto(ctx: UpgradeContext, mode: str) -> dict:
                 "by_feature": feature_previews,
             }
 
-        # Execute — use compat fix engine
+        # Execute — check if auto-fix is enabled
+        try:
+            from src.core.services.server_settings import load_settings
+            settings = load_settings(ctx.project_root)
+            auto_fix_enabled = settings.get("compat_auto_fix_enabled", False)
+        except Exception:
+            auto_fix_enabled = False
+
+        if not auto_fix_enabled:
+            return {
+                "ok": False,
+                "error": "Auto-fix is disabled. Enable 'Auto-fix mode' in settings to allow automatic code modifications.",
+                "requires_setting": "compat_auto_fix_enabled",
+            }
+
         compat = _m.get("compat.orchestrator")["data"]
         module_dir = ctx.project_root / ctx.module_path
 
@@ -292,7 +306,21 @@ def handle_add_future_annotations(ctx: UpgradeContext, mode: str) -> dict:
                 "findings": files_needing_future,
             }
 
-        # Execute — use compat fix engine (single loop, no double-apply)
+        # Execute — check if auto-fix is enabled
+        try:
+            from src.core.services.server_settings import load_settings
+            settings = load_settings(ctx.project_root)
+            auto_fix_enabled = settings.get("compat_auto_fix_enabled", False)
+        except Exception:
+            auto_fix_enabled = False
+
+        if not auto_fix_enabled:
+            return {
+                "ok": False,
+                "error": "Auto-fix is disabled. Enable 'Auto-fix mode' in settings to allow automatic code modifications.",
+                "requires_setting": "compat_auto_fix_enabled",
+            }
+
         _compat_data = _m.peek("compat.orchestrator")
         if _compat_data is None:
             raise RuntimeError("compat orchestrator not loaded")

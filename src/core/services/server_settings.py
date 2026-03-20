@@ -43,6 +43,7 @@ _DEFAULTS: dict[str, Any] = {
     "peek_index_enabled": True,
     "file_logging_enabled": False,
     "file_logging_path": ".state/web.log",
+    "compat_auto_fix_enabled": False,
 }
 
 # Handler name used to identify our runtime file handler
