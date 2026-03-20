@@ -641,17 +641,43 @@ def handle_discover_missing_deps(ctx: UpgradeContext, mode: str) -> dict:
                 "detail": "Code imports these packages but they're not in requirements.txt. Apply to add them.",
             }
 
-        # Execute — append missing packages to requirements.txt
-        if not req_file.is_file():
-            req_file.write_text("", encoding="utf-8")
-
-        lines = req_file.read_text(encoding="utf-8").rstrip("\n")
+        # Execute — append missing packages to requirements.txt AND pyproject.toml
         added = []
-        for m in missing:
-            lines += "\n" + m["line"]
-            added.append(m["line"])
 
-        req_file.write_text(lines + "\n", encoding="utf-8")
+        # Update requirements.txt
+        if req_file.is_file():
+            content = req_file.read_text(encoding="utf-8").rstrip("\n")
+            for m in missing:
+                content += "\n" + m["line"]
+                added.append(m["line"])
+            req_file.write_text(content + "\n", encoding="utf-8")
+
+        # Update pyproject.toml dependencies if it exists
+        pyproject = module_dir / "pyproject.toml"
+        if pyproject.is_file():
+            try:
+                toml_content = pyproject.read_text(encoding="utf-8")
+                # Find the dependencies array and append
+                for m in missing:
+                    pkg_line = f'"{m["line"]}"'
+                    # Check if already in dependencies
+                    if m["package"].lower() not in toml_content.lower():
+                        # Insert before the closing ] of dependencies
+                        import re as _re
+                        toml_content = _re.sub(
+                            r'(dependencies\s*=\s*\[[^\]]*)',
+                            rf'\1\n    {pkg_line},',
+                            toml_content,
+                            count=1,
+                        )
+                pyproject.write_text(toml_content, encoding="utf-8")
+            except Exception:
+                pass  # pyproject.toml update is best-effort
+
+        if not added and not req_file.is_file():
+            # No requirements.txt — create one
+            req_file.write_text("\n".join(m["line"] for m in missing) + "\n", encoding="utf-8")
+            added = [m["line"] for m in missing]
 
         return {
             "ok": True,

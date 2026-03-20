@@ -186,7 +186,7 @@ def _scan_module_imports(module_dir: Path) -> set[str]:
     }
 
     import_re = re.compile(
-        r"^(?:import\s+(\w+)|from\s+(\w+)(?:\.\w+)*\s+import)",
+        r"^\s*(?:import\s+(\w+)|from\s+(\w+)(?:\.\w+)*\s+import)",
         re.MULTILINE,
     )
 
